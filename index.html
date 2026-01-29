@@ -56,7 +56,7 @@
         @media print {
             @page {
                 size: A4;
-                margin: 1cm;
+                margin: 1.5cm;
             }
             body {
                 background-color: white !important;
@@ -79,30 +79,47 @@
             .custom-scrollbar {
                 overflow: visible !important;
             }
-            /* Reset container for print */
-            .max-w-4xl {
+            /* Modal / Report Container Fix */
+            .fixed {
+                position: relative !important;
+                display: block !important;
+                background: white !important;
+                padding: 0 !important;
+                z-index: auto !important;
+            }
+            .bg-white {
+                box-shadow: none !important;
+                border: none !important;
+                border-radius: 0 !important;
+            }
+            .max-w-4xl, .max-w-5xl, .max-w-6xl {
                 max-width: 100% !important;
                 width: 100% !important;
-                border: none !important;
-                box-shadow: none !important;
-                padding: 0 !important;
-                margin: 0 !important;
+            }
+            .h-\[90vh\], .h-full {
+                height: auto !important;
+                overflow: visible !important;
+            }
+            /* Multi-page Table Handling */
+            table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                page-break-inside: auto !important;
+            }
+            tr {
+                page-break-inside: avoid !important;
+                page-break-after: auto !important;
+            }
+            thead {
+                display: table-header-group !important;
             }
             .no-break-page {
-                page-break-inside: avoid;
+                page-break-inside: avoid !important;
             }
-            /* Force black text for contrast on white paper */
-            .text-slate-900, .text-slate-800 {
-                color: black !important;
-            }
-            .bg-slate-900 {
-                background-color: black !important;
-                -webkit-print-color-adjust: exact;
-            }
-            .text-orange-600 {
-                color: #ea580c !important;
-                -webkit-print-color-adjust: exact;
-            }
+            /* Color and contrast */
+            .text-slate-900, .text-slate-800 { color: black !important; }
+            .bg-slate-900 { background-color: black !important; -webkit-print-color-adjust: exact; }
+            .text-orange-600 { color: #ea580c !important; -webkit-print-color-adjust: exact; }
         }
     </style>
 <script type="importmap">

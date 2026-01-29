@@ -6,7 +6,7 @@ import { OrderStatus, PaymentMethod, DailyClosing, UserRole, Product } from '../
 export const ClosingManagement: React.FC = () => {
   const { 
     transactions, expenses, dailyClosings, performClosing, 
-    currentUser, selectedOutletId, outlets, inventory, purchases, stockTransfers, staff, productionRecords, products
+    currentUser, selectedOutletId, outlets, inventory, purchases, stockTransfers, staff, productionRecords, products, expenseTypes
   } = useApp();
   
   const [actualCash, setActualCash] = useState(0);
@@ -37,7 +37,6 @@ export const ClosingManagement: React.FC = () => {
   const discrepancy = actualCash - expectedCash;
   const hasDiscrepancy = discrepancy !== 0;
 
-  // --- CALCULATE SALES RECAP ---
   const calculateSalesRecap = (reportDate: Date) => {
     const start = new Date(reportDate); start.setHours(0,0,0,0);
     const end = new Date(reportDate); end.setHours(23,59,59,999);
@@ -54,7 +53,6 @@ export const ClosingManagement: React.FC = () => {
     return Object.values(recap).sort((a,b) => b.qty - a.qty);
   };
 
-  // --- CALCULATE DETAILED STOCK MOVEMENT ---
   const calculateDetailedMovement = (reportDate: Date) => {
     const auditStart = new Date(reportDate); auditStart.setHours(0,0,0,0);
     const auditEnd = new Date(reportDate); auditEnd.setHours(23,59,59,999);
@@ -126,29 +124,42 @@ export const ClosingManagement: React.FC = () => {
     const reportDate = new Date(cls.timestamp);
     const salesRecap = calculateSalesRecap(reportDate);
     const detailedMovement = calculateDetailedMovement(reportDate);
+    
+    // NEW: Expense Details for the report
+    const startOfDay = new Date(reportDate); startOfDay.setHours(0,0,0,0);
+    const endOfDay = new Date(reportDate); endOfDay.setHours(23,59,59,999);
+    const reportExpenses = expenses.filter(e => e.outletId === selectedOutletId && new Date(e.timestamp) >= startOfDay && new Date(e.timestamp) <= endOfDay);
 
     return (
-      <div className="fixed inset-0 z-[300] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6 overflow-y-auto no-scrollbar">
-        <div className="bg-white rounded-none md:rounded-[40px] w-full max-w-5xl min-h-screen md:min-h-0 flex flex-col shadow-2xl animate-in zoom-in-95 overflow-hidden">
-          
-          {/* HEADER TOOLBAR (HIDDEN ON PRINT) */}
+      <div 
+        className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300"
+        onClick={() => setSelectedClosingReport(null)}
+      >
+        <div 
+          className="bg-white rounded-[40px] w-full max-w-5xl h-full flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* HEADER TOOLBAR */}
           <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 no-print shrink-0">
-            <div className="flex items-center gap-3">
-              <button onClick={() => setSelectedClosingReport(null)} className="w-10 h-10 rounded-full bg-white border flex items-center justify-center text-slate-400 shadow-sm">←</button>
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setSelectedClosingReport(null)} 
+                className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 shadow-sm hover:bg-slate-50 transition-all"
+              >✕</button>
               <div>
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Audit Daily Report</h3>
-                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{reportDate.toLocaleDateString()}</p>
+                <h3 className="text-sm md:text-base font-black text-slate-800 uppercase tracking-tighter">Audit Daily Report</h3>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Shift PIC: {cls.staffName}</p>
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => window.print()} className="px-6 py-2.5 bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-orange-600/20 active:scale-95 transition-all">
-                CETAK AUDIT 📑
+              <button onClick={() => window.print()} className="px-6 py-3 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg shadow-orange-600/20 active:scale-95 transition-all">
+                CETAK LAPORAN 📑
               </button>
             </div>
           </div>
 
-          {/* PRINTABLE CONTENT AREA */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-16 space-y-12 pb-32 print:p-0 print:overflow-visible">
+          {/* SCROLLABLE AREA */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-16 space-y-12 pb-24 print:p-0 print:overflow-visible">
             
             {/* DOCUMENT HEADER */}
             <div className="flex flex-col md:flex-row justify-between items-start gap-8 border-b-4 border-slate-900 pb-10">
@@ -176,7 +187,7 @@ export const ClosingManagement: React.FC = () => {
                 </div>
             </div>
 
-            {/* SECTION 1: FINANCIALS */}
+            {/* FINANCIAL SECTION */}
             <section className="space-y-6">
                <div className="flex items-center gap-4">
                   <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">I. Rekapitulasi Kas & Biaya</h3>
@@ -202,10 +213,60 @@ export const ClosingManagement: React.FC = () => {
                </div>
             </section>
 
-            {/* SECTION 2: SALES RECAP */}
+            {/* EXPENSE DETAIL SECTION (NEW) */}
             <section className="space-y-6">
                <div className="flex items-center gap-4">
-                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">II. Rekapitulasi Penjualan Produk</h3>
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">II. Rincian Pengeluaran Operasional</h3>
+                  <div className="flex-1 h-px bg-slate-100"></div>
+               </div>
+               <div className="overflow-hidden border-2 border-slate-100 rounded-3xl">
+                  <table className="w-full text-[10px] text-left">
+                     <thead className="bg-slate-900 text-white uppercase text-[8px] font-black tracking-widest">
+                        <tr>
+                           <th className="py-4 px-6">Jenis Biaya</th>
+                           <th className="py-4 px-4">Keterangan</th>
+                           <th className="py-4 px-4">PIC</th>
+                           <th className="py-4 px-6 text-right">Nominal</th>
+                        </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100">
+                        {reportExpenses.length === 0 ? (
+                           <tr>
+                              <td colSpan={4} className="py-8 text-center text-slate-400 italic uppercase font-bold">Nihil / Tidak ada pengeluaran hari ini</td>
+                           </tr>
+                        ) : (
+                           reportExpenses.map(exp => (
+                              <tr key={exp.id}>
+                                 <td className="py-3 px-6 font-black uppercase text-slate-800">
+                                    {expenseTypes.find(t => t.id === exp.typeId)?.name || 'Lain-lain'}
+                                 </td>
+                                 <td className="py-3 px-4 font-medium text-slate-500 italic">
+                                    "{exp.notes || '-'}"
+                                 </td>
+                                 <td className="py-3 px-4 font-black text-slate-400 uppercase">
+                                    {exp.staffName.split(' ')[0]}
+                                 </td>
+                                 <td className="py-3 px-6 text-right font-black text-red-600">
+                                    Rp {exp.amount.toLocaleString()}
+                                 </td>
+                              </tr>
+                           ))
+                        )}
+                     </tbody>
+                     <tfoot className="bg-red-50 font-black">
+                        <tr>
+                           <td colSpan={3} className="py-4 px-6 text-slate-400 uppercase text-right">Total Pengeluaran</td>
+                           <td className="py-4 px-6 text-right text-red-600">Rp {cls.totalExpenses.toLocaleString()}</td>
+                        </tr>
+                     </tfoot>
+                  </table>
+               </div>
+            </section>
+
+            {/* SALES RECAP SECTION */}
+            <section className="space-y-6">
+               <div className="flex items-center gap-4">
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">III. Rekapitulasi Penjualan Produk</h3>
                   <div className="flex-1 h-px bg-slate-100"></div>
                </div>
                <div className="overflow-hidden border-2 border-slate-100 rounded-3xl">
@@ -237,14 +298,14 @@ export const ClosingManagement: React.FC = () => {
                </div>
             </section>
 
-            {/* SECTION 3: DETAILED INVENTORY MOVEMENT */}
+            {/* INVENTORY MOVEMENT SECTION */}
             <section className="space-y-6">
                <div className="flex items-center gap-4">
-                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">III. Audit Pergerakan Inventori</h3>
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">IV. Audit Pergerakan Inventori</h3>
                   <div className="flex-1 h-px bg-slate-100"></div>
                </div>
 
-               <div className="overflow-x-auto border-2 border-slate-900 rounded-[32px] bg-white">
+               <div className="overflow-x-auto border-2 border-slate-900 rounded-[32px] bg-white shadow-sm">
                   <table className="w-full text-left border-collapse min-w-[800px]">
                      <thead>
                         <tr className="bg-slate-900 text-white text-[8px] font-black uppercase tracking-widest">
@@ -278,34 +339,22 @@ export const ClosingManagement: React.FC = () => {
                      </tbody>
                   </table>
                </div>
-               <p className="text-[8px] text-slate-400 italic px-4 font-medium uppercase leading-relaxed">
-                  * Data pergerakan dihitung otomatis berdasarkan Log Transaksi, Log Pembelian, Log Mutasi, dan Log Produksi pada tanggal terpilih.
-               </p>
             </section>
 
-            {/* SECTION 4: SIGNATURES */}
+            {/* FOOTER / SIGNATURES */}
             <div className="pt-12 border-t border-slate-100">
-               <div className="mb-10">
-                  <p className="text-[9px] font-black text-slate-400 uppercase mb-3">Catatan Audit Akhir:</p>
-                  <div className="p-6 bg-slate-50 rounded-3xl border border-dashed border-slate-300 min-h-[80px] italic text-[11px] text-slate-600">
-                     "{cls.notes || 'Tidak ada catatan tambahan.'}"
-                  </div>
-               </div>
-
                <div className="grid grid-cols-2 md:grid-cols-3 gap-12">
                   <div className="text-center space-y-16">
                      <p className="text-[9px] font-black text-slate-400 uppercase">Dibuat Oleh (PIC)</p>
                      <div className="border-b border-slate-300 w-40 mx-auto"></div>
                      <p className="text-[10px] font-black uppercase text-slate-900">{cls.staffName}</p>
                   </div>
-                  
                   <div className="hidden md:flex flex-col items-center justify-center text-center space-y-4">
                      <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-xl p-2 opacity-50 grayscale">
                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=VERIFIED-AUDIT-${cls.id}&color=0f172a`} alt="Audit QR" />
                      </div>
                      <p className="text-[7px] font-black text-slate-300 uppercase">System Validated</p>
                   </div>
-
                   <div className="text-center space-y-16">
                      <p className="text-[9px] font-black text-slate-400 uppercase">Otorisasi (Owner)</p>
                      <div className="border-b border-slate-300 w-40 mx-auto"></div>
@@ -314,8 +363,6 @@ export const ClosingManagement: React.FC = () => {
                </div>
             </div>
           </div>
-
-          <div className="bg-slate-900 h-4 w-full shrink-0"></div>
         </div>
       </div>
     );
@@ -448,7 +495,7 @@ export const ClosingManagement: React.FC = () => {
 
       {showApproval && (
         <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-4">
-          <div className="bg-white rounded-[40px] w-full max-w-sm p-10 shadow-2xl animate-in zoom-in-95">
+          <div className="bg-white rounded-[40px] w-full max-sm p-10 shadow-2xl animate-in zoom-in-95">
             <div className="text-center mb-6">
                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4 shadow-inner">🔒</div>
                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter leading-tight">Otorisasi Manager<br/><span className="text-red-600 text-xs">(Terdeteksi Selisih Kas)</span></h3>

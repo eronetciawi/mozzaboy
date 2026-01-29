@@ -13,9 +13,8 @@ import { PRODUCTS, CATEGORIES, INVENTORY_ITEMS, OUTLETS, INITIAL_STAFF } from '.
 const DB_KEY = 'MOZZABOY_LOCAL_DB_V1';
 const SUPABASE_CONFIG_KEY = 'MOZZABOY_SUPABASE_CONFIG';
 
-// Helper for Geofencing distance (Haversine formula)
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371e3; // Earth radius in meters
+  const R = 6371e3;
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -24,7 +23,7 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
           Math.cos(φ1) * Math.cos(φ2) *
           Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance in meters
+  return R * c;
 };
 
 export const getPermissionsByRole = (role: UserRole): Permissions => {
@@ -107,6 +106,8 @@ interface AppActions {
   addStockRequest: (itemId: string, qty: number) => void;
   deleteStockRequest: (id: string) => void;
   addExpense: (expense: any) => void;
+  updateExpense: (id: string, data: Partial<Expense>) => void;
+  deleteExpense: (id: string) => void;
   addExpenseType: (name: string) => void;
   addCategory: (name: string) => void;
   updateCategory: (id: string, name: string) => void;
@@ -313,7 +314,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (found) {
         if (found.status === 'INACTIVE') return { success: false, message: "Akun dinonaktifkan." };
         
-        // --- SECURITY: TIME LOCK LOGIN ---
         if (found.role !== UserRole.OWNER && found.role !== UserRole.MANAGER) {
            const now = new Date();
            const [startH, startM] = (found.shiftStartTime || '09:00').split(':').map(Number);
@@ -322,12 +322,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
            const shiftStart = new Date(); shiftStart.setHours(startH, startM, 0);
            const shiftEnd = new Date(); shiftEnd.setHours(endH, endM, 0);
            
-           // Kasir can login 30 mins early for prep
            const earlyGrace = 30 * 60 * 1000;
            const allowedStart = new Date(shiftStart.getTime() - earlyGrace);
 
-           // If shift has ended, we allow staying logged in if they were already in,
-           // but if they try to NEW login after shift end + 1 hour, block them unless they have active attendance
            const today = now.toISOString().split('T')[0];
            const hasActiveAttendance = attendance.find(a => a.staffId === found?.id && a.date === today && !a.clockOut);
 
@@ -404,7 +401,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pointDiscountValue
       };
 
-      // STOCK DEDUCTION LOGIC (RECURSIVE FOR COMBOS)
       setInventory(prevInv => {
         const newInv = [...prevInv];
         const deductItem = (prod: Product, multiplier: number) => {
@@ -494,6 +490,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateOutlet: (outlet) => setOutlets(prev => prev.map(o => o.id === outlet.id ? outlet : o)),
     deleteOutlet: (id) => setOutlets(prev => prev.filter(o => o.id !== id)),
     addExpense: (e) => setExpenses(prev => [...prev, { ...e, id: `exp-${Date.now()}`, timestamp: new Date(), staffId: currentUser?.id || '', staffName: currentUser?.name || '', outletId: selectedOutletId }]),
+    updateExpense: (id, data) => setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...data } : e)),
+    deleteExpense: (id) => setExpenses(prev => prev.filter(e => e.id !== id)),
     addExpenseType: (name) => setExpenseTypes(prev => [...prev, { id: `et-${Date.now()}`, name }]),
     performClosing: (actualCash, notes) => {
       const todayStart = new Date(); todayStart.setHours(0,0,0,0);
