@@ -4,18 +4,19 @@ import { useApp } from '../store';
 import { StaffMember } from '../types';
 
 export const Attendance: React.FC = () => {
-  const { currentUser, clockIn, clockOut, attendance, leaveRequests, submitLeave, transactions, updateStaff } = useApp();
+  const { currentUser, clockIn, clockOut, attendance, leaveRequests, submitLeave, transactions, updateStaff, outlets, selectedOutletId } = useApp();
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'performance' | 'leave' | 'profile'>('clock');
   const [leaveReason, setLeaveReason] = useState('');
   const [leaveDates, setLeaveDates] = useState({ start: '', end: '' });
+  const [isLocating, setIsLocating] = useState(false);
 
-  // State for profile editing
   const [profileForm, setProfileForm] = useState<Partial<StaffMember>>(currentUser || {});
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!currentUser) return null;
 
+  const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   const todayStr = new Date().toISOString().split('T')[0];
   const myAttendanceRecords = useMemo(() => 
     [...attendance].filter(a => a.staffId === currentUser.id).sort((a,b) => b.date.localeCompare(a.date)),
@@ -27,6 +28,29 @@ export const Attendance: React.FC = () => {
     [...leaveRequests].filter(l => l.staffId === currentUser.id).sort((a,b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()),
     [leaveRequests, currentUser.id]
   );
+
+  const handleClockIn = () => {
+    if (!navigator.geolocation) {
+      alert("Browser Anda tidak mendukung Geolocation.");
+      return;
+    }
+
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const result = clockIn(pos.coords.latitude, pos.coords.longitude);
+        if (result && !result.success) {
+           alert(result.message);
+        }
+        setIsLocating(false);
+      },
+      (err) => {
+        alert("Gagal mendapatkan lokasi. Pastikan izin lokasi diaktifkan.");
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true }
+    );
+  };
 
   const targetSales = currentUser.dailySalesTarget || 0;
   const bonusPerTarget = currentUser.targetBonusAmount || 0;
@@ -53,21 +77,16 @@ export const Attendance: React.FC = () => {
   const currentMonth = new Date().getMonth();
   const currentYear = new Date().getFullYear();
   
-  const incentiveHistory = useMemo(() => {
-    const dates = Object.keys(salesByDate).sort((a, b) => b.localeCompare(a));
-    return dates.map(date => {
-      const sales = salesByDate[date];
-      const reached = targetSales > 0 && sales >= targetSales;
-      return { date, sales, reached, bonus: reached ? bonusPerTarget : 0 };
+  const totalBonusMonth = useMemo(() => {
+    let total = 0;
+    Object.keys(salesByDate).forEach(date => {
+      const d = new Date(date);
+      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+         if (targetSales > 0 && salesByDate[date] >= targetSales) total += bonusPerTarget;
+      }
     });
-  }, [salesByDate, targetSales, bonusPerTarget]);
-
-  const totalBonusMonth = incentiveHistory
-    .filter(h => {
-      const d = new Date(h.date);
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    })
-    .reduce((acc, h) => acc + h.bonus, 0);
+    return total;
+  }, [salesByDate, targetSales, bonusPerTarget, currentMonth, currentYear]);
 
   const totalAttends = myAttendanceRecords.length;
   const totalLates = myAttendanceRecords.filter(a => a.status === 'LATE').length;
@@ -113,6 +132,11 @@ export const Attendance: React.FC = () => {
       {activeSubTab === 'clock' && (
         <div className="flex flex-col gap-6">
            <div className="bg-white p-8 rounded-[32px] border-2 border-slate-100 shadow-xl flex flex-col items-center text-center relative overflow-hidden">
+              <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-slate-50 px-3 py-1 rounded-full border">
+                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                 <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Geofencing Secured</p>
+              </div>
+              
               <div className="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center text-3xl mb-4">⏰</div>
               <h3 className="text-lg font-black text-slate-800 uppercase mb-1">Shift Kerja</h3>
               <div className="bg-slate-900 text-white px-4 py-1.5 rounded-full text-[10px] font-black mb-4 uppercase tracking-widest">
@@ -120,13 +144,22 @@ export const Attendance: React.FC = () => {
               </div>
               
               {!myAttendanceToday ? (
-                <button onClick={() => clockIn()} className="w-full py-5 bg-orange-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all">CHECK-IN MASUK 🚀</button>
+                <button 
+                  disabled={isLocating}
+                  onClick={handleClockIn} 
+                  className={`w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all ${isLocating ? 'bg-slate-100 text-slate-400' : 'bg-orange-500 text-white shadow-orange-500/20 active:scale-95'}`}
+                >
+                  {isLocating ? 'MENDAPATKAN LOKASI...' : 'CHECK-IN MASUK 🚀'}
+                </button>
               ) : (
                 <div className="w-full space-y-4">
                    <div className="grid grid-cols-2 gap-3">
                       <div className="p-4 bg-green-50 rounded-2xl border border-green-100">
                          <p className="text-[8px] font-black text-green-600 uppercase mb-1">Masuk</p>
                          <p className="text-sm font-black text-slate-800">{new Date(myAttendanceToday.clockIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                         {myAttendanceToday.latitude && (
+                           <p className="text-[6px] font-mono text-slate-400 mt-2">LOC: {myAttendanceToday.latitude.toFixed(4)}, {myAttendanceToday.longitude?.toFixed(4)}</p>
+                         )}
                       </div>
                       <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
                          <p className="text-[8px] font-black text-blue-600 uppercase mb-1">Pulang</p>
@@ -138,6 +171,8 @@ export const Attendance: React.FC = () => {
                    )}
                 </div>
               )}
+              
+              <p className="mt-6 text-[9px] text-slate-400 uppercase font-bold italic">Sesuai SOP Mozza Boy: Absensi hanya valid jika Anda berada di area outlet {activeOutlet?.name}.</p>
            </div>
 
            <div className={`p-8 rounded-[40px] shadow-2xl relative overflow-hidden transition-all duration-500 ${isTargetAchievedToday ? 'bg-gradient-to-br from-green-600 to-emerald-800' : 'bg-slate-900'}`}>
@@ -210,6 +245,7 @@ export const Attendance: React.FC = () => {
                           <div>
                              <p className="text-[9px] font-black text-slate-800 uppercase">{new Date(a.date).toLocaleDateString()}</p>
                              <p className="text-[8px] text-slate-400 font-bold uppercase">{new Date(a.clockIn).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                             {a.latitude && <p className="text-[6px] text-indigo-400 font-mono">GPS TRACKED ✓</p>}
                           </div>
                        </div>
                        <span className={`text-[7px] font-black uppercase px-2 py-1 rounded-md ${a.status === 'LATE' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
@@ -270,7 +306,6 @@ export const Attendance: React.FC = () => {
 
               <div className="md:col-span-2 space-y-6">
                  <div className="bg-white p-6 md:p-8 rounded-[40px] border border-slate-100 shadow-sm space-y-8">
-                    {/* KEAMANAN AKUN */}
                     <section className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100">
                        <h4 className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-4 border-b border-indigo-100 pb-2">Keamanan & Akses Akun</h4>
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -285,7 +320,6 @@ export const Attendance: React.FC = () => {
                        </div>
                     </section>
 
-                    {/* KONTAK DASAR */}
                     <section>
                        <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Identitas & Kontak</h4>
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -304,7 +338,6 @@ export const Attendance: React.FC = () => {
                        </div>
                     </section>
 
-                    {/* MEDIA SOSIAL */}
                     <section>
                        <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Media Sosial</h4>
                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -323,7 +356,6 @@ export const Attendance: React.FC = () => {
                        </div>
                     </section>
 
-                    {/* KONTAK DARURAT */}
                     <section className="p-5 bg-orange-50/50 rounded-3xl border border-orange-100">
                        <h4 className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-4 border-b border-orange-100 pb-2">Kontak Darurat (Urgent)</h4>
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

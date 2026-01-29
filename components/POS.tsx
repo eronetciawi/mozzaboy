@@ -7,7 +7,7 @@ export const POS: React.FC = () => {
   const { 
     products, categories, cart, addToCart, removeFromCart, 
     updateCartQuantity, checkout, customers, selectCustomer, selectedCustomerId,
-    membershipTiers, bulkDiscounts, selectedOutletId, loyaltyConfig, addCustomer
+    membershipTiers, bulkDiscounts, selectedOutletId, loyaltyConfig, inventory
   } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -18,6 +18,22 @@ export const POS: React.FC = () => {
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [memberQuery, setMemberQuery] = useState('');
   const [redeemPoints, setRedeemPoints] = useState(0);
+
+  // LOGIC: Check if product has enough raw materials in inventory
+  const checkStock = (p: Product): boolean => {
+    if (p.isCombo && p.comboItems) {
+      return p.comboItems.every(ci => {
+        const subP = products.find(sp => sp.id === ci.productId);
+        return subP ? checkStock(subP) : false;
+      });
+    }
+    
+    return p.bom.every(b => {
+      const template = inventory.find(inv => inv.id === b.inventoryItemId);
+      const real = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === template?.name);
+      return (real?.quantity || 0) >= b.quantity;
+    });
+  };
 
   const filteredProducts = products.filter(p => {
     const branchSetting = p.outletSettings?.[selectedOutletId];
@@ -79,17 +95,35 @@ export const POS: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-24 md:pb-6">
            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3 md:gap-6">
-            {filteredProducts.map(product => (
-              <button key={product.id} onClick={() => addToCart(product)} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all active:scale-95 border border-slate-100 flex flex-col text-left group">
-                <div className="aspect-square w-full overflow-hidden bg-slate-50">
-                  <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                </div>
-                <div className="p-3">
-                  <h5 className="font-black text-slate-800 text-[9px] md:text-[11px] uppercase tracking-tight line-clamp-2 min-h-[2.4em]">{product.name}</h5>
-                  <p className="text-orange-500 font-black text-xs md:text-sm mt-1">Rp {getPrice(product).toLocaleString()}</p>
-                </div>
-              </button>
-            ))}
+            {filteredProducts.map(product => {
+              const inStock = checkStock(product);
+              return (
+                <button 
+                  key={product.id} 
+                  disabled={!inStock}
+                  onClick={() => addToCart(product)} 
+                  className={`bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all border border-slate-100 flex flex-col text-left group relative ${!inStock ? 'opacity-70 grayscale cursor-not-allowed' : 'active:scale-95'}`}
+                >
+                  <div className="aspect-square w-full overflow-hidden bg-slate-50 relative">
+                    <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    
+                    {!inStock && (
+                      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[2px] flex items-center justify-center p-2">
+                        <div className="bg-red-600 text-white text-[8px] md:text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-xl transform -rotate-12 border-2 border-white/20">
+                          STOK HABIS
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-3">
+                    <h5 className="font-black text-slate-800 text-[9px] md:text-[11px] uppercase tracking-tight line-clamp-2 min-h-[2.4em]">{product.name}</h5>
+                    <p className={`text-xs md:text-sm mt-1 font-black ${!inStock ? 'text-slate-400' : 'text-orange-500'}`}>
+                      Rp {getPrice(product).toLocaleString()}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

@@ -34,9 +34,9 @@ export enum InventoryItemType {
 
 export interface LoyaltyConfig {
   isEnabled: boolean;
-  earningAmountPerPoint: number; // e.g. 1000 (Rp 1000 = 1 point)
-  redemptionValuePerPoint: number; // e.g. 100 (1 point = Rp 100)
-  minRedeemPoints: number; // e.g. 50
+  earningAmountPerPoint: number;
+  redemptionValuePerPoint: number;
+  minRedeemPoints: number;
 }
 
 export interface Permissions {
@@ -57,6 +57,8 @@ export interface Attendance {
   clockIn: Date;
   clockOut?: Date;
   status: 'PRESENT' | 'LATE' | 'ABSENT';
+  latitude?: number;
+  longitude?: number;
   notes?: string;
 }
 
@@ -81,13 +83,12 @@ export interface StaffMember {
   status: 'ACTIVE' | 'INACTIVE';
   permissions: Permissions;
   joinedAt: Date;
-  weeklyOffDay?: number; // 0 (Minggu) - 6 (Sabtu)
-  specialHolidays?: string[]; // Array of YYYY-MM-DD
+  weeklyOffDay?: number;
+  specialHolidays?: string[];
   shiftStartTime?: string; // HH:mm
   shiftEndTime?: string; // HH:mm
-  dailySalesTarget?: number; // Target dalam Rp
-  targetBonusAmount?: number; // Bonus dalam Rp
-  // Profile Information
+  dailySalesTarget?: number;
+  targetBonusAmount?: number;
   phone?: string;
   email?: string;
   address?: string;
@@ -173,13 +174,13 @@ export interface Product {
   id: string;
   name: string;
   categoryId: string;
-  price: number; // Default price
+  price: number;
   image: string;
   bom: BOMComponent[];
-  isAvailable: boolean; // Default global availability
+  isAvailable: boolean;
   isCombo?: boolean;
   comboItems?: ComboItem[];
-  outletSettings?: Record<string, OutletSetting>; // Specific branch settings
+  outletSettings?: Record<string, OutletSetting>;
 }
 
 export interface MenuSimBOMRow {
@@ -294,8 +295,10 @@ export interface Outlet {
   id: string;
   name: string;
   address: string;
-  openTime: string; // HH:mm
-  closeTime: string; // HH:mm
+  openTime: string;
+  closeTime: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface Customer {

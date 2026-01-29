@@ -1,7 +1,9 @@
+
 {
   "name": "Mozza Boy POS",
   "description": "Mozza Boy - Fast Food Smart System. Platform manajemen outlet Korean Street Food terpadu.",
   "requestFramePermissions": [
-    "bluetooth"
+    "bluetooth",
+    "geolocation"
   ]
 }

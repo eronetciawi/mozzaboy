@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { 
@@ -11,6 +12,20 @@ import { PRODUCTS, CATEGORIES, INVENTORY_ITEMS, OUTLETS, INITIAL_STAFF } from '.
 
 const DB_KEY = 'MOZZABOY_LOCAL_DB_V1';
 const SUPABASE_CONFIG_KEY = 'MOZZABOY_SUPABASE_CONFIG';
+
+// Helper for Geofencing distance (Haversine formula)
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+          Math.cos(φ1) * Math.cos(φ2) *
+          Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distance in meters
+};
 
 export const getPermissionsByRole = (role: UserRole): Permissions => {
   switch (role) {
@@ -79,7 +94,7 @@ interface AppActions {
   addStaff: (member: StaffMember) => void;
   updateStaff: (member: StaffMember) => void;
   deleteStaff: (id: string) => void;
-  clockIn: (notes?: string) => void;
+  clockIn: (lat?: number, lng?: number, notes?: string) => { success: boolean; message?: string };
   clockOut: () => void;
   submitLeave: (leave: any) => void;
   updateLeaveStatus: (id: string, status: 'APPROVED' | 'REJECTED') => void;
@@ -192,7 +207,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     minRedeemPoints: 50
   });
 
-  // --- SUPABASE INITIALIZATION ---
   useEffect(() => {
     if (supabaseConfig.isEnabled && supabaseConfig.url && supabaseConfig.key) {
       try {
@@ -209,7 +223,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [supabaseConfig]);
 
-  // --- PERSISTENCE: LOAD ---
   useEffect(() => {
     const savedData = localStorage.getItem(DB_KEY);
     if (savedData) {
@@ -224,6 +237,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (data.categories) setCategories(data.categories);
         if (data.staff) setStaff(data.staff);
         if (data.attendance) setAttendance(data.attendance);
+        if (data.leaveRequests) setLeaveRequests(data.leaveRequests);
         if (data.purchases) setPurchases(data.purchases);
         if (data.stockTransfers) setStockTransfers(data.stockTransfers);
         if (data.stockRequests) setStockRequests(data.stockRequests);
@@ -241,10 +255,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsInitialized(true);
   }, []);
 
-  // --- HYBRID PERSISTENCE: AUTO-SAVE (LOCAL & CLOUD) ---
   useEffect(() => {
     if (!isInitialized) return;
-    
     setIsSaving(true);
     const saveTimer = setTimeout(async () => {
       const stateToSave = {
@@ -254,25 +266,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         membershipTiers, bulkDiscounts, simulations, loyaltyConfig, 
         expenseTypes, outlets
       };
-      
-      // Save Locally
       localStorage.setItem(DB_KEY, JSON.stringify(stateToSave));
-
-      // Save to Cloud (If connected) - Example: Sync Transactions
       if (supabase && isCloudConnected) {
         try {
-          // Kita melakukan upsert untuk data yang krusial (Transaction & Inventory)
-          // Catatan: Di aplikasi production, kita gunakan Row Level Security & Batch Sync
           await supabase.from('transactions').upsert(transactions.slice(0, 50)); 
           await supabase.from('inventory').upsert(inventory);
         } catch (e) {
           console.warn("Cloud Sync Background Error:", e);
         }
       }
-
       setIsSaving(false);
     }, 1000);
-
     return () => clearTimeout(saveTimer);
   }, [
     isInitialized, inventory, stockTransfers, stockRequests, productionRecords,
@@ -305,8 +309,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     login: (u, p) => {
       let found = staff.find(s => s.username === u && s.password === p);
       if (u === 'admin' && p === 'admin' && !found) found = staff.find(s => s.role === UserRole.OWNER);
+      
       if (found) {
         if (found.status === 'INACTIVE') return { success: false, message: "Akun dinonaktifkan." };
+        
+        // --- SECURITY: TIME LOCK LOGIN ---
+        if (found.role !== UserRole.OWNER && found.role !== UserRole.MANAGER) {
+           const now = new Date();
+           const [startH, startM] = (found.shiftStartTime || '09:00').split(':').map(Number);
+           const [endH, endM] = (found.shiftEndTime || '18:00').split(':').map(Number);
+           
+           const shiftStart = new Date(); shiftStart.setHours(startH, startM, 0);
+           const shiftEnd = new Date(); shiftEnd.setHours(endH, endM, 0);
+           
+           // Kasir can login 30 mins early for prep
+           const earlyGrace = 30 * 60 * 1000;
+           const allowedStart = new Date(shiftStart.getTime() - earlyGrace);
+
+           // If shift has ended, we allow staying logged in if they were already in,
+           // but if they try to NEW login after shift end + 1 hour, block them unless they have active attendance
+           const today = now.toISOString().split('T')[0];
+           const hasActiveAttendance = attendance.find(a => a.staffId === found?.id && a.date === today && !a.clockOut);
+
+           if (!hasActiveAttendance && (now < allowedStart || now > shiftEnd)) {
+             return { success: false, message: `Akses ditolak. Jadwal shift Anda: ${found.shiftStartTime} - ${found.shiftEndTime}` };
+           }
+        }
+
         setIsAuthenticated(true);
         setCurrentUser(found);
         setLoginTime(new Date());
@@ -328,34 +357,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     checkout: (paymentMethod, redeemPoints = 0) => {
       if (cart.length === 0) return;
       let subtotal = 0; let totalCost = 0;
+      
+      const calculateSingleProductCost = (prod: Product): number => {
+          let cost = 0;
+          if (prod.isCombo && prod.comboItems) {
+            prod.comboItems.forEach(ci => {
+              const innerProd = products.find(p => p.id === ci.productId);
+              if (innerProd) cost += calculateSingleProductCost(innerProd) * ci.quantity;
+            });
+          } else {
+            prod.bom.forEach(bom => {
+              const templateItem = inventory.find(inv => inv.id === bom.inventoryItemId);
+              const realInvItem = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === templateItem?.name);
+              cost += (bom.quantity * (realInvItem?.costPerUnit || templateItem?.costPerUnit || 0));
+            });
+          }
+          return cost;
+      };
+
       cart.forEach(item => {
         const activePrice = item.product.outletSettings?.[selectedOutletId]?.price || item.product.price;
         subtotal += activePrice * item.quantity;
-        let itemCost = 0;
-        item.product.bom.forEach(bom => {
-          const templateItem = inventory.find(inv => inv.id === bom.inventoryItemId);
-          const realInvItem = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === templateItem?.name);
-          itemCost += (bom.quantity * (realInvItem?.costPerUnit || templateItem?.costPerUnit || 0));
-        });
-        totalCost += itemCost * item.quantity;
+        totalCost += calculateSingleProductCost(item.product) * item.quantity;
       });
+
       const pointDiscountValue = loyaltyConfig.isEnabled ? redeemPoints * loyaltyConfig.redemptionValuePerPoint : 0;
       const finalTotal = Math.max(0, subtotal - pointDiscountValue);
       const pointsEarned = loyaltyConfig.isEnabled ? Math.floor(finalTotal / loyaltyConfig.earningAmountPerPoint) : 0;
 
       const newTx: Transaction = {
-        id: `TX-${Date.now()}-${Math.floor(Math.random() * 1000)}`, outletId: selectedOutletId, customerId: selectedCustomerId || undefined, items: [...cart], subtotal, tax: 0, total: finalTotal, totalCost, paymentMethod, status: OrderStatus.CLOSED, timestamp: new Date(), cashierId: currentUser?.id || 'sys', cashierName: currentUser?.name || 'System', pointsEarned, pointsRedeemed: redeemPoints, pointDiscountValue
+        id: `TX-${Date.now()}-${Math.floor(Math.random() * 1000)}`, 
+        outletId: selectedOutletId, 
+        customerId: selectedCustomerId || undefined, 
+        items: [...cart], 
+        subtotal, 
+        tax: 0, 
+        total: finalTotal, 
+        totalCost, 
+        paymentMethod, 
+        status: OrderStatus.CLOSED, 
+        timestamp: new Date(), 
+        cashierId: currentUser?.id || 'sys', 
+        cashierName: currentUser?.name || 'System', 
+        pointsEarned, 
+        pointsRedeemed: redeemPoints, 
+        pointDiscountValue
       };
 
+      // STOCK DEDUCTION LOGIC (RECURSIVE FOR COMBOS)
       setInventory(prevInv => {
         const newInv = [...prevInv];
-        cart.forEach(cartItem => {
-          cartItem.product.bom.forEach(bom => {
-            const templateItem = inventory.find(inv => inv.id === bom.inventoryItemId);
-            const index = newInv.findIndex(i => i.outletId === selectedOutletId && i.name === templateItem?.name);
-            if (index !== -1) newInv[index] = { ...newInv[index], quantity: newInv[index].quantity - (bom.quantity * cartItem.quantity) };
-          });
-        });
+        const deductItem = (prod: Product, multiplier: number) => {
+          if (prod.isCombo && prod.comboItems) {
+            prod.comboItems.forEach(ci => {
+              const innerProd = products.find(p => p.id === ci.productId);
+              if (innerProd) deductItem(innerProd, multiplier * ci.quantity);
+            });
+          } else {
+            prod.bom.forEach(bom => {
+              const templateItem = inventory.find(inv => inv.id === bom.inventoryItemId);
+              const idx = newInv.findIndex(i => i.outletId === selectedOutletId && i.name === templateItem?.name);
+              if (idx !== -1) {
+                newInv[idx] = { ...newInv[idx], quantity: newInv[idx].quantity - (bom.quantity * multiplier) };
+              }
+            });
+          }
+        };
+        cart.forEach(cartItem => deductItem(cartItem.product, cartItem.quantity));
         return newInv;
       });
 
@@ -373,10 +441,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addStaff: (s) => setStaff(prev => [...prev, s]),
     updateStaff: (s) => setStaff(prev => prev.map(i => i.id === s.id ? s : i)),
     deleteStaff: (id) => setStaff(prev => prev.filter(i => i.id !== id)),
-    clockIn: (notes) => {
-      if (!currentUser) return;
+    clockIn: (lat, lng, notes) => {
+      if (!currentUser) return { success: false, message: "Sesi habis." };
+      const activeOutlet = outlets.find(o => o.id === selectedOutletId);
+      if (activeOutlet && activeOutlet.latitude && activeOutlet.longitude && lat && lng) {
+        const distance = calculateDistance(lat, lng, activeOutlet.latitude, activeOutlet.longitude);
+        if (distance > 100) return { success: false, message: `Area Terlalu Jauh (${Math.round(distance)}m). Harus < 100m.` };
+      }
       const today = new Date().toISOString().split('T')[0];
-      setAttendance(prev => [...prev, { id: `att-${Date.now()}`, staffId: currentUser.id, staffName: currentUser.name, date: today, clockIn: new Date(), status: 'PRESENT', notes }]);
+      const isLate = currentUser.shiftStartTime ? new Date().toLocaleTimeString('en-GB') > currentUser.shiftStartTime : false;
+      setAttendance(prev => [...prev, { id: `att-${Date.now()}`, staffId: currentUser.id, staffName: currentUser.name, date: today, clockIn: new Date(), status: isLate ? 'LATE' : 'PRESENT', latitude: lat, longitude: lng, notes }]);
+      return { success: true };
     },
     clockOut: () => {
       if (!currentUser) return;
@@ -443,6 +518,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (data.transactions) setTransactions(data.transactions);
         if (data.staff) setStaff(data.staff);
         if (data.products) setProducts(data.products);
+        if (data.categories) setCategories(data.categories);
         return true;
       } catch (e) { return false; }
     },

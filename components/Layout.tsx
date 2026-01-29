@@ -32,7 +32,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
   const { permissions } = currentUser;
   const pendingRequestsCount = stockRequests.filter(r => r.outletId === selectedOutletId && r.status === 'PENDING').length;
 
-  // Use the defined interfaces to type the menu groups
   const menuGroups: MenuGroup[] = [
     {
       label: 'Operasional',
@@ -47,6 +46,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
     {
       label: 'Strategi & Owner',
       items: [
+        { id: 'reports', label: 'Laporan Bisnis', icon: '📈', visible: permissions.canAccessReports },
         { id: 'engineering', label: 'Menu Engineering', icon: '📐', visible: currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER },
         { id: 'loyalty', label: 'Loyalty & Promo', icon: '🎁', visible: true },
       ]
@@ -64,6 +64,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       label: 'Katalog & Pelanggan',
       items: [
         { id: 'menu', label: 'Daftar Menu', icon: '📜', visible: permissions.canManageMenu },
+        { id: 'categories', label: 'Kategori Menu', icon: '🏷️', visible: permissions.canManageMenu },
         { id: 'crm', label: 'Data Pelanggan', icon: '🎖️', visible: true },
       ]
     },
@@ -89,7 +90,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
         <div className="w-10 h-10 bg-orange-500 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-xl shadow-orange-500/20 transform -rotate-3">M</div>
         <div>
           <div className="font-black text-white text-sm tracking-tighter uppercase leading-none">Mozza Boy</div>
-          <div className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">Smart POS v2.5</div>
+          <div className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">Enterprise ROS</div>
         </div>
       </div>
 
@@ -112,7 +113,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
                 >
                   <span className="text-base">{item.icon}</span>
                   <span className="text-[10px] uppercase font-black tracking-widest flex-1 text-left">{item.label}</span>
-                  {/* item.badge is now safely accessible thanks to MenuItem interface */}
                   {item.badge && <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full ring-2 ring-slate-900">{item.badge}</span>}
                 </button>
               ))}
@@ -139,7 +139,6 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
   const { outlets, selectedOutletId, switchOutlet, isSaving, isCloudConnected, currentUser } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
-  const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   const accessibleOutlets = currentUser?.role === UserRole.OWNER ? outlets : outlets.filter(o => currentUser?.assignedOutletIds.includes(o.id));
 
   return (
@@ -164,8 +163,8 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
           <div className="flex items-center gap-3">
              <button onClick={() => setIsMenuOpen(true)} className="md:hidden w-10 h-10 flex items-center justify-center text-xl bg-slate-50 rounded-xl">☰</button>
              <div className="hidden md:block w-1.5 h-6 bg-orange-500 rounded-full"></div>
-             <h1 className="text-[10px] md:text-[11px] font-black text-slate-800 uppercase tracking-widest truncate max-w-[120px] md:max-w-none">
-               {activeTab === 'pos' ? 'Cashier Hub' : activeTab.toUpperCase()}
+             <h1 className="text-[10px] md:text-[11px] font-black text-slate-800 uppercase tracking-widest truncate max-w-[200px] md:max-w-none">
+               {activeTab === 'pos' ? `Cashier / ${currentUser?.name}` : activeTab.toUpperCase()}
              </h1>
           </div>
           
