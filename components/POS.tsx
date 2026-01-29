@@ -24,11 +24,9 @@ export const POS: React.FC = () => {
 
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
-    // Master Access: Owner and Manager are never locked out
     if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return false;
     
     const todayStr = new Date().toDateString();
-    // Only lock if THIS specific staff member has already closed their shift at THIS outlet today
     return dailyClosings.some(c => 
       c.outletId === selectedOutletId && 
       c.staffId === currentUser.id && 
@@ -78,12 +76,9 @@ export const POS: React.FC = () => {
     setShowCheckout(false);
     setRedeemPoints(0);
     setMobileView('menu');
-    
-    // Trigger Success Toast
     setShowSuccessToast(true);
   };
 
-  // Effect to hide toast after 3 seconds
   useEffect(() => {
     if (showSuccessToast) {
       const timer = setTimeout(() => {
@@ -100,9 +95,7 @@ export const POS: React.FC = () => {
       {showSuccessToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-emerald-500/90 backdrop-blur-md text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-emerald-400/50">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl animate-bounce">
-                ✅
-              </div>
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl animate-bounce">✅</div>
               <div>
                 <p className="text-[11px] font-black uppercase tracking-[0.2em] leading-none">Transaksi Berhasil</p>
                 <p className="text-[9px] font-bold text-emerald-100 uppercase mt-1">Struk & Stok Telah Diperbarui</p>
@@ -112,26 +105,26 @@ export const POS: React.FC = () => {
       )}
 
       {isShiftClosed && (
-        <div className="absolute inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 text-center animate-in fade-in duration-500">
+        <div className="absolute inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 text-center">
            <div className="bg-white rounded-[48px] p-10 max-w-sm shadow-2xl border-4 border-orange-500 transform -rotate-2">
               <div className="text-6xl mb-6">🔒</div>
               <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter leading-tight">Shift Anda Selesai</h3>
               <p className="text-slate-500 text-xs font-bold uppercase mt-4 leading-relaxed">
-                Anda sudah melakukan <span className="text-orange-600">tutup shift</span> hari ini. <br/>Terima kasih atas kerja kerasnya!
+                Anda sudah melakukan <span className="text-orange-600">tutup shift</span> hari ini.
               </p>
            </div>
         </div>
       )}
 
-      {/* LEFT: PRODUCTS */}
-      <div className={`flex-1 flex flex-col min-w-0 ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
-        <div className="p-3 md:p-6 bg-white border-b border-slate-100 sticky top-0 z-10 space-y-3">
+      {/* LEFT: PRODUCTS - Fixed Scrolling on Mobile */}
+      <div className={`flex-1 flex flex-col min-w-0 min-h-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
+        <div className="p-3 md:p-6 bg-white border-b border-slate-100 shrink-0 z-10 space-y-3">
           <div className="flex gap-2">
             <div className="relative flex-1">
               <input 
                 type="text" 
                 placeholder="Cari Menu..." 
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-orange-500 outline-none font-bold text-xs"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-orange-500 outline-none font-bold text-xs text-slate-900"
                 value={search} onChange={e => setSearch(e.target.value)}
               />
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-30 text-xs">🔍</span>
@@ -143,14 +136,15 @@ export const POS: React.FC = () => {
           </div>
           
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            <button onClick={() => setSelectedCategory('all')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${selectedCategory === 'all' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-slate-100 text-slate-400'}`}>All</button>
+            <button onClick={() => setSelectedCategory('all')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${selectedCategory === 'all' ? 'bg-orange-500 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>All</button>
             {categories.map(cat => (
-              <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${selectedCategory === cat.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-slate-100 text-slate-400'}`}>{cat.name}</button>
+              <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${selectedCategory === cat.id ? 'bg-orange-500 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>{cat.name}</button>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-24 md:pb-6">
+        {/* This container must have overflow-y-auto and min-h-0 to scroll properly within flex parent */}
+        <div className="flex-1 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-32 md:pb-6 touch-pan-y overscroll-behavior-contain">
            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3 md:gap-6">
             {filteredProducts.map(product => {
               const inStock = checkStock(product);
@@ -178,11 +172,32 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
-      {/* RIGHT: CART */}
-      <div className={`${mobileView === 'cart' ? 'flex' : 'hidden md:flex'} w-full md:w-80 lg:w-96 bg-white border-l border-slate-200 flex-col shadow-2xl relative z-20`}>
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0">
+      {/* MOBILE FLOATING CART SUMMARY - Enhanced visibility */}
+      {mobileView === 'menu' && cart.length > 0 && (
+        <div className="md:hidden fixed bottom-[76px] left-0 right-0 px-4 animate-in slide-in-from-bottom-10 z-[60]">
+          <button 
+            onClick={() => setMobileView('cart')}
+            className="w-full bg-orange-600 text-white rounded-2xl p-4 shadow-2xl shadow-orange-900/40 flex justify-between items-center active:scale-95 transition-all border border-orange-400/20"
+          >
+            <div className="flex items-center gap-3">
+               <div className="w-10 h-10 bg-white text-orange-600 rounded-xl flex items-center justify-center font-black shadow-inner">{totalQty}</div>
+               <div className="text-left">
+                  <p className="text-[10px] font-black uppercase tracking-widest leading-none opacity-80">Check Pesanan</p>
+                  <p className="text-sm font-black">Rp {subtotal.toLocaleString()}</p>
+               </div>
+            </div>
+            <div className="flex items-center gap-2 font-black text-xs uppercase tracking-tighter bg-orange-700/50 px-3 py-2 rounded-lg">
+               BAYAR 💳
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* RIGHT: CART / CHECKOUT VIEW */}
+      <div className={`${mobileView === 'cart' ? 'flex' : 'hidden md:flex'} w-full md:w-80 lg:w-96 bg-white border-l border-slate-200 flex-col shadow-2xl relative z-[70] h-full`}>
+        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
            <h4 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Pesanan ({totalQty})</h4>
-           <button onClick={() => setMobileView('menu')} className="md:hidden w-8 h-8 flex items-center justify-center bg-slate-50 rounded-full text-xs">✕</button>
+           <button onClick={() => setMobileView('menu')} className="md:hidden w-10 h-10 flex items-center justify-center bg-slate-100 rounded-xl text-[10px] font-black uppercase text-slate-600">✕ Tutup</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
@@ -200,28 +215,28 @@ export const POS: React.FC = () => {
                   <p className="text-[9px] text-orange-500 font-black">Rp {getPrice(item.product).toLocaleString()}</p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => updateCartQuantity(item.product.id, -1)} className="w-6 h-6 rounded-md bg-white border border-slate-200 flex items-center justify-center font-bold text-xs">-</button>
-                  <span className="text-[10px] font-black w-4 text-center">{item.quantity}</span>
-                  <button onClick={() => updateCartQuantity(item.product.id, 1)} className="w-6 h-6 rounded-md bg-white border border-slate-200 flex items-center justify-center font-bold text-xs">+</button>
+                  <button onClick={() => updateCartQuantity(item.product.id, -1)} className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700">-</button>
+                  <span className="text-[10px] font-black w-4 text-center text-slate-900">{item.quantity}</span>
+                  <button onClick={() => updateCartQuantity(item.product.id, 1)} className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700">+</button>
                 </div>
               </div>
             ))
           )}
         </div>
 
-        <div className="p-5 bg-slate-900 text-white space-y-3 pb-safe">
+        <div className="p-5 bg-slate-900 text-white space-y-3 pb-safe shrink-0">
           <div className="flex justify-between text-[9px] font-black uppercase text-slate-500">
             <span>Subtotal</span>
             <span>Rp {subtotal.toLocaleString()}</span>
           </div>
           <div className="flex justify-between text-lg font-black pt-2 border-t border-slate-800">
-            <span className="uppercase text-xs text-slate-500 tracking-tighter">Total</span>
+            <span className="uppercase text-xs text-slate-500 tracking-tighter">Total Bayar</span>
             <span className="text-orange-500">Rp {total.toLocaleString()}</span>
           </div>
           <button
             disabled={cart.length === 0 || isShiftClosed}
             onClick={() => setShowCheckout(true)}
-            className={`w-full py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${ (cart.length === 0 || isShiftClosed) ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-orange-500 text-white shadow-lg active:scale-95'}`}
+            className={`w-full py-5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all ${ (cart.length === 0 || isShiftClosed) ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-orange-500 text-white shadow-lg shadow-orange-500/20 active:scale-95'}`}
           >
             {isShiftClosed ? 'SHIFT ANDA SELESAI' : `BAYAR ${totalQty} ITEM 💳`}
           </button>
@@ -270,7 +285,7 @@ export const POS: React.FC = () => {
                 <input 
                   type="text" 
                   placeholder="Cari Nama/HP..." 
-                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-orange-500"
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-orange-500 text-slate-900"
                   value={memberQuery}
                   onChange={e => setMemberQuery(e.target.value)}
                 />
