@@ -113,6 +113,8 @@ interface AppActions {
   updateCategory: (id: string, name: string) => void;
   deleteCategory: (id: string) => void;
   performClosing: (actualCash: number, notes: string) => void;
+  approveClosing: (id: string) => void;
+  rejectClosing: (id: string) => void;
   addPurchase: (purchase: any, requestId?: string) => void;
   selectCustomer: (id: string | null) => void;
   addCustomer: (customer: any) => void;
@@ -495,13 +497,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addExpenseType: (name) => setExpenseTypes(prev => [...prev, { id: `et-${Date.now()}`, name }]),
     performClosing: (actualCash, notes) => {
       const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-      const todayTxs = transactions.filter(t => t.outletId === selectedOutletId && new Date(t.timestamp) >= todayStart);
-      const cashSales = todayTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+b.total, 0);
-      const qrisSales = todayTxs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a,b)=>a+b.total, 0);
-      const todayExp = expenses.filter(e => e.outletId === selectedOutletId && new Date(e.timestamp) >= todayStart).reduce((a,b)=>a+b.amount, 0);
-      const expectedCash = cashSales - todayExp;
-      setDailyClosings(prev => [{ id: `CLS-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser?.id || '', staffName: currentUser?.name || '', timestamp: new Date(), totalSalesCash: cashSales, totalSalesQRIS: qrisSales, totalExpenses: todayExp, actualCash, discrepancy: actualCash - expectedCash, notes }, ...prev]);
+      // ONLY filter transactions and expenses for the CURRENT STAFF for THIS SHIFT
+      const shiftTxs = transactions.filter(t => 
+        t.outletId === selectedOutletId && 
+        new Date(t.timestamp) >= todayStart && 
+        t.cashierId === currentUser?.id
+      );
+      
+      const cashSales = shiftTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+b.total, 0);
+      const qrisSales = shiftTxs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a,b)=>a+b.total, 0);
+      
+      const shiftExp = expenses.filter(e => 
+        e.outletId === selectedOutletId && 
+        new Date(e.timestamp) >= todayStart && 
+        e.staffId === currentUser?.id
+      ).reduce((a,b)=>a+b.amount, 0);
+      
+      const expectedCash = cashSales - shiftExp;
+      const discrepancy = actualCash - expectedCash;
+      
+      const isManager = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
+      const status = (discrepancy !== 0 && !isManager) ? 'PENDING' : 'APPROVED';
+
+      setDailyClosings(prev => [{ id: `CLS-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser?.id || '', staffName: currentUser?.name || '', timestamp: new Date(), totalSalesCash: cashSales, totalSalesQRIS: qrisSales, totalExpenses: shiftExp, actualCash, discrepancy, notes, status }, ...prev]);
     },
+    approveClosing: (id) => setDailyClosings(prev => prev.map(c => c.id === id ? { ...c, status: 'APPROVED' } : c)),
+    rejectClosing: (id) => setDailyClosings(prev => prev.filter(c => c.id !== id)),
     saveSimulation: (sim) => setSimulations(prev => prev.find(s => s.id === sim.id) ? prev.map(s => s.id === sim.id ? { ...sim, updatedAt: new Date() } : s) : [...prev, { ...sim, updatedAt: new Date() }]),
     deleteSimulation: (id) => setSimulations(prev => prev.filter(s => s.id !== id)),
     updateLoyaltyConfig: (config) => setLoyaltyConfig(config),

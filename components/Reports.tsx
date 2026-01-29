@@ -3,9 +3,9 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '../store';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, PieChart, Pie
+  BarChart, Bar, Cell, PieChart, Pie, Legend
 } from 'recharts';
-import { OrderStatus, PaymentMethod, DailyClosing, Product } from '../types';
+import { OrderStatus, PaymentMethod, DailyClosing, Product, InventoryItemType } from '../types';
 
 type ReportTab = 'finance' | 'sales' | 'inventory' | 'hr' | 'logs';
 
@@ -73,7 +73,7 @@ export const Reports: React.FC = () => {
       tx.items.forEach(it => {
         if (!productStats[it.product.id]) productStats[it.product.id] = { name: it.product.name, qty: 0, revenue: 0 };
         productStats[it.product.id].qty += it.quantity;
-        productStats[it.product.id].revenue += it.product.price * it.quantity;
+        productStats[it.product.id].revenue += (it.product.outletSettings?.[selectedOutletId]?.price || it.product.price) * it.quantity;
       });
     });
 
@@ -92,11 +92,32 @@ export const Reports: React.FC = () => {
       aov,
       totalCount: closedTxs.length
     };
-  }, [filteredSet]);
+  }, [filteredSet, selectedOutletId]);
+
+  const inventoryAnalytics = useMemo(() => {
+    const outletInv = inventory.filter(i => i.outletId === selectedOutletId);
+    const totalValue = outletInv.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+    const lowStockItems = outletInv.filter(i => i.quantity <= i.minStock && i.quantity > 0);
+    const outOfStockItems = outletInv.filter(i => i.quantity <= 0);
+    
+    const valueByType = [
+      { name: 'Bahan Mentah', value: outletInv.filter(i => i.type === InventoryItemType.RAW).reduce((acc, i) => acc + (i.quantity * i.costPerUnit), 0) },
+      { name: 'WIP / Olahan', value: outletInv.filter(i => i.type === InventoryItemType.WIP).reduce((acc, i) => acc + (i.quantity * i.costPerUnit), 0) }
+    ];
+
+    return {
+      totalValue,
+      itemCount: outletInv.length,
+      lowStockCount: lowStockItems.length,
+      outOfStockCount: outOfStockItems.length,
+      valueByType,
+      items: outletInv.sort((a, b) => (a.quantity/a.minStock) - (b.quantity/b.minStock))
+    };
+  }, [inventory, selectedOutletId]);
 
   const hrPerformance = useMemo(() => {
     return staff.filter(s => s.assignedOutletIds.includes(selectedOutletId)).map(s => {
-       const sales = filteredSet.txs.filter(t => t.cashierId === s.id && t.status === OrderStatus.CLOSED).reduce((a,b)=>a+b.total, 0);
+       const sales = filteredSet.txs.filter(t => t.cashierId === s.id && t.status === OrderStatus.CLOSED).reduce((acc, tx) => acc + tx.total, 0);
        const attends = attendance.filter(a => a.staffId === s.id && new Date(a.date) >= filteredSet.start && new Date(a.date) <= filteredSet.end);
        const lates = attends.filter(a => a.status === 'LATE').length;
        const disciplineScore = attends.length > 0 ? Math.round(((attends.length - lates) / attends.length) * 100) : 100;
@@ -166,14 +187,14 @@ export const Reports: React.FC = () => {
         });
       });
 
-      const pIn = periodPurchases.filter(p => p.inventoryItemId === item.id).reduce((a,b) => a + b.quantity, 0);
-      const tIn = periodTransfers.filter(t => t.toOutletId === selectedOutletId && t.itemName === item.name).reduce((a,b) => a + b.quantity, 0);
-      const tOut = periodTransfers.filter(t => t.fromOutletId === selectedOutletId && t.itemName === item.name).reduce((a,b) => a + b.quantity, 0);
-      const prIn = periodProduction.filter(p => p.resultItemId === item.id).reduce((a,b) => a + b.resultQuantity, 0);
+      const pIn = periodPurchases.filter(p => p.inventoryItemId === item.id).reduce((acc, b) => acc + b.quantity, 0);
+      const tIn = periodTransfers.filter(t => t.toOutletId === selectedOutletId && t.itemName === item.name).reduce((acc, b) => acc + b.quantity, 0);
+      const tOut = periodTransfers.filter(t => t.fromOutletId === selectedOutletId && t.itemName === item.name).reduce((acc, b) => acc + b.quantity, 0);
+      const prIn = periodProduction.filter(p => p.resultItemId === item.id).reduce((acc, b) => acc + b.resultQuantity, 0);
       let prOut = 0;
       periodProduction.forEach(p => p.components.forEach(c => { if(c.inventoryItemId === item.id) prOut += c.quantity; }));
 
-      const final = item.quantity; // Simplified for history view as we can't easily recalculate back-in-time exact initial per item without full event sourcing
+      const final = item.quantity;
       const initial = final + (soldQty + tOut + prOut) - (pIn + tIn + prIn);
 
       return { name: item.name, unit: item.unit, initial, purchased: pIn, transfer: tIn - tOut, production: prIn - prOut, sold: soldQty, final };
@@ -186,6 +207,8 @@ export const Reports: React.FC = () => {
     const end = new Date(reportDate); end.setHours(23,59,59,999);
     return expenses.filter(e => e.outletId === selectedOutletId && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
   };
+
+  const COLORS = ['#f97316', '#4f46e5', '#10b981', '#ef4444', '#f59e0b'];
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
@@ -262,9 +285,9 @@ export const Reports: React.FC = () => {
                        <div className="flex-1 h-px bg-slate-100"></div>
                     </div>
                     <div className="space-y-1">
-                       <FinanceRow label="Total Pendapatan (Sales)" value={filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((a,b)=>a+b.total,0)} isBold />
-                       <FinanceRow label="HPP Material Terjual (COGS)" value={filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((a,b)=>a+(b.totalCost || 0),0)} isNegative />
-                       <FinanceRow label="Total Biaya Operasional" value={filteredSet.exps.reduce((a,b)=>a+b.amount,0)} isNegative />
+                       <FinanceRow label="Total Pendapatan (Sales)" value={filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((acc,b)=>acc+b.total,0)} isBold />
+                       <FinanceRow label="HPP Material Terjual (COGS)" value={filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((acc,b)=>acc+(b.totalCost || 0),0)} isNegative />
+                       <FinanceRow label="Total Biaya Operasional" value={filteredSet.exps.reduce((acc,b)=>acc+b.amount,0)} isNegative />
                        <div className="py-8"></div>
                        <div className="p-10 bg-slate-900 rounded-[40px] text-white flex justify-between items-center shadow-2xl relative overflow-hidden">
                           <div>
@@ -272,7 +295,7 @@ export const Reports: React.FC = () => {
                              <p className="text-[8px] font-bold text-slate-500 uppercase mt-2 tracking-widest">Estimasi Laba Bersih Cabang</p>
                           </div>
                           <div className="text-right">
-                             <p className="text-4xl font-black text-orange-500">Rp {(filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((a,b)=>a+b.total,0) - filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((a,b)=>a+(b.totalCost || 0),0) - filteredSet.exps.reduce((a,b)=>a+b.amount,0)).toLocaleString()}</p>
+                             <p className="text-4xl font-black text-orange-500">Rp {(filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((acc,b)=>acc+b.total,0) - filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((acc,b)=>acc+(b.totalCost || 0),0) - filteredSet.exps.reduce((acc,b)=>acc+b.amount,0)).toLocaleString()}</p>
                           </div>
                        </div>
                     </div>
@@ -353,6 +376,115 @@ export const Reports: React.FC = () => {
                        })}
                     </div>
                  </div>
+              </div>
+            )}
+
+            {activeTab === 'inventory' && (
+              <div className="space-y-12">
+                 <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200 shadow-inner">
+                       <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Valuasi Aset Stok</p>
+                       <h4 className="text-lg font-black text-slate-800">Rp {inventoryAnalytics.totalValue.toLocaleString()}</h4>
+                    </div>
+                    <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200 shadow-inner">
+                       <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Material Terdaftar</p>
+                       <h4 className="text-lg font-black text-indigo-600">{inventoryAnalytics.itemCount} SKU</h4>
+                    </div>
+                    <div className={`p-5 rounded-3xl border shadow-lg ${inventoryAnalytics.lowStockCount > 0 ? 'bg-orange-500 text-white' : 'bg-green-50 text-green-600 border-green-100'}`}>
+                       <p className={`text-[7px] font-black uppercase tracking-widest mb-1 ${inventoryAnalytics.lowStockCount > 0 ? 'text-orange-200' : 'text-green-400'}`}>Stok Menipis</p>
+                       <h4 className="text-xl font-black">{inventoryAnalytics.lowStockCount} Item</h4>
+                    </div>
+                    <div className={`p-5 rounded-3xl shadow-lg ${inventoryAnalytics.outOfStockCount > 0 ? 'bg-red-600 text-white' : 'bg-slate-50 border border-slate-200'}`}>
+                       <p className={`text-[7px] font-black uppercase tracking-widest mb-1 ${inventoryAnalytics.outOfStockCount > 0 ? 'text-red-200' : 'text-slate-400'}`}>Out of Stock</p>
+                       <h4 className={`text-xl font-black ${inventoryAnalytics.outOfStockCount === 0 ? 'text-slate-300' : ''}`}>{inventoryAnalytics.outOfStockCount} SKU</h4>
+                    </div>
+                 </section>
+
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="bg-white p-8 rounded-[40px] border-2 border-slate-100 flex flex-col items-center">
+                       <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-4 w-full text-left">Komposisi Nilai Aset</h3>
+                       <div className="h-64 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                             <PieChart>
+                                <Pie 
+                                  data={inventoryAnalytics.valueByType} 
+                                  innerRadius={60} 
+                                  outerRadius={80} 
+                                  paddingAngle={5} 
+                                  dataKey="value"
+                                >
+                                   {inventoryAnalytics.valueByType.map((entry, index) => (
+                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                   ))}
+                                </Pie>
+                                <Tooltip formatter={(value: number) => `Rp ${value.toLocaleString()}`} />
+                                <Legend />
+                             </PieChart>
+                          </ResponsiveContainer>
+                       </div>
+                    </div>
+
+                    <div className="bg-slate-900 p-8 rounded-[40px] text-white">
+                       <h3 className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-6 border-b border-white/10 pb-4">Urgent: Perlu Restock Segera</h3>
+                       <div className="space-y-4">
+                          {inventoryAnalytics.items.filter(i => i.quantity <= i.minStock).slice(0, 5).map(item => (
+                            <div key={item.id} className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/10">
+                               <div>
+                                  <p className="text-[10px] font-black uppercase text-white">{item.name}</p>
+                                  <p className="text-[8px] font-bold text-slate-500 uppercase">Limit Aman: {item.minStock} {item.unit}</p>
+                               </div>
+                               <div className="text-right">
+                                  <p className="text-sm font-black text-red-400">{item.quantity} {item.unit}</p>
+                                  <p className="text-[7px] font-black text-slate-500 uppercase">Current Stock</p>
+                               </div>
+                            </div>
+                          ))}
+                          {inventoryAnalytics.lowStockCount === 0 && (
+                            <div className="py-12 text-center opacity-30">
+                               <p className="text-[10px] font-black uppercase">Seluruh stok dalam kondisi aman ✓</p>
+                            </div>
+                          )}
+                       </div>
+                    </div>
+                 </div>
+
+                 <section>
+                    <div className="flex items-center gap-4 mb-8">
+                       <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">II. Matriks Kesehatan Inventori Komprehensif</h3>
+                       <div className="flex-1 h-px bg-slate-100"></div>
+                    </div>
+                    <div className="overflow-hidden border-2 border-slate-100 rounded-[32px]">
+                       <table className="w-full text-left text-[11px]">
+                          <thead className="bg-slate-900 text-white uppercase text-[9px] font-black tracking-widest">
+                             <tr>
+                                <th className="py-5 px-8">Nama Material</th>
+                                <th className="py-5 px-6 text-center">Status</th>
+                                <th className="py-5 px-6 text-center">Stok Saat Ini</th>
+                                <th className="py-5 px-6 text-center">Limit Aman</th>
+                                <th className="py-5 px-8 text-right">Nilai Asset</th>
+                             </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                             {inventoryAnalytics.items.map(item => {
+                                const status = item.quantity <= 0 ? 'EMPTY' : item.quantity <= item.minStock ? 'CRITICAL' : 'HEALTHY';
+                                return (
+                                   <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                      <td className="py-4 px-8 font-black uppercase text-slate-800">{item.name}</td>
+                                      <td className="py-4 px-6 text-center">
+                                         <span className={`px-2 py-1 rounded-md text-[7px] font-black uppercase ${status === 'HEALTHY' ? 'bg-green-100 text-green-700' : status === 'CRITICAL' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
+                                            {status}
+                                         </span>
+                                      </td>
+                                      <td className="py-4 px-6 text-center font-bold text-slate-500">{item.quantity} {item.unit}</td>
+                                      <td className="py-4 px-6 text-center font-bold text-slate-300">{item.minStock} {item.unit}</td>
+                                      <td className="py-4 px-8 text-right font-black text-slate-900">Rp {(item.quantity * item.costPerUnit).toLocaleString()}</td>
+                                   </tr>
+                                );
+                             })}
+                          </tbody>
+                       </table>
+                    </div>
+                 </section>
               </div>
             )}
 

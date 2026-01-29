@@ -16,10 +16,13 @@ const StatCard: React.FC<{ title: string; value: string; trend: string; isPositi
 );
 
 export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ setActiveTab }) => {
-  const { filteredTransactions, inventory, selectedOutletId, outlets, currentUser, customers } = useApp();
+  const { filteredTransactions, inventory, selectedOutletId, outlets, currentUser, customers, dailyClosings, approveClosing, rejectClosing } = useApp();
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
+
+  const isManager = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
+  const pendingClosings = dailyClosings.filter(c => c.status === 'PENDING');
 
   const txs = filteredTransactions.filter(t => t.status === 'CLOSED');
   const totalSales = txs.reduce((sum, tx) => sum + tx.total, 0);
@@ -39,12 +42,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
     return p.outletSettings?.[selectedOutletId]?.price || p.price;
   };
 
-  const shareAsTextFallback = (tx: Transaction) => {
-    const itemsText = tx.items.map(it => `- ${it.product.name} (x${it.quantity}): Rp ${(getPrice(it.product) * it.quantity).toLocaleString()}`).join('%0A');
-    const message = `*STRUK BELANJA MOZZA BOY*%0A---------------------------%0AOutlet: ${activeOutlet?.name}%0ATgl: ${new Date(tx.timestamp).toLocaleString()}%0AID: #${tx.id.slice(-6)}%0A---------------------------%0A${itemsText}%0A---------------------------%0A*TOTAL: Rp ${tx.total.toLocaleString()}*%0A_Bayar via: ${tx.paymentMethod}_%0A%0ATerima Kasih!`;
-    window.open(`https://wa.me/?text=${message}`, '_blank');
-  };
-
   const downloadReceipt = async () => {
     if (!receiptRef.current || !viewingTransaction) return;
     setIsCapturing(true);
@@ -61,47 +58,31 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
     }
   };
 
-  const shareReceiptAsImage = async () => {
-    if (!receiptRef.current || !viewingTransaction) return;
-    
-    setIsCapturing(true);
-    try {
-      const canvas = await html2canvas(receiptRef.current, {
-        scale: 3,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false
-      });
-      
-      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png', 1.0));
-      if (!blob) throw new Error('Blob creation failed');
-
-      const file = new File([blob], `Struk-MozzaBoy-${viewingTransaction.id.slice(-6)}.png`, { type: 'image/png' });
-
-      // Cek dukungan Share API untuk File
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: 'Struk Mozza Boy',
-          text: `Struk belanja #${viewingTransaction.id.slice(-6)}`
-        });
-      } else {
-        // Jika tidak mendukung kirim file, tawarkan kirim teks atau unduh
-        if (confirm('Browser Anda tidak mendukung pengiriman gambar langsung. Kirim struk dalam format teks ke WhatsApp?')) {
-          shareAsTextFallback(viewingTransaction);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      // Fallback terakhir jika terjadi error pada Share API
-      shareAsTextFallback(viewingTransaction);
-    } finally {
-      setIsCapturing(false);
-    }
-  };
-
   return (
     <div className="p-3 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
+      {/* MANAGER NOTIFICATION BAR */}
+      {isManager && pendingClosings.length > 0 && (
+        <div className="mb-8 space-y-3 animate-in slide-in-from-top-4">
+           {pendingClosings.map(cls => (
+             <div key={cls.id} className="bg-red-600 p-4 md:p-6 rounded-3xl text-white shadow-xl shadow-red-600/20 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div className="flex items-center gap-4">
+                   <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl animate-pulse">🚨</div>
+                   <div>
+                      <h4 className="text-[11px] md:text-sm font-black uppercase tracking-tight">Butuh Persetujuan Tutup Buku</h4>
+                      <p className="text-[9px] md:text-[10px] font-bold text-white/70 uppercase">
+                         Outlet: {outlets.find(o => o.id === cls.outletId)?.name} • Kasir: {cls.staffName} • Selisih: <span className="text-white font-black">Rp {cls.discrepancy.toLocaleString()}</span>
+                      </p>
+                   </div>
+                </div>
+                <div className="flex gap-2 w-full md:w-auto">
+                   <button onClick={() => approveClosing(cls.id)} className="flex-1 md:flex-none px-6 py-2.5 bg-white text-red-600 rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-slate-100 transition-all">SETUJUI</button>
+                   <button onClick={() => rejectClosing(cls.id)} className="flex-1 md:flex-none px-6 py-2.5 bg-red-800 text-white rounded-xl font-black text-[10px] uppercase hover:bg-red-900 transition-all">TOLAK</button>
+                </div>
+             </div>
+           ))}
+        </div>
+      )}
+
       {/* STATS GRID */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-6">
         <StatCard title="Omzet" value={`Rp ${(totalSales/1000).toFixed(0)}k`} trend="Live" isPositive={true} />
@@ -117,7 +98,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={salesData}>
                 <defs>
-                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/><stop offset="95%" stopColor="#f97316" stopOpacity={0}/></linearGradient>
+                  <linearGradient id="colorSales" x1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/><stop offset="95%" stopColor="#f97316" stopOpacity={0}/></linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" fontSize={9} axisLine={false} tickLine={false} />
@@ -183,106 +164,47 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
 
       {/* RECEIPT MODAL */}
       {viewingTransaction && (
-        <div className="fixed inset-0 z-[300] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-4 overflow-y-auto">
-          <div className="bg-white rounded-none md:rounded-[40px] w-full max-w-sm h-full md:h-auto overflow-hidden flex flex-col shadow-2xl animate-in slide-in-from-bottom-10">
-             <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
-                <button onClick={() => setViewingTransaction(null)} className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-slate-400 border border-slate-100">✕</button>
-                <h3 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Pratinjau Struk</h3>
-                <div className="w-10"></div>
+        <div className="fixed inset-0 z-[300] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto no-scrollbar" onClick={() => setViewingTransaction(null)}>
+          <div className="w-full max-w-sm flex flex-col items-center animate-in slide-in-from-bottom-10 zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+             <div className="w-full mb-6 flex justify-between items-center gap-4 px-2">
+                <button onClick={() => setViewingTransaction(null)} className="w-12 h-12 rounded-2xl bg-white/10 text-white backdrop-blur-md flex items-center justify-center border border-white/10 active:scale-95 transition-all">✕</button>
+                <div className="flex gap-2">
+                   <button onClick={downloadReceipt} className="px-5 py-3 bg-white text-slate-900 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl">Unduh 💾</button>
+                </div>
              </div>
              
-             <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center no-scrollbar bg-slate-200">
-                {/* PAPER DESIGN */}
-                <div 
-                  ref={receiptRef} 
-                  className="bg-white p-8 w-full max-w-[300px] shadow-2xl flex flex-col text-[#1a1a1a] font-mono text-[11px] uppercase border-t-[10px] border-orange-500 relative"
-                >
-                   <div className="absolute top-0 left-0 w-full h-2 bg-[radial-gradient(circle,transparent_4px,white_4px)] bg-[length:12px_12px] bg-repeat-x -mt-1"></div>
-
-                   <div className="text-center mb-8">
+             <div className="relative w-full">
+                <div className="absolute inset-0 bg-black/20 blur-3xl rounded-[40px] transform translate-y-8"></div>
+                <div ref={receiptRef} className="bg-white p-8 md:p-10 w-full shadow-2xl flex flex-col text-slate-900 font-mono text-[10px] md:text-[11px] uppercase border-t-[8px] border-orange-500 relative">
+                   <div className="absolute top-0 left-0 w-full h-3 bg-[radial-gradient(circle,transparent:5px,white:5px)] bg-[length:12px_12px] bg-repeat-x -mt-1.5"></div>
+                   <div className="text-center mb-10">
+                      <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-3xl font-black mx-auto mb-4">M</div>
                       <h3 className="text-base font-black tracking-tight leading-none mb-1">MOZZA BOY</h3>
-                      <p className="text-[10px] font-bold tracking-widest opacity-80 italic">Korean Street Food</p>
-                      <div className="w-full border-b border-dashed border-slate-300 my-4"></div>
-                      <h3 className="text-[11px] font-black">{activeOutlet?.name}</h3>
-                      <p className="text-[8px] mt-1 opacity-60 leading-tight px-4">{activeOutlet?.address}</p>
+                      <div className="w-full border-b border-dashed border-slate-200 mb-6"></div>
+                      <h3 className="text-[10px] font-black text-slate-800">{activeOutlet?.name}</h3>
                    </div>
-
-                   <div className="space-y-1.5 mb-6 lowercase">
-                      <div className="flex justify-between uppercase"><span>Tanggal:</span><span>{new Date(viewingTransaction.timestamp).toLocaleDateString()}</span></div>
-                      <div className="flex justify-between uppercase"><span>Waktu:</span><span>{new Date(viewingTransaction.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
-                      <div className="flex justify-between uppercase"><span>Kasir:</span><span>{viewingTransaction.cashierName}</span></div>
-                      <div className="flex justify-between font-black mt-1 uppercase"><span>Order ID:</span><span>#{viewingTransaction.id.slice(-6)}</span></div>
+                   <div className="space-y-1.5 mb-8">
+                      <div className="flex justify-between"><span>Waktu:</span><span>{new Date(viewingTransaction.timestamp).toLocaleString()}</span></div>
+                      <div className="flex justify-between font-black border-t border-slate-100 pt-1 mt-1"><span>Order ID:</span><span>#{viewingTransaction.id.slice(-6)}</span></div>
                    </div>
-
-                   <div className="w-full border-b border-dashed border-slate-300 my-4"></div>
-
-                   <div className="space-y-4 mb-8">
+                   <div className="w-full border-b-2 border-slate-900 mb-6"></div>
+                   <div className="space-y-4 mb-10">
                       {viewingTransaction.items.map((it, idx) => (
-                        <div key={idx} className="flex flex-col">
-                           <div className="flex justify-between items-start">
-                              <span className="flex-1 pr-4">{it.product.name}</span>
-                              <span className="font-bold">Rp {(getPrice(it.product) * it.quantity).toLocaleString()}</span>
-                           </div>
-                           <div className="text-[9px] opacity-50 lowercase">{it.quantity} x {getPrice(it.product).toLocaleString()}</div>
+                        <div key={idx} className="flex justify-between items-start gap-4">
+                           <span className="flex-1 leading-tight">{it.product.name} x {it.quantity}</span>
+                           <span className="font-bold shrink-0">Rp {(getPrice(it.product) * it.quantity).toLocaleString()}</span>
                         </div>
                       ))}
                    </div>
-
-                   <div className="w-full border-b border-dashed border-slate-300 my-4"></div>
-
-                   <div className="space-y-2 font-black">
-                      <div className="flex justify-between text-[13px]">
-                        <span>TOTAL</span>
-                        <span className="text-orange-600">Rp {viewingTransaction.total.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between opacity-60">
-                        <span>Bayar Via</span>
-                        <span>{viewingTransaction.paymentMethod}</span>
+                   <div className="w-full border-b border-dashed border-slate-300 mb-6"></div>
+                   <div className="flex justify-between text-[13px] font-black"><span>TOTAL</span><span className="text-orange-600">Rp {viewingTransaction.total.toLocaleString()}</span></div>
+                   <div className="text-center mt-6 space-y-4">
+                      <div className="inline-block p-3 border border-slate-100 rounded-2xl bg-slate-50">
+                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${viewingTransaction.id}&color=1a1a1a`} alt="Audit QR" className="w-14 h-14 grayscale opacity-80" crossOrigin="anonymous" />
                       </div>
                    </div>
-
-                   <div className="text-center mt-12 space-y-1">
-                      <div className="inline-block border-2 border-slate-200 p-2 rounded mb-4 bg-white">
-                         <img 
-                           src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${viewingTransaction.id}&color=1a1a1a`} 
-                           alt="Audit QR" 
-                           className="w-16 h-16 grayscale" 
-                           crossOrigin="anonymous"
-                         />
-                      </div>
-                      <p className="text-[9px] font-bold">Terima Kasih Atas Kunjungannya</p>
-                      <p className="text-[8px] opacity-40 italic lowercase">#mozzaboy_official</p>
-                   </div>
-
-                   <div className="absolute bottom-0 left-0 w-full h-2 bg-[radial-gradient(circle,white_4px,transparent_4px)] bg-[length:12px_12px] bg-repeat-x mb-[-4px]"></div>
+                   <div className="absolute bottom-0 left-0 w-full h-3 bg-[radial-gradient(circle,white:5px,transparent:5px)] bg-[length:12px_12px] bg-repeat-x mb-[-1.5px]"></div>
                 </div>
-             </div>
-
-             {/* ACTIONS */}
-             <div className="p-6 md:p-8 bg-white border-t border-slate-100 flex flex-col gap-3 pb-safe shrink-0">
-                <button 
-                  onClick={shareReceiptAsImage}
-                  disabled={isCapturing}
-                  className={`w-full py-5 bg-[#25D366] text-white rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all ${isCapturing ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
-                >
-                  <span className="text-xl">{isCapturing ? '⌛' : '📸'}</span> 
-                  {isCapturing ? 'PROSES...' : 'KIRIM KE WHATSAPP'}
-                </button>
-                <div className="grid grid-cols-2 gap-3">
-                   <button 
-                    onClick={downloadReceipt} 
-                    disabled={isCapturing}
-                    className="py-4 bg-slate-100 text-slate-700 rounded-2xl text-[9px] font-black uppercase tracking-widest border border-slate-200 active:bg-slate-200"
-                   >Unduh Gambar</button>
-                   <button 
-                    onClick={() => window.print()} 
-                    className="py-4 bg-slate-900 text-white rounded-2xl text-[9px] font-black uppercase tracking-widest"
-                   >Cetak Thermal</button>
-                </div>
-                <button 
-                  onClick={() => setViewingTransaction(null)} 
-                  className="py-3 text-slate-400 text-[8px] font-black uppercase tracking-[0.3em]"
-                >Tutup Panel</button>
              </div>
           </div>
         </div>

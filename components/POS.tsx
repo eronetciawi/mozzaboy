@@ -1,13 +1,13 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store';
-import { Product, PaymentMethod, Customer } from '../types';
+import { Product, PaymentMethod, Customer, UserRole } from '../types';
 
 export const POS: React.FC = () => {
   const { 
     products, categories, cart, addToCart, removeFromCart, 
     updateCartQuantity, checkout, customers, selectCustomer, selectedCustomerId,
-    membershipTiers, bulkDiscounts, selectedOutletId, loyaltyConfig, inventory
+    membershipTiers, bulkDiscounts, selectedOutletId, loyaltyConfig, inventory, dailyClosings, currentUser
   } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -19,7 +19,23 @@ export const POS: React.FC = () => {
   const [memberQuery, setMemberQuery] = useState('');
   const [redeemPoints, setRedeemPoints] = useState(0);
 
-  // LOGIC: Check if product has enough raw materials in inventory
+  // Success Toast State
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+
+  const isShiftClosed = useMemo(() => {
+    if (!currentUser) return false;
+    // Master Access: Owner and Manager are never locked out
+    if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return false;
+    
+    const todayStr = new Date().toDateString();
+    // Only lock if THIS specific staff member has already closed their shift at THIS outlet today
+    return dailyClosings.some(c => 
+      c.outletId === selectedOutletId && 
+      c.staffId === currentUser.id && 
+      new Date(c.timestamp).toDateString() === todayStr
+    );
+  }, [dailyClosings, selectedOutletId, currentUser]);
+
   const checkStock = (p: Product): boolean => {
     if (p.isCombo && p.comboItems) {
       return p.comboItems.every(ci => {
@@ -27,7 +43,6 @@ export const POS: React.FC = () => {
         return subP ? checkStock(subP) : false;
       });
     }
-    
     return p.bom.every(b => {
       const template = inventory.find(inv => inv.id === b.inventoryItemId);
       const real = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === template?.name);
@@ -58,15 +73,57 @@ export const POS: React.FC = () => {
   const total = Math.max(0, subtotal - discountAmount - pointDiscountValue);
 
   const handleCheckout = (method: PaymentMethod) => {
+    if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
     checkout(method, redeemPoints);
     setShowCheckout(false);
     setRedeemPoints(0);
     setMobileView('menu');
+    
+    // Trigger Success Toast
+    setShowSuccessToast(true);
   };
 
+  // Effect to hide toast after 3 seconds
+  useEffect(() => {
+    if (showSuccessToast) {
+      const timer = setTimeout(() => {
+        setShowSuccessToast(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showSuccessToast]);
+
   return (
-    <div className="h-full flex flex-col md:flex-row overflow-hidden bg-slate-50">
-      {/* LEFT: PRODUCTS (Hidden on mobile if cart view is active) */}
+    <div className="h-full flex flex-col md:flex-row overflow-hidden bg-slate-50 relative">
+      
+      {/* SUCCESS TOAST OVERLAY */}
+      {showSuccessToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
+           <div className="bg-emerald-500/90 backdrop-blur-md text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-emerald-400/50">
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl animate-bounce">
+                ✅
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.2em] leading-none">Transaksi Berhasil</p>
+                <p className="text-[9px] font-bold text-emerald-100 uppercase mt-1">Struk & Stok Telah Diperbarui</p>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {isShiftClosed && (
+        <div className="absolute inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 text-center animate-in fade-in duration-500">
+           <div className="bg-white rounded-[48px] p-10 max-w-sm shadow-2xl border-4 border-orange-500 transform -rotate-2">
+              <div className="text-6xl mb-6">🔒</div>
+              <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter leading-tight">Shift Anda Selesai</h3>
+              <p className="text-slate-500 text-xs font-bold uppercase mt-4 leading-relaxed">
+                Anda sudah melakukan <span className="text-orange-600">tutup shift</span> hari ini. <br/>Terima kasih atas kerja kerasnya!
+              </p>
+           </div>
+        </div>
+      )}
+
+      {/* LEFT: PRODUCTS */}
       <div className={`flex-1 flex flex-col min-w-0 ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-3 md:p-6 bg-white border-b border-slate-100 sticky top-0 z-10 space-y-3">
           <div className="flex gap-2">
@@ -81,7 +138,7 @@ export const POS: React.FC = () => {
             </div>
             <button onClick={() => setShowMemberModal(true)} className={`px-4 rounded-xl border-2 transition-all flex items-center gap-2 ${currentCustomer ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
               <span className="text-sm">👤</span>
-              <span className="hidden lg:block text-[10px] font-black uppercase truncate max-w-[80px]">{currentCustomer?.name || 'MEMBER'}</span>
+              <span className="hidden lg:block text-[10px] font-black uppercase tracking-widest truncate max-w-[80px]">{currentCustomer?.name || 'MEMBER'}</span>
             </button>
           </div>
           
@@ -100,26 +157,19 @@ export const POS: React.FC = () => {
               return (
                 <button 
                   key={product.id} 
-                  disabled={!inStock}
+                  disabled={!inStock || isShiftClosed}
                   onClick={() => addToCart(product)} 
-                  className={`bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all border border-slate-100 flex flex-col text-left group relative ${!inStock ? 'opacity-70 grayscale cursor-not-allowed' : 'active:scale-95'}`}
+                  className={`bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all border border-slate-100 flex flex-col text-left group relative ${(!inStock || isShiftClosed) ? 'opacity-70 grayscale cursor-not-allowed' : 'active:scale-95'}`}
                 >
                   <div className="aspect-square w-full overflow-hidden bg-slate-50 relative">
                     <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                    
-                    {!inStock && (
-                      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[2px] flex items-center justify-center p-2">
-                        <div className="bg-red-600 text-white text-[8px] md:text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-xl transform -rotate-12 border-2 border-white/20">
-                          STOK HABIS
-                        </div>
-                      </div>
+                    {!inStock && !isShiftClosed && (
+                      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[2px] flex items-center justify-center p-2 text-white text-[8px] md:text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">STOK HABIS</div>
                     )}
                   </div>
                   <div className="p-3">
                     <h5 className="font-black text-slate-800 text-[9px] md:text-[11px] uppercase tracking-tight line-clamp-2 min-h-[2.4em]">{product.name}</h5>
-                    <p className={`text-xs md:text-sm mt-1 font-black ${!inStock ? 'text-slate-400' : 'text-orange-500'}`}>
-                      Rp {getPrice(product).toLocaleString()}
-                    </p>
+                    <p className={`text-xs md:sm mt-1 font-black ${(!inStock || isShiftClosed) ? 'text-slate-400' : 'text-orange-500'}`}>Rp {getPrice(product).toLocaleString()}</p>
                   </div>
                 </button>
               );
@@ -128,7 +178,7 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
-      {/* RIGHT: CART (Hidden on mobile if menu view is active) */}
+      {/* RIGHT: CART */}
       <div className={`${mobileView === 'cart' ? 'flex' : 'hidden md:flex'} w-full md:w-80 lg:w-96 bg-white border-l border-slate-200 flex-col shadow-2xl relative z-20`}>
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0">
            <h4 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Pesanan ({totalQty})</h4>
@@ -164,110 +214,78 @@ export const POS: React.FC = () => {
             <span>Subtotal</span>
             <span>Rp {subtotal.toLocaleString()}</span>
           </div>
-          {discountAmount > 0 && (
-            <div className="flex justify-between text-[9px] font-black uppercase text-green-500">
-              <span>Diskon {finalDiscountPercent}%</span>
-              <span>-Rp {discountAmount.toLocaleString()}</span>
-            </div>
-          )}
           <div className="flex justify-between text-lg font-black pt-2 border-t border-slate-800">
             <span className="uppercase text-xs text-slate-500 tracking-tighter">Total</span>
             <span className="text-orange-500">Rp {total.toLocaleString()}</span>
           </div>
-
           <button
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || isShiftClosed}
             onClick={() => setShowCheckout(true)}
-            className={`w-full py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${cart.length === 0 ? 'bg-slate-800 text-slate-600' : 'bg-orange-500 text-white shadow-lg active:scale-95'}`}
+            className={`w-full py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${ (cart.length === 0 || isShiftClosed) ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-orange-500 text-white shadow-lg active:scale-95'}`}
           >
-            BAYAR {totalQty} ITEM 💳
+            {isShiftClosed ? 'SHIFT ANDA SELESAI' : `BAYAR ${totalQty} ITEM 💳`}
           </button>
         </div>
       </div>
 
-      {/* MOBILE FLOATING CART BUTTON */}
-      {mobileView === 'menu' && cart.length > 0 && (
-        <button 
-          onClick={() => setMobileView('cart')}
-          className="md:hidden fixed bottom-20 right-4 z-40 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom-4"
-        >
-          <div className="relative">
-             <span className="text-2xl">🛒</span>
-             <span className="absolute -top-2 -right-2 bg-orange-500 text-[8px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-slate-900">{totalQty}</span>
-          </div>
-          <div className="text-left border-l border-white/10 pl-3">
-             <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none">TOTAL</p>
-             <p className="text-xs font-black text-orange-400">Rp {total.toLocaleString()}</p>
-          </div>
-        </button>
-      )}
-
-      {/* MEMBER MODAL (Full screen on mobile) */}
-      {showMemberModal && (
-        <div className="fixed inset-0 z-[150] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-0 md:p-4">
-          <div className="bg-white rounded-none md:rounded-[48px] w-full max-w-2xl h-full md:h-auto md:max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-6 md:p-10 border-b border-slate-50 shrink-0">
-               <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl md:text-3xl font-black text-slate-800 uppercase tracking-tighter">Cari Member</h3>
-                  <button onClick={() => setShowMemberModal(false)} className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 text-xl">✕</button>
-               </div>
-               <input 
-                  type="text" 
-                  autoFocus
-                  placeholder="Nomor HP / Nama..." 
-                  className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-lg focus:border-orange-500 outline-none"
-                  value={memberQuery} onChange={e => setMemberQuery(e.target.value)}
-               />
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/30 custom-scrollbar">
-               {customers.filter(c => c.name.toLowerCase().includes(memberQuery.toLowerCase()) || c.phone.includes(memberQuery)).map(member => (
-                 <button key={member.id} onClick={() => { selectCustomer(member.id); setShowMemberModal(false); }} className="w-full p-4 bg-white rounded-2xl border-2 border-slate-100 flex justify-between items-center text-left hover:border-orange-500 transition-all">
-                    <div>
-                       <p className="font-black text-slate-800 text-xs uppercase">{member.name}</p>
-                       <p className="text-[10px] text-slate-400 font-mono">{member.phone}</p>
-                    </div>
-                    <div className="text-right">
-                       <p className="text-[8px] font-black text-slate-400 uppercase">Points</p>
-                       <p className="text-xs font-black text-orange-500">{member.points.toLocaleString()}</p>
-                    </div>
-                 </button>
-               ))}
-               <button onClick={() => { selectCustomer(null); setShowMemberModal(false); }} className="w-full p-4 mt-4 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 font-black text-[10px] uppercase">Batalkan / Pelanggan Umum</button>
-            </div>
+      {/* CHECKOUT MODAL */}
+      {showCheckout && (
+        <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
+          <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-md p-8 md:p-12 shadow-2xl animate-in slide-in-from-bottom-10">
+             <div className="flex justify-between items-center mb-8">
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Metode Pembayaran</h3>
+                <button onClick={() => setShowCheckout(false)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400">✕</button>
+             </div>
+             
+             <div className="space-y-4 mb-10">
+                <button onClick={() => handleCheckout(PaymentMethod.CASH)} className="w-full p-6 bg-green-50 border-2 border-green-100 rounded-[32px] flex items-center justify-between group hover:border-green-500 transition-all">
+                   <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">💵</div>
+                      <div className="text-left"><p className="text-[10px] font-black text-green-600 uppercase">Tunai / Cash</p><p className="text-sm font-black text-slate-800">Bayar di Kasir</p></div>
+                   </div>
+                   <span className="text-xl opacity-0 group-hover:opacity-100 transition-opacity">➔</span>
+                </button>
+                <button onClick={() => handleCheckout(PaymentMethod.QRIS)} className="w-full p-6 bg-blue-50 border-2 border-blue-100 rounded-[32px] flex items-center justify-between group hover:border-blue-500 transition-all">
+                   <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">📱</div>
+                      <div className="text-left"><p className="text-[10px] font-black text-blue-600 uppercase">QRIS / Digital</p><p className="text-sm font-black text-slate-800">Scan Kode QR</p></div>
+                   </div>
+                   <span className="text-xl opacity-0 group-hover:opacity-100 transition-opacity">➔</span>
+                </button>
+             </div>
+             <div className="h-safe-bottom md:hidden"></div>
           </div>
         </div>
       )}
 
-      {/* CHECKOUT MODAL (Full Screen on mobile) */}
-      {showCheckout && (
-        <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6">
-          <div className="bg-white rounded-none md:rounded-[40px] w-full max-w-md h-full md:h-auto shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-10">
-            <div className="p-8 border-b border-slate-50 text-center shrink-0">
-              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Pilih Pembayaran</h3>
-              <div className="mt-4 text-4xl font-black text-orange-500 tracking-tighter">Rp {total.toLocaleString()}</div>
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">{totalQty} Item Pesanan</p>
-            </div>
-            
-            <div className="flex-1 p-8 grid grid-cols-1 gap-4">
-              <button onClick={() => handleCheckout(PaymentMethod.CASH)} className="p-6 rounded-2xl border-2 border-slate-100 hover:border-orange-500 flex items-center gap-6 group transition-all">
-                <span className="text-3xl">💵</span>
-                <div className="text-left">
-                   <p className="font-black text-slate-800 uppercase text-xs">Uang Tunai</p>
-                   <p className="text-[9px] text-slate-400 uppercase font-bold mt-0.5">Cash In Drawer</p>
+      {/* MEMBER MODAL */}
+      {showMemberModal && (
+        <div className="fixed inset-0 z-[210] bg-slate-900/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
+          <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-md p-8 md:p-12 shadow-2xl animate-in slide-in-from-bottom-10">
+             <div className="flex justify-between items-center mb-8">
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Pilih Member</h3>
+                <button onClick={() => setShowMemberModal(false)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400">✕</button>
+             </div>
+             <div className="space-y-4">
+                <input 
+                  type="text" 
+                  placeholder="Cari Nama/HP..." 
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-orange-500"
+                  value={memberQuery}
+                  onChange={e => setMemberQuery(e.target.value)}
+                />
+                <div className="max-h-[300px] overflow-y-auto custom-scrollbar space-y-2">
+                   {customers.filter(c => c.name.toLowerCase().includes(memberQuery.toLowerCase()) || c.phone.includes(memberQuery)).map(c => (
+                     <button key={c.id} onClick={() => { selectCustomer(c.id); setShowMemberModal(false); }} className={`w-full p-4 rounded-2xl flex justify-between items-center border-2 transition-all ${selectedCustomerId === c.id ? 'bg-orange-50 border-orange-500' : 'bg-white border-slate-50 hover:border-orange-200'}`}>
+                        <div className="text-left"><p className="text-xs font-black text-slate-800 uppercase">{c.name}</p><p className="text-[9px] text-slate-400">{c.phone}</p></div>
+                        <div className="text-right"><p className="text-[10px] font-black text-orange-500">{c.points.toLocaleString()} PTS</p></div>
+                     </button>
+                   ))}
                 </div>
-              </button>
-              <button onClick={() => handleCheckout(PaymentMethod.QRIS)} className="p-6 rounded-2xl border-2 border-slate-100 hover:border-orange-500 flex items-center gap-6 group transition-all">
-                <span className="text-3xl">📱</span>
-                <div className="text-left">
-                   <p className="font-black text-slate-800 uppercase text-xs">QRIS / Digital</p>
-                   <p className="text-[9px] text-slate-400 uppercase font-bold mt-0.5">Auto Validate</p>
-                </div>
-              </button>
-            </div>
-            
-            <div className="p-8 pt-0 flex flex-col gap-2 shrink-0 pb-safe">
-              <button onClick={() => setShowCheckout(false)} className="w-full py-4 font-black text-slate-400 uppercase text-[9px] tracking-widest">Batal</button>
-            </div>
+                {selectedCustomerId && (
+                  <button onClick={() => { selectCustomer(null); setShowMemberModal(false); }} className="w-full py-3 text-red-500 font-black text-[10px] uppercase">Lepas Member</button>
+                )}
+             </div>
           </div>
         </div>
       )}

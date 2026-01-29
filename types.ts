@@ -265,6 +265,7 @@ export interface DailyClosing {
   actualCash: number;
   discrepancy: number;
   notes: string;
+  status: 'PENDING' | 'APPROVED';
 }
 
 export interface CartItem {
