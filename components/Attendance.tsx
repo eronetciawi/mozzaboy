@@ -48,6 +48,7 @@ export const Attendance: React.FC = () => {
   const mySalesToday = salesByDate[todayStr] || 0;
   const progressPercent = targetSales > 0 ? Math.min(100, Math.round((mySalesToday / targetSales) * 100)) : 0;
   const isTargetAchievedToday = targetSales > 0 && mySalesToday >= targetSales;
+  const remainingToTarget = Math.max(0, targetSales - mySalesToday);
 
   const currentMonth = new Date().getMonth();
   const currentYear = new Date().getFullYear();
@@ -72,8 +73,6 @@ export const Attendance: React.FC = () => {
   const totalLates = myAttendanceRecords.filter(a => a.status === 'LATE').length;
   const perfScore = totalAttends > 0 ? Math.round(((totalAttends - totalLates) / totalAttends) * 100) : 100;
 
-  const getDayName = (dayIdx: number) => ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'][dayIdx];
-
   const handleLeaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!leaveReason || !leaveDates.start || !leaveDates.end) return alert("Mohon lengkapi data izin!");
@@ -97,7 +96,7 @@ export const Attendance: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50">
+    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
           <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">My Portal</h2>
@@ -141,28 +140,54 @@ export const Attendance: React.FC = () => {
               )}
            </div>
 
-           <div className="bg-slate-900 p-6 rounded-[32px] text-white shadow-2xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-4 opacity-10">💰</div>
-              <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest mb-4">Target Penjualan Hari Ini</p>
-              <div className="flex justify-between items-end mb-4">
-                 <div>
-                    <p className="text-2xl font-black text-white">Rp {mySalesToday.toLocaleString()}</p>
-                    <p className="text-[8px] text-slate-500 font-bold uppercase">Tercapai dari Rp {targetSales.toLocaleString()}</p>
-                 </div>
-                 <div className="text-right">
-                    <p className="text-sm font-black text-green-400">{progressPercent}%</p>
-                 </div>
+           <div className={`p-8 rounded-[40px] shadow-2xl relative overflow-hidden transition-all duration-500 ${isTargetAchievedToday ? 'bg-gradient-to-br from-green-600 to-emerald-800' : 'bg-slate-900'}`}>
+              <div className="absolute top-0 right-0 p-6 opacity-20 text-5xl">
+                {isTargetAchievedToday ? '🏆' : '💰'}
               </div>
-              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                 <div className={`h-full transition-all duration-1000 ${isTargetAchievedToday ? 'bg-green-500' : 'bg-orange-500'}`} style={{ width: `${progressPercent}%` }}></div>
+              <div className="relative z-10 flex flex-col h-full">
+                 <div className="flex justify-between items-start mb-6">
+                    <div>
+                       <p className={`text-[10px] font-black uppercase tracking-[0.2em] mb-1 ${isTargetAchievedToday ? 'text-green-200' : 'text-orange-500'}`}>
+                         Insentif Penjualan Hari Ini
+                       </p>
+                       <h3 className="text-3xl font-black text-white tracking-tighter">Rp {mySalesToday.toLocaleString()}</h3>
+                    </div>
+                 </div>
+
+                 <div className="space-y-4 mb-6">
+                    <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-400">
+                       <span className={isTargetAchievedToday ? 'text-green-300' : ''}>Target: Rp {targetSales.toLocaleString()}</span>
+                       <span className="text-white">{progressPercent}%</span>
+                    </div>
+                    <div className="h-3 w-full bg-white/10 rounded-full overflow-hidden shadow-inner">
+                       <div className={`h-full transition-all duration-1000 ${isTargetAchievedToday ? 'bg-green-400' : 'bg-orange-500'}`} style={{ width: `${progressPercent}%` }}></div>
+                    </div>
+                 </div>
+
+                 <div className={`p-5 rounded-3xl border-2 transition-all ${isTargetAchievedToday ? 'bg-white/10 border-white/20' : 'bg-white/5 border-dashed border-white/10'}`}>
+                    {isTargetAchievedToday ? (
+                       <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-lg">✨</div>
+                          <div>
+                             <p className="text-xs font-black text-white uppercase">Selamat! Target Tercapai</p>
+                             <p className="text-[11px] font-bold text-green-300">Bonus Rp {bonusPerTarget.toLocaleString()} telah masuk!</p>
+                          </div>
+                       </div>
+                    ) : (
+                       <div className="flex flex-col gap-1">
+                          <p className="text-[9px] font-bold text-slate-500 italic">
+                             "Cari <span className="text-white font-black">Rp {remainingToTarget.toLocaleString()}</span> lagi untuk klaim bonusmu hari ini."
+                          </p>
+                       </div>
+                    )}
+                 </div>
               </div>
            </div>
         </div>
       )}
 
       {activeSubTab === 'performance' && (
-        <div className="space-y-6 animate-in slide-in-from-bottom-4">
-           {/* Summary Cards */}
+        <div className="space-y-6">
            <div className="grid grid-cols-2 gap-4">
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm text-center">
                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Skor Disiplin</p>
@@ -173,34 +198,6 @@ export const Attendance: React.FC = () => {
                  <h4 className="text-lg font-black text-green-600">Rp {totalBonusMonth.toLocaleString()}</h4>
               </div>
            </div>
-
-           {/* Incentive Logs */}
-           <section>
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Riwayat Insentif Harian</h4>
-              <div className="space-y-2">
-                 {incentiveHistory.length === 0 ? (
-                    <p className="text-[10px] text-center py-10 bg-white rounded-3xl border border-dashed text-slate-300 italic">Belum ada riwayat penjualan.</p>
-                 ) : (
-                    incentiveHistory.map((h, i) => (
-                       <div key={i} className="bg-white p-4 rounded-2xl border border-slate-100 flex justify-between items-center shadow-sm">
-                          <div>
-                             <p className="text-[10px] font-black text-slate-800">{new Date(h.date).toLocaleDateString('id-ID', {day:'numeric', month:'short'})}</p>
-                             <p className="text-[8px] font-bold text-slate-400 uppercase">Sales: Rp {h.sales.toLocaleString()}</p>
-                          </div>
-                          <div className="text-right">
-                             {h.reached ? (
-                                <span className="text-[9px] font-black text-green-600 uppercase bg-green-50 px-2 py-1 rounded-lg">+Rp {h.bonus.toLocaleString()}</span>
-                             ) : (
-                                <span className="text-[8px] font-black text-slate-300 uppercase">Missed Target</span>
-                             )}
-                          </div>
-                       </div>
-                    ))
-                 )}
-              </div>
-           </section>
-
-           {/* Attendance Logs */}
            <section className="pb-20">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Log Absensi Terakhir</h4>
               <div className="space-y-2">
@@ -211,8 +208,8 @@ export const Attendance: React.FC = () => {
                              {a.status === 'LATE' ? '⏳' : '✅'}
                           </div>
                           <div>
-                             <p className="text-[9px] font-black text-slate-800 uppercase">{new Date(a.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'short'})}</p>
-                             <p className="text-[8px] text-slate-400 font-bold uppercase">{new Date(a.clockIn).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {a.clockOut ? new Date(a.clockOut).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'Active'}</p>
+                             <p className="text-[9px] font-black text-slate-800 uppercase">{new Date(a.date).toLocaleDateString()}</p>
+                             <p className="text-[8px] text-slate-400 font-bold uppercase">{new Date(a.clockIn).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
                           </div>
                        </div>
                        <span className={`text-[7px] font-black uppercase px-2 py-1 rounded-md ${a.status === 'LATE' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
@@ -226,10 +223,9 @@ export const Attendance: React.FC = () => {
       )}
 
       {activeSubTab === 'leave' && (
-        <div className="space-y-6 animate-in slide-in-from-right-4">
-           {/* Leave Form */}
+        <div className="space-y-6">
            <div className="bg-white p-6 rounded-[32px] border-2 border-slate-100 shadow-sm">
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Ajukan Izin / Cuti Baru</h4>
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Ajukan Izin Baru</h4>
               <form onSubmit={handleLeaveSubmit} className="space-y-4">
                  <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -241,56 +237,21 @@ export const Attendance: React.FC = () => {
                        <input type="date" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black" value={leaveDates.end} onChange={e => setLeaveDates({...leaveDates, end: e.target.value})} />
                     </div>
                  </div>
-                 <div>
-                    <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Alasan Izin</label>
-                    <textarea className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold h-20" placeholder="Contoh: Acara keluarga, Sakit, dsb..." value={leaveReason} onChange={e => setLeaveReason(e.target.value)} />
-                 </div>
-                 <button className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-orange-500 transition-all">Kirim Pengajuan</button>
+                 <textarea className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold h-20" placeholder="Alasan izin..." value={leaveReason} onChange={e => setLeaveReason(e.target.value)} />
+                 <button className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">Kirim Pengajuan</button>
               </form>
            </div>
-
-           {/* Leave History */}
-           <section className="pb-20">
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Riwayat Pengajuan Cuti</h4>
-              <div className="space-y-3">
-                 {myLeaveRequests.length === 0 ? (
-                    <p className="text-[10px] text-center py-10 bg-white rounded-3xl border border-dashed text-slate-300 italic">Belum ada pengajuan cuti.</p>
-                 ) : (
-                    myLeaveRequests.map(l => (
-                       <div key={l.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm relative group transition-all hover:border-orange-200">
-                          <div className="flex justify-between items-start mb-3">
-                             <div>
-                                <p className="text-[9px] font-black text-slate-800 uppercase">{new Date(l.startDate).toLocaleDateString()} - {new Date(l.endDate).toLocaleDateString()}</p>
-                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">Diajukan: {new Date(l.requestedAt).toLocaleDateString()}</p>
-                             </div>
-                             <span className={`text-[7px] font-black uppercase px-2 py-1 rounded-md ${
-                                l.status === 'PENDING' ? 'bg-orange-100 text-orange-600' :
-                                l.status === 'APPROVED' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                             }`}>
-                                {l.status}
-                             </span>
-                          </div>
-                          <p className="text-[10px] text-slate-500 font-medium italic">"{l.reason}"</p>
-                       </div>
-                    ))
-                 )}
-              </div>
-           </section>
         </div>
       )}
 
       {activeSubTab === 'profile' && (
-        <div className="max-w-4xl mx-auto animate-in slide-in-from-bottom-4 duration-500 pb-20">
+        <div className="max-w-4xl mx-auto pb-20">
            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="md:col-span-1 space-y-6">
+              <div className="md:col-span-1">
                  <div className="bg-white p-8 rounded-[32px] border-2 border-slate-100 shadow-xl flex flex-col items-center text-center">
                     <div className="relative group mb-4">
                        <div className="w-24 h-24 rounded-[32px] overflow-hidden bg-slate-50 border-4 border-white shadow-xl">
-                          <img 
-                            src={profileForm.photo || `https://api.dicebear.com/7.x/initials/svg?seed=${currentUser.name}`} 
-                            alt="Profile" 
-                            className="w-full h-full object-cover"
-                          />
+                          <img src={profileForm.photo || `https://api.dicebear.com/7.x/initials/svg?seed=${currentUser.name}`} alt="Profile" className="w-full h-full object-cover" />
                        </div>
                        <button onClick={() => fileInputRef.current?.click()} className="absolute -bottom-1 -right-1 w-8 h-8 bg-slate-900 text-white rounded-xl flex items-center justify-center shadow-lg border-2 border-white text-xs">📷</button>
                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => {
@@ -302,39 +263,83 @@ export const Attendance: React.FC = () => {
                           }
                        }} />
                     </div>
-                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight leading-tight">{currentUser.name}</h3>
+                    <h3 className="text-lg font-black text-slate-800 uppercase leading-tight">{currentUser.name}</h3>
                     <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">{currentUser.role}</p>
-                    <div className="w-full h-px bg-slate-100 my-4"></div>
-                    <div className="w-full space-y-2">
-                       <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-slate-400">
-                          <span>Staff ID</span>
-                          <span className="text-slate-800">{currentUser.id}</span>
-                       </div>
-                    </div>
                  </div>
               </div>
 
               <div className="md:col-span-2 space-y-6">
-                 <div className="bg-white p-6 rounded-[32px] border-2 border-slate-100 shadow-sm space-y-6">
-                    <div>
-                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Kontak Karyawan</h4>
-                       <div className="space-y-4">
+                 <div className="bg-white p-6 md:p-8 rounded-[40px] border border-slate-100 shadow-sm space-y-8">
+                    {/* KEAMANAN AKUN */}
+                    <section className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100">
+                       <h4 className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-4 border-b border-indigo-100 pb-2">Keamanan & Akses Akun</h4>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Username Login</label>
+                             <input type="text" disabled className="w-full p-3 bg-slate-100 border rounded-xl font-bold text-xs opacity-60" value={currentUser.username} />
+                          </div>
+                          <div>
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Ganti Password</label>
+                             <input type="password" className="w-full p-3 bg-white border rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={profileForm.password || ''} onChange={e => setProfileForm({...profileForm, password: e.target.value})} placeholder="Masukkan password baru" />
+                          </div>
+                       </div>
+                    </section>
+
+                    {/* KONTAK DASAR */}
+                    <section>
+                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Identitas & Kontak</h4>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                              <label className="text-[8px] font-black text-slate-400 uppercase ml-1">No. WhatsApp</label>
-                             <input type="text" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-900 text-xs" value={profileForm.phone || ''} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} />
+                             <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.phone || ''} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} />
                           </div>
                           <div>
                              <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Email</label>
-                             <input type="email" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-900 text-xs" value={profileForm.email || ''} onChange={e => setProfileForm({...profileForm, email: e.target.value})} />
+                             <input type="email" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.email || ''} onChange={e => setProfileForm({...profileForm, email: e.target.value})} />
                           </div>
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Alamat</label>
-                             <textarea className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-900 text-xs h-20" value={profileForm.address || ''} onChange={e => setProfileForm({...profileForm, address: e.target.value})} />
+                          <div className="md:col-span-2">
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Alamat Domisili</label>
+                             <textarea className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs h-16" value={profileForm.address || ''} onChange={e => setProfileForm({...profileForm, address: e.target.value})} />
                           </div>
                        </div>
-                    </div>
-                    <button disabled={isSavingProfile} onClick={handleSaveProfile} className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all flex items-center justify-center gap-3 ${isSavingProfile ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white hover:bg-orange-600'}`}>
-                       {isSavingProfile ? 'MEMPROSES...' : 'SIMPAN PERBARUAN PROFIL 💾'}
+                    </section>
+
+                    {/* MEDIA SOSIAL */}
+                    <section>
+                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Media Sosial</h4>
+                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Instagram (@)</label>
+                             <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.instagram || ''} onChange={e => setProfileForm({...profileForm, instagram: e.target.value})} placeholder="mozzaboy.id" />
+                          </div>
+                          <div>
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Telegram (@)</label>
+                             <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.telegram || ''} onChange={e => setProfileForm({...profileForm, telegram: e.target.value})} placeholder="username_tg" />
+                          </div>
+                          <div>
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">TikTok (@)</label>
+                             <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.tiktok || ''} onChange={e => setProfileForm({...profileForm, tiktok: e.target.value})} placeholder="user_tiktok" />
+                          </div>
+                       </div>
+                    </section>
+
+                    {/* KONTAK DARURAT */}
+                    <section className="p-5 bg-orange-50/50 rounded-3xl border border-orange-100">
+                       <h4 className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-4 border-b border-orange-100 pb-2">Kontak Darurat (Urgent)</h4>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Nama Orang Terdekat</label>
+                             <input type="text" className="w-full p-3 bg-white border rounded-xl font-bold text-xs" value={profileForm.emergencyContactName || ''} onChange={e => setProfileForm({...profileForm, emergencyContactName: e.target.value})} placeholder="Misal: Ayah / Ibu / Istri" />
+                          </div>
+                          <div>
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">No. HP Orang Terdekat</label>
+                             <input type="text" className="w-full p-3 bg-white border rounded-xl font-bold text-xs" value={profileForm.emergencyContactPhone || ''} onChange={e => setProfileForm({...profileForm, emergencyContactPhone: e.target.value})} placeholder="0812..." />
+                          </div>
+                       </div>
+                    </section>
+
+                    <button disabled={isSavingProfile} onClick={handleSaveProfile} className={`w-full py-5 rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl transition-all ${isSavingProfile ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white hover:bg-orange-600'}`}>
+                       {isSavingProfile ? 'MEMPROSES...' : 'SIMPAN PERUBAHAN PROFIL & AKSES 💾'}
                     </button>
                  </div>
               </div>

@@ -13,8 +13,8 @@ export const ExpenseManagement: React.FC = () => {
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   const canManageTypes = currentUser?.permissions.canManageSettings;
 
-  // Filter pengeluaran hanya untuk outlet yang terpilih
   const outletExpenses = expenses.filter(e => e.outletId === selectedOutletId);
+  const todayExpenses = outletExpenses.filter(e => new Date(e.timestamp).toDateString() === new Date().toDateString());
 
   const handleAddExpense = () => {
     if (newExpense.typeId && newExpense.amount > 0) {
@@ -33,88 +33,85 @@ export const ExpenseManagement: React.FC = () => {
   };
 
   return (
-    <div className="p-8 h-full overflow-y-auto custom-scrollbar">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
-          <h2 className="text-2xl font-black text-slate-800 uppercase">Catat Pengeluaran</h2>
-          <p className="text-slate-500 font-medium">Input biaya operasional harian cabang <span className="text-orange-600 font-bold">{activeOutlet?.name}</span></p>
+          <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Pengeluaran Cabang</h2>
+          <p className="text-slate-500 font-medium text-[10px] md:text-xs italic uppercase">Input biaya operasional: <span className="text-orange-600 font-bold">{activeOutlet?.name}</span></p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-2 w-full md:w-auto">
           {canManageTypes && (
             <button 
               onClick={() => setShowTypeModal(true)}
-              className="px-6 py-3 border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-xs uppercase hover:bg-slate-50 transition-all"
+              className="flex-1 md:flex-none px-4 py-3 border-2 border-slate-200 text-slate-600 rounded-xl font-black text-[9px] uppercase hover:bg-slate-50 transition-all"
             >
-              + Jenis Biaya
+              Jenis Biaya
             </button>
           )}
           <button 
             onClick={() => setShowAddModal(true)}
-            className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase shadow-xl tracking-widest hover:bg-orange-500 transition-all"
+            className="flex-[2] md:flex-none px-6 py-3 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase shadow-xl shadow-slate-900/10 hover:bg-orange-500 transition-all"
           >
-            + Catat Pengeluaran
+            + Catat Biaya Baru
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
-          <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Total Biaya Hari Ini ({activeOutlet?.id})</p>
-          <h4 className="text-2xl font-black text-red-600">
-            Rp {outletExpenses
-              .filter(e => new Date(e.timestamp).toDateString() === new Date().toDateString())
-              .reduce((acc, e) => acc + e.amount, 0)
-              .toLocaleString()}
-          </h4>
+      {/* TODAY SUMMARY */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-6 flex justify-between items-center">
+        <div>
+          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Biaya Hari Ini</p>
+          <h4 className="text-2xl font-black text-red-600">Rp {todayExpenses.reduce((acc, e) => acc + e.amount, 0).toLocaleString()}</h4>
         </div>
+        <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-xl">💸</div>
       </div>
 
-      <div className="bg-white rounded-3xl border-2 border-slate-100 overflow-hidden shadow-sm">
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 border-b border-slate-100">
-            <tr className="text-[10px] font-black uppercase text-slate-400">
-              <th className="py-4 px-6">Waktu</th>
-              <th className="py-4 px-6">Jenis Biaya</th>
-              <th className="py-4 px-6">Catatan</th>
-              <th className="py-4 px-6">Karyawan</th>
-              <th className="py-4 px-6 text-right">Jumlah (Rp)</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {outletExpenses.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="py-20 text-center text-slate-300 font-bold italic">Belum ada catatan pengeluaran di cabang ini.</td>
-              </tr>
-            ) : (
-              [...outletExpenses].reverse().map(exp => (
-                <tr key={exp.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="py-4 px-6 text-xs text-slate-500">
-                    <p className="font-bold text-slate-800">{new Date(exp.timestamp).toLocaleDateString()}</p>
-                    <p className="text-[10px]">{new Date(exp.timestamp).toLocaleTimeString()}</p>
-                  </td>
-                  <td className="py-4 px-6 font-black text-slate-700 uppercase text-xs">
-                    {expenseTypes.find(t => t.id === exp.typeId)?.name || 'Biaya Lain'}
-                  </td>
-                  <td className="py-4 px-6 text-slate-500 text-sm italic">"{exp.notes}"</td>
-                  <td className="py-4 px-6 text-slate-600 text-sm font-bold">{exp.staffName}</td>
-                  <td className="py-4 px-6 text-right font-black text-red-500">Rp {exp.amount.toLocaleString()}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className="space-y-3">
+        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2">Riwayat Pengeluaran</h3>
+        {outletExpenses.length === 0 ? (
+          <div className="py-20 text-center bg-white rounded-[32px] border-2 border-dashed border-slate-200">
+             <p className="text-[10px] text-slate-300 font-bold italic uppercase tracking-widest">Belum ada catatan biaya</p>
+          </div>
+        ) : (
+          [...outletExpenses].reverse().map(exp => (
+            <div key={exp.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-lg shrink-0 border border-slate-100">
+                  {exp.typeId === 'et1' ? '⛽' : exp.typeId === 'et2' ? '💧' : '📦'}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black text-slate-900 uppercase truncate">
+                       {expenseTypes.find(t => t.id === exp.typeId)?.name || 'Biaya Lain'}
+                    </span>
+                    <span className="text-[7px] font-bold text-slate-400 uppercase">{new Date(exp.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-medium italic truncate">"{exp.notes || 'Tanpa catatan'}"</p>
+                </div>
+              </div>
+              <div className="text-right shrink-0 ml-3">
+                 <p className="text-xs font-black text-red-600">Rp {exp.amount.toLocaleString()}</p>
+                 <p className="text-[7px] font-black text-slate-300 uppercase tracking-tighter">{exp.staffName.split(' ')[0]}</p>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
+      {/* ADD EXPENSE MODAL */}
       {showAddModal && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-[40px] w-full max-w-lg p-10 shadow-2xl">
-            <h3 className="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tighter">Tambah Pengeluaran</h3>
-            <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-8">CABANG: {activeOutlet?.name}</p>
+        <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
+          <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-lg p-8 md:p-12 shadow-2xl animate-in slide-in-from-bottom-10 md:zoom-in-95">
+            <div className="flex justify-between items-center mb-8">
+               <h3 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Input Biaya</h3>
+               <button onClick={() => setShowAddModal(false)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400">✕</button>
+            </div>
+            
             <div className="space-y-6">
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Pilih Jenis Biaya</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-3 ml-1">Kategori Biaya</label>
                 <select 
-                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:outline-none focus:border-orange-500"
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm focus:border-orange-500 outline-none"
                   value={newExpense.typeId}
                   onChange={e => setNewExpense({...newExpense, typeId: e.target.value})}
                 >
@@ -123,50 +120,53 @@ export const ExpenseManagement: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Jumlah Biaya (Rp)</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-3 ml-1">Nominal (Rp)</label>
                 <input 
                   type="number" 
-                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-red-600 focus:outline-none focus:border-orange-500"
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xl text-red-600 focus:border-orange-500 outline-none"
                   value={newExpense.amount}
                   onChange={e => setNewExpense({...newExpense, amount: parseInt(e.target.value) || 0})}
                   placeholder="0"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Catatan / Detail</label>
-                <input 
-                  type="text" 
-                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:outline-none focus:border-orange-500"
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-3 ml-1">Catatan Kebutuhan</label>
+                <textarea 
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-sm h-24 focus:border-orange-500 outline-none"
                   value={newExpense.notes}
                   onChange={e => setNewExpense({...newExpense, notes: e.target.value})}
-                  placeholder="Misal: Beli 2 isi ulang galon"
+                  placeholder="Misal: Beli gas LPG 3kg..."
                 />
               </div>
+              <button 
+                onClick={handleAddExpense} 
+                className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-orange-500 transition-all active:scale-95"
+              >
+                SIMPAN PENGELUARAN 💾
+              </button>
             </div>
-            <div className="flex gap-4 mt-10">
-              <button onClick={() => setShowAddModal(false)} className="flex-1 py-4 text-slate-400 font-black uppercase text-xs">Batal</button>
-              <button onClick={handleAddExpense} className="flex-1 py-4 bg-slate-900 text-white font-black rounded-2xl text-xs uppercase shadow-xl">Simpan Biaya</button>
-            </div>
+            <div className="h-safe-bottom md:hidden"></div>
           </div>
         </div>
       )}
 
+      {/* TYPE MODAL */}
       {showTypeModal && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-[40px] w-full max-w-sm p-10 shadow-2xl">
-            <h3 className="text-xl font-black text-slate-800 mb-8 uppercase tracking-tighter">Tambah Jenis Biaya</h3>
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Nama Jenis (Contoh: Laundry)</label>
-              <input 
-                type="text" 
-                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:outline-none focus:border-orange-500"
-                value={newTypeName}
-                onChange={e => setNewTypeName(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-4 mt-10">
-              <button onClick={() => setShowTypeModal(false)} className="flex-1 py-4 text-slate-400 font-black uppercase text-xs">Batal</button>
-              <button onClick={handleAddType} className="flex-1 py-4 bg-orange-500 text-white font-black rounded-2xl text-xs uppercase shadow-xl transition-all">Tambah</button>
+        <div className="fixed inset-0 z-[210] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4">
+          <div className="bg-white rounded-[40px] w-full max-w-sm p-10 shadow-2xl animate-in zoom-in-95">
+            <h3 className="text-xl font-black text-slate-800 mb-8 uppercase tracking-tighter">Master Jenis Biaya</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Nama Jenis (Contoh: Kebersihan)</label>
+                <input 
+                  type="text" 
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-orange-500 outline-none"
+                  value={newTypeName}
+                  onChange={e => setNewTypeName(e.target.value)}
+                />
+              </div>
+              <button onClick={handleAddType} className="w-full py-4 bg-orange-500 text-white font-black rounded-2xl text-[10px] uppercase shadow-lg shadow-orange-500/20 active:scale-95 transition-all">TAMBAH KE MASTER</button>
+              <button onClick={() => setShowTypeModal(false)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase">Batal</button>
             </div>
           </div>
         </div>

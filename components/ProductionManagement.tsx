@@ -22,25 +22,9 @@ export const ProductionManagement: React.FC = () => {
   const allMaterials = [...rawMaterials, ...wipMaterials];
 
   const handleProcess = () => {
-    if (!resultItemId) return alert("Pilih item hasil produksi!");
-    if (resultQuantity <= 0) return alert("Jumlah hasil tidak boleh nol!");
-    
+    if (!resultItemId || resultQuantity <= 0) return alert("Lengkapi data hasil produksi!");
     const validComponents = components.filter(c => c.inventoryItemId && c.quantity > 0);
     if (validComponents.length === 0) return alert("Pilih minimal satu bahan!");
-
-    // Cek Stok Cukup
-    let outOfStock = false;
-    let missingItemName = "";
-    
-    validComponents.forEach(comp => {
-      const inv = allMaterials.find(m => m.id === comp.inventoryItemId);
-      if (inv && inv.quantity < comp.quantity) {
-        outOfStock = true;
-        missingItemName = inv.name;
-      }
-    });
-
-    if (outOfStock) return alert(`Stok ${missingItemName} tidak mencukupi!`);
 
     processProduction({
       resultItemId,
@@ -68,168 +52,136 @@ export const ProductionManagement: React.FC = () => {
   }, [components, allMaterials]);
 
   return (
-    <div className="p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50">
-      <div className="flex justify-between items-center mb-10">
+    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
-          <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Kitchen Mixing & Cutting</h2>
-          <p className="text-slate-500 font-medium italic text-sm">Proses Bahan Mentah $\rightarrow$ Potongan $\rightarrow$ Produk Siap Masak (WIP)</p>
+          <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Mixing & Cutting</h2>
+          <p className="text-slate-500 font-medium text-[10px] uppercase italic">Pengolahan bahan mentah di dapur</p>
         </div>
         <button 
-          onClick={() => { 
-            setComponents([{ id: 'init-1', inventoryItemId: '', quantity: 0 }]); 
-            setShowModal(true); 
-          }}
-          className="px-8 py-4 bg-purple-600 text-white rounded-[24px] font-black text-xs uppercase shadow-2xl shadow-purple-500/20 hover:bg-purple-700 transition-all flex items-center gap-2 group"
+          onClick={() => { setComponents([{ id: 'init-1', inventoryItemId: '', quantity: 0 }]); setShowModal(true); }}
+          className="w-full md:w-auto px-6 py-4 bg-purple-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl shadow-purple-500/20 hover:bg-purple-700 transition-all flex items-center justify-center gap-2"
         >
-          <span className="text-lg">🧪</span>
-          Mulai Proses / Potong Bahan
+          <span>🧪</span> MULAI PROSES BARU
         </button>
       </div>
 
-      <div className="bg-white rounded-[40px] border-2 border-slate-100 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Log Aktivitas Dapur (Audit Produksi)</h3>
-        </div>
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
-            <tr>
-              <th className="py-4 px-8">Waktu</th>
-              <th className="py-4 px-6">Hasil Produksi</th>
-              <th className="py-4 px-6 text-center">Output</th>
-              <th className="py-4 px-6">Bahan Dikonsumsi</th>
-              <th className="py-4 px-8 text-right">PIC Dapur</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {productionRecords.filter(p => p.outletId === selectedOutletId).length === 0 ? (
-              <tr><td colSpan={5} className="py-20 text-center text-slate-300 font-black text-[10px] uppercase italic">Belum ada aktivitas dapur terekam.</td></tr>
-            ) : (
-              productionRecords.filter(p => p.outletId === selectedOutletId).map(record => {
-                const resultItem = inventory.find(i => i.id === record.resultItemId);
-                return (
-                  <tr key={record.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-5 px-8 text-[10px] font-bold text-slate-500">{new Date(record.timestamp).toLocaleString()}</td>
-                    <td className="py-5 px-6 font-black text-purple-600 uppercase text-xs">{resultItem?.name || 'WIP Item'}</td>
-                    <td className="py-5 px-6 text-center">
-                      <span className="px-3 py-1 bg-purple-50 text-purple-600 rounded-lg font-black text-[10px]">+{record.resultQuantity.toLocaleString()} {resultItem?.unit}</span>
-                    </td>
-                    <td className="py-5 px-6">
-                      <div className="flex flex-wrap gap-1">
-                        {record.components.map((c, i) => {
-                          const item = inventory.find(inv => inv.id === c.inventoryItemId);
-                          return (
-                            <span key={i} className="text-[8px] font-black text-slate-400 bg-white border border-slate-100 px-2 py-0.5 rounded-full">
-                              {item?.name} (-{c.quantity})
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </td>
-                    <td className="py-5 px-8 text-right font-black text-slate-400 text-[10px] uppercase">{record.staffName}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+      <div className="space-y-3">
+        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2">Riwayat Produksi Dapur</h3>
+        {productionRecords.filter(p => p.outletId === selectedOutletId).length === 0 ? (
+          <div className="py-20 text-center bg-white rounded-[32px] border-2 border-dashed border-slate-200">
+             <p className="text-[10px] text-slate-300 font-bold italic uppercase tracking-widest">Belum ada aktivitas dapur</p>
+          </div>
+        ) : (
+          [...productionRecords].filter(p => p.outletId === selectedOutletId).reverse().map(record => {
+             const resultItem = inventory.find(i => i.id === record.resultItemId);
+             return (
+               <div key={record.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-4 group active:scale-[0.99] transition-all">
+                  <div className="flex justify-between items-start">
+                     <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center text-lg">🧪</div>
+                        <div>
+                           <h4 className="text-xs font-black text-slate-800 uppercase leading-tight">{resultItem?.name || 'WIP Item'}</h4>
+                           <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">{new Date(record.timestamp).toLocaleString([], {hour:'2-digit', minute:'2-digit', day:'numeric', month:'short'})}</p>
+                        </div>
+                     </div>
+                     <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[9px] font-black">+{record.resultQuantity} {resultItem?.unit}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 px-2 py-3 bg-slate-50 rounded-2xl">
+                     <p className="w-full text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Bahan Terpakai:</p>
+                     {record.components.map((c, i) => {
+                       const item = inventory.find(inv => inv.id === c.inventoryItemId);
+                       return (
+                         <span key={i} className="bg-white border border-slate-100 px-2 py-1 rounded-lg text-[8px] font-bold text-slate-600 uppercase">
+                            {item?.name} (-{c.quantity})
+                         </span>
+                       );
+                     })}
+                  </div>
+                  <div className="flex justify-between items-center text-[7px] font-black text-slate-300 uppercase px-2 tracking-widest">
+                     <span>PIC: {record.staffName}</span>
+                     <span>OUTLET ID: {record.outletId}</span>
+                  </div>
+               </div>
+             );
+          })
+        )}
       </div>
 
+      {/* FULL SCREEN PRODUCTION FORM */}
       {showModal && (
-        <div className="fixed inset-0 z-[120] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4">
-          <div className="bg-white rounded-[48px] w-full max-w-5xl p-10 shadow-2xl flex flex-col h-[90vh] animate-in zoom-in-95">
-             <div className="flex justify-between items-start mb-6 shrink-0">
+        <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6 overflow-y-auto no-scrollbar">
+          <div className="bg-white rounded-none md:rounded-[48px] w-full max-w-4xl h-full md:h-auto flex flex-col shadow-2xl animate-in slide-in-from-bottom-10">
+             <div className="p-6 md:p-10 border-b border-slate-100 flex justify-between items-center shrink-0">
                 <div>
-                  <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">Form Cutting & Perakitan</h3>
-                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Gunakan untuk memotong Mozza/Sosis atau merakit Sosis-Mozza</p>
+                   <h3 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter leading-tight">Proses Mixing/Potong</h3>
+                   <p className="text-[8px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Konversi bahan baku mentah $\rightarrow$ siap pakai</p>
                 </div>
-                <button onClick={() => setShowModal(false)} className="w-12 h-12 rounded-full bg-slate-50 text-slate-400 hover:text-red-500 transition-all font-black">✕</button>
+                <button onClick={() => setShowModal(false)} className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-400">✕</button>
              </div>
              
-             <div className="grid grid-cols-1 md:grid-cols-5 gap-10 flex-1 overflow-hidden">
-                <div className="md:col-span-2 space-y-6 flex flex-col overflow-y-auto">
-                   <div className="p-8 bg-purple-50 rounded-[32px] border-2 border-purple-100 shadow-inner">
-                      <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-6">HASIL JADI (WIP)</p>
-                      <div className="space-y-6">
-                         <div>
-                            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Nama Hasil (Contoh: Mozza Potong / Stick Sosmo)</label>
-                            <select 
-                              className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-black text-sm focus:border-purple-500 outline-none"
-                              value={resultItemId}
-                              onChange={e => setResultItemId(e.target.value)}
-                            >
-                               <option value="">-- Pilih WIP Item --</option>
-                               {wipMaterials.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-                            </select>
-                         </div>
-                         <div>
-                            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Jumlah Hasil Jadi</label>
-                            <input 
-                              type="number" 
-                              className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-black text-2xl text-purple-600 focus:border-purple-500 outline-none"
-                              value={resultQuantity}
-                              onChange={e => setResultQuantity(parseFloat(e.target.value) || 0)}
-                            />
-                         </div>
+             <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10 custom-scrollbar">
+                {/* HASIL JADI SECTION */}
+                <section>
+                   <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-4 border-b-2 border-purple-100 pb-2 ml-1">1. Hasil Akhir (WIP)</p>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                         <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Item Hasil Jadi</label>
+                         <select className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-purple-500" value={resultItemId} onChange={e => setResultItemId(e.target.value)}>
+                            <option value="">-- Pilih WIP Item --</option>
+                            {wipMaterials.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+                         </select>
+                      </div>
+                      <div>
+                         <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Jumlah Output</label>
+                         <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-xl text-purple-600" value={resultQuantity} onChange={e => setResultQuantity(parseFloat(e.target.value) || 0)} />
                       </div>
                    </div>
+                </section>
 
-                   <div className="flex-1 bg-slate-900 rounded-[32px] p-8 text-white relative overflow-hidden">
-                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Estimasi Biaya Produksi</h4>
-                      <div className="space-y-4">
-                         <div className="flex justify-between items-center">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">Total Modal Bahan</span>
-                            <span className="text-xl font-black text-orange-500">Rp {estimatedCost.toLocaleString()}</span>
-                         </div>
-                         <div className="h-px bg-slate-800"></div>
-                         <div className="flex justify-between items-center">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">HPP Per Unit Hasil</span>
-                            <span className="text-xl font-black text-white">Rp {resultQuantity > 0 ? Math.round(estimatedCost / resultQuantity).toLocaleString() : 0}</span>
-                         </div>
-                      </div>
+                {/* KOMPONEN SECTION */}
+                <section>
+                   <div className="flex justify-between items-center mb-4 border-b-2 border-slate-100 pb-2 ml-1">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. Bahan yang Digunakan</p>
+                      <button onClick={addComponent} className="text-[9px] font-black text-purple-600">+ Tambah Bahan</button>
                    </div>
-                </div>
-
-                <div className="md:col-span-3 flex flex-col h-full overflow-hidden">
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">BAHAN YANG DIPAKAI / DIPOTONG</p>
-                   <div className="flex-1 overflow-y-auto custom-scrollbar pr-4 space-y-4 pb-10">
+                   <div className="space-y-4">
                       {components.map((comp, idx) => (
-                        <div key={comp.id} className="p-5 bg-slate-50 rounded-[28px] border border-slate-100 flex gap-4 items-end relative shadow-sm">
+                        <div key={comp.id} className="p-5 bg-slate-50 rounded-3xl border border-slate-100 flex flex-col md:flex-row gap-4 relative">
+                           <button onClick={() => removeComponent(comp.id)} className="absolute top-4 right-4 md:static text-slate-300 hover:text-red-500">✕</button>
                            <div className="flex-1">
-                              <label className="block text-[8px] font-black text-slate-400 uppercase mb-2 ml-1">Bahan (Raw/WIP)</label>
-                              <select 
-                                className="w-full p-3.5 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:border-purple-500 outline-none"
-                                value={comp.inventoryItemId}
-                                onChange={e => updateComponent(comp.id, 'inventoryItemId', e.target.value)}
-                              >
-                                 <option value="">-- Pilih Bahan --</option>
-                                 {allMaterials.map(m => <option key={m.id} value={m.id}>{m.name} (Stok: {m.quantity.toLocaleString()} {m.unit})</option>)}
+                              <label className="text-[8px] font-black text-slate-300 uppercase mb-1 block">Pilih Bahan Baku</label>
+                              <select className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-xs" value={comp.inventoryItemId} onChange={e => updateComponent(comp.id, 'inventoryItemId', e.target.value)}>
+                                 <option value="">-- Pilih --</option>
+                                 {allMaterials.map(m => <option key={m.id} value={m.id}>{m.name} (Sisa: {m.quantity} {m.unit})</option>)}
                               </select>
                            </div>
-                           <div className="w-28">
-                              <label className="block text-[8px] font-black text-slate-400 uppercase mb-2 ml-1">Qty Pakai</label>
-                              <input 
-                                type="number" 
-                                className="w-full p-3.5 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:border-purple-500 outline-none"
-                                value={comp.quantity}
-                                onChange={e => updateComponent(comp.id, 'quantity', parseFloat(e.target.value) || 0)}
-                              />
+                           <div className="w-full md:w-32">
+                              <label className="text-[8px] font-black text-slate-300 uppercase mb-1 block">Qty Pakai</label>
+                              <input type="number" className="w-full p-3 bg-white border border-slate-200 rounded-xl font-black text-xs" value={comp.quantity} onChange={e => updateComponent(comp.id, 'quantity', parseFloat(e.target.value) || 0)} />
                            </div>
-                           <button onClick={() => removeComponent(comp.id)} className="p-3.5 text-slate-300 hover:text-red-500 transition-all">✕</button>
                         </div>
                       ))}
-                      <button 
-                        onClick={addComponent}
-                        className="w-full py-5 border-2 border-dashed border-slate-200 rounded-[28px] text-slate-400 font-black uppercase text-[10px] tracking-[0.2em] hover:border-purple-500 hover:text-purple-500 transition-all flex items-center justify-center gap-2"
-                      >
-                        + Tambah Bahan Lain
-                      </button>
+                   </div>
+                </section>
+
+                {/* COST PREVIEW */}
+                <div className="p-8 bg-slate-900 rounded-[40px] text-white flex justify-between items-center shadow-2xl relative overflow-hidden">
+                   <div className="absolute top-0 left-0 w-20 h-full bg-purple-500/10 -skew-x-12 transform -translate-x-10"></div>
+                   <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Estimasi HPP Per Unit</p>
+                      <p className="text-2xl font-black text-orange-400">Rp {resultQuantity > 0 ? Math.round(estimatedCost / resultQuantity).toLocaleString() : 0}</p>
+                   </div>
+                   <div className="text-right">
+                      <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Total Modal</p>
+                      <p className="text-sm font-bold text-slate-300 italic">Rp {estimatedCost.toLocaleString()}</p>
                    </div>
                 </div>
              </div>
 
-             <div className="flex gap-4 mt-6 pt-6 border-t border-slate-100 shrink-0">
-                <button onClick={() => setShowModal(false)} className="flex-1 py-5 text-slate-400 font-black uppercase text-[10px]">Batal</button>
-                <button onClick={handleProcess} className="flex-[2] py-5 bg-purple-600 text-white font-black rounded-[24px] text-[10px] uppercase tracking-[0.2em] shadow-2xl hover:bg-purple-700 transition-all">Selesaikan Proses 🚀</button>
+             <div className="p-6 md:p-10 border-t border-slate-50 bg-slate-50/50 shrink-0">
+                <button onClick={handleProcess} className="w-full py-5 bg-purple-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-purple-500/10 transition-all active:scale-95">SELESAIKAN & UPDATE STOK 🚀</button>
+                <div className="h-safe-bottom md:hidden"></div>
              </div>
           </div>
         </div>

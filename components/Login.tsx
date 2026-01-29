@@ -92,11 +92,11 @@ export const Login: React.FC = () => {
 
         <div className="mt-8 flex flex-col items-center gap-2">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-            Mozza Boy Point Of Sales
+            Food Operating System By Qinoi
           </p>
           <div className="flex items-center gap-3">
             <span className="h-px w-8 bg-slate-800"></span>
-            <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">v2.5.0 Enterprise</span>
+            <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">FOS V0.1 dibuat sambi ngopi</span>
             <span className="h-px w-8 bg-slate-800"></span>
           </div>
         </div>
