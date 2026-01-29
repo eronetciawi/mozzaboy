@@ -96,10 +96,10 @@ export const StaffManagement: React.FC = () => {
   // --- ANALYTICS LOGIC: PERFORMANCE PERIODIC SCORING ---
   const performanceScores = useMemo(() => {
     const now = new Date();
-    const anchor = new Date();
+    let anchor = new Date();
     if (perfPeriod === 'week') anchor.setDate(now.getDate() - 7);
-    if (perfPeriod === 'day') anchor.setHours(0,0,0,0);
-    if (perfPeriod === 'month') anchor.setDate(1);
+    else if (perfPeriod === 'day') anchor.setHours(0,0,0,0);
+    else if (perfPeriod === 'month') anchor.setDate(1);
 
     const periodTxs = transactions.filter(tx => tx.outletId === selectedOutletId && tx.status === OrderStatus.CLOSED && new Date(tx.timestamp) >= anchor);
     const periodAttend = attendance.filter(a => new Date(a.date) >= anchor);
@@ -114,7 +114,7 @@ export const StaffManagement: React.FC = () => {
         if (perfPeriod === 'day') periodTarget = targetPerMonth / 30;
         if (perfPeriod === 'week') periodTarget = (targetPerMonth / 30) * 7;
         
-        const salesProgress = Math.min(100, (totalSales / periodTarget) * 100);
+        const salesProgress = Math.min(100, (totalSales / (periodTarget || 1)) * 100);
 
         // discipline Score
         const myAttends = periodAttend.filter(a => a.staffId === s.id);
@@ -440,7 +440,7 @@ export const StaffManagement: React.FC = () => {
                  </div>
                  <div className="mt-10 p-5 bg-white/5 rounded-3xl border border-white/10 relative z-10">
                     <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Evaluasi System:</p>
-                    <p className="text-[10px] text-slate-300 leading-relaxed italic">"Skor dihitung dari pencapaian target sales harian ({perfPeriod}) dan ketepatan jam masuk kerja. Pertimbangkan bonus bagi kru dengan skor > 90."</p>
+                    <p className="text-[10px] text-slate-300 leading-relaxed italic">"Skor dihitung dari pencapaian target sales harian ({perfPeriod}) dan ketepatan jam masuk kerja. Pertimbangkan bonus bagi kru dengan skor &gt; 90."</p>
                  </div>
               </div>
            </div>

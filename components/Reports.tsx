@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '../store';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  AreaChart, Area, PieChart, Pie, Cell, LineChart, Line, Legend
+  AreaChart, Area, PieChart, Pie, Cell, LineChart, Legend
 } from 'recharts';
 import { PaymentMethod, Transaction, DailyClosing, UserRole, InventoryItem, Product, OrderStatus } from '../types';
 
@@ -145,9 +145,9 @@ export const Reports: React.FC = () => {
           <div className="space-y-8 animate-in fade-in duration-500">
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard title="Total Revenue" value={metrics.revenue} subValue={`${metrics.transactionCount} Struk Terbit`} icon="💰" colorClass="text-orange-600" />
-                <StatCard title="Pemakaian HPP" value={metrics.cogs} subValue={`${((metrics.cogs/metrics.revenue)*100 || 0).toFixed(1)}% Food Cost`} icon="🍢" colorClass="text-slate-600" />
+                <StatCard title="Pemakaian HPP" value={metrics.cogs} subValue={`${((metrics.cogs/(metrics.revenue || 1))*100).toFixed(1)}% Food Cost`} icon="🍢" colorClass="text-slate-600" />
                 <StatCard title="Biaya Operasional" value={metrics.opEx} subValue="Pengeluaran Cabang" icon="💸" colorClass="text-red-600" />
-                <StatCard title="Laba Bersih" value={metrics.netProfit} subValue={`${((metrics.netProfit/metrics.revenue)*100 || 0).toFixed(1)}% Net Margin`} icon="📈" colorClass="text-emerald-600" />
+                <StatCard title="Laba Bersih" value={metrics.netProfit} subValue={`${((metrics.netProfit/(metrics.revenue || 1))*100).toFixed(1)}% Net Margin`} icon="📈" colorClass="text-emerald-600" />
              </div>
 
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -307,7 +307,7 @@ export const Reports: React.FC = () => {
                       </div>
                       <div className="text-right">
                          <p className="text-4xl font-black text-emerald-600 tracking-tighter">Rp {metrics.netProfit.toLocaleString()}</p>
-                         <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full uppercase mt-2 inline-block">Margin {((metrics.netProfit/metrics.revenue)*100 || 0).toFixed(1)}%</span>
+                         <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full uppercase mt-2 inline-block">Margin {((metrics.netProfit/(metrics.revenue || 1))*100).toFixed(1)}%</span>
                       </div>
                    </div>
                 </section>
