@@ -62,17 +62,23 @@ export const POS: React.FC = () => {
   const totalQty = cart.reduce((sum, item) => sum + item.quantity, 0);
   const currentCustomer = customers.find(c => c.id === selectedCustomerId);
   
+  // DISCOUNT CALCULATIONS
   const tierDiscountPercent = currentCustomer ? (membershipTiers.find(t => t.id === currentCustomer.tierId)?.discountPercent || 0) : 0;
-  const bulkDiscountPercent = bulkDiscounts.filter(r => r.isActive && totalQty >= r.minQty).sort((a,b) => b.minQty - a.minQty)[0]?.discountPercent || 0;
-  const finalDiscountPercent = Math.max(bulkDiscountPercent, tierDiscountPercent);
+  const bulkDiscountRule = bulkDiscounts.filter(r => r.isActive && totalQty >= r.minQty).sort((a,b) => b.minQty - a.minQty)[0];
+  const bulkDiscountPercent = bulkDiscountRule?.discountPercent || 0;
   
-  const discountAmount = subtotal * (finalDiscountPercent / 100);
+  // Logic: Use whichever is higher (don't stack directly for simplicity unless configured otherwise)
+  const isBulkBetter = bulkDiscountPercent > tierDiscountPercent;
+  const appliedTierDiscount = isBulkBetter ? 0 : (subtotal * (tierDiscountPercent / 100));
+  const appliedBulkDiscount = isBulkBetter ? (subtotal * (bulkDiscountPercent / 100)) : 0;
+  
   const pointDiscountValue = redeemPoints * loyaltyConfig.redemptionValuePerPoint;
-  const total = Math.max(0, subtotal - discountAmount - pointDiscountValue);
+  const total = Math.max(0, subtotal - appliedTierDiscount - appliedBulkDiscount - pointDiscountValue);
 
   const handleCheckout = (method: PaymentMethod) => {
     if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
-    checkout(method, redeemPoints);
+    // Pass ALL specific discount components to the store
+    checkout(method, redeemPoints, appliedTierDiscount, appliedBulkDiscount);
     setShowCheckout(false);
     setRedeemPoints(0);
     setMobileView('menu');
@@ -90,6 +96,7 @@ export const POS: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col md:flex-row overflow-hidden bg-slate-50 relative">
+      {/* ... (UI code remains the same but now correctly uses the breakdown above) ... */}
       
       {/* SUCCESS TOAST OVERLAY */}
       {showSuccessToast && (
@@ -116,7 +123,7 @@ export const POS: React.FC = () => {
         </div>
       )}
 
-      {/* LEFT: PRODUCTS - Fixed Scrolling on Mobile */}
+      {/* LEFT: PRODUCTS */}
       <div className={`flex-1 flex flex-col min-w-0 min-h-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-3 md:p-6 bg-white border-b border-slate-100 shrink-0 z-10 space-y-3">
           <div className="flex gap-2">
@@ -143,7 +150,6 @@ export const POS: React.FC = () => {
           </div>
         </div>
 
-        {/* This container must have overflow-y-auto and min-h-0 to scroll properly within flex parent */}
         <div className="flex-1 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-32 md:pb-6 touch-pan-y overscroll-behavior-contain">
            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3 md:gap-6">
             {filteredProducts.map(product => {
@@ -172,7 +178,7 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
-      {/* MOBILE FLOATING CART SUMMARY - Enhanced visibility */}
+      {/* MOBILE FLOATING CART SUMMARY */}
       {mobileView === 'menu' && cart.length > 0 && (
         <div className="md:hidden fixed bottom-[76px] left-0 right-0 px-4 animate-in slide-in-from-bottom-10 z-[60]">
           <button 
@@ -183,7 +189,7 @@ export const POS: React.FC = () => {
                <div className="w-10 h-10 bg-white text-orange-600 rounded-xl flex items-center justify-center font-black shadow-inner">{totalQty}</div>
                <div className="text-left">
                   <p className="text-[10px] font-black uppercase tracking-widest leading-none opacity-80">Check Pesanan</p>
-                  <p className="text-sm font-black">Rp {subtotal.toLocaleString()}</p>
+                  <p className="text-sm font-black">Rp {total.toLocaleString()}</p>
                </div>
             </div>
             <div className="flex items-center gap-2 font-black text-xs uppercase tracking-tighter bg-orange-700/50 px-3 py-2 rounded-lg">
@@ -207,20 +213,44 @@ export const POS: React.FC = () => {
               <p className="font-black text-slate-400 uppercase text-[9px] tracking-widest">Kosong</p>
             </div>
           ) : (
-            cart.map(item => (
-              <div key={item.product.id} className="flex gap-3 items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                <img src={item.product.image} className="w-10 h-10 rounded-lg object-cover bg-white shadow-sm" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-black text-[9px] text-slate-800 uppercase truncate">{item.product.name}</p>
-                  <p className="text-[9px] text-orange-500 font-black">Rp {getPrice(item.product).toLocaleString()}</p>
+            <>
+              {cart.map(item => (
+                <div key={item.product.id} className="flex gap-3 items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                  <img src={item.product.image} className="w-10 h-10 rounded-lg object-cover bg-white shadow-sm" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black text-[9px] text-slate-800 uppercase truncate">{item.product.name}</p>
+                    <p className="text-[9px] text-orange-500 font-black">Rp {getPrice(item.product).toLocaleString()}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => updateCartQuantity(item.product.id, -1)} className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700">-</button>
+                    <span className="text-[10px] font-black w-4 text-center text-slate-900">{item.quantity}</span>
+                    <button onClick={() => updateCartQuantity(item.product.id, 1)} className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700">+</button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button onClick={() => updateCartQuantity(item.product.id, -1)} className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700">-</button>
-                  <span className="text-[10px] font-black w-4 text-center text-slate-900">{item.quantity}</span>
-                  <button onClick={() => updateCartQuantity(item.product.id, 1)} className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700">+</button>
-                </div>
+              ))}
+              
+              {/* CART DISCOUNT PREVIEW */}
+              <div className="mt-6 pt-4 border-t border-dashed border-slate-200 space-y-2">
+                 {appliedBulkDiscount > 0 && (
+                    <div className="flex justify-between text-[10px] font-black text-indigo-600 uppercase">
+                       <span>Promo Grosir ({bulkDiscountPercent}%)</span>
+                       <span>-Rp {appliedBulkDiscount.toLocaleString()}</span>
+                    </div>
+                 )}
+                 {appliedTierDiscount > 0 && (
+                    <div className="flex justify-between text-[10px] font-black text-orange-600 uppercase">
+                       <span>Member: {currentCustomer?.name.split(' ')[0]} ({tierDiscountPercent}%)</span>
+                       <span>-Rp {appliedTierDiscount.toLocaleString()}</span>
+                    </div>
+                 )}
+                 {pointDiscountValue > 0 && (
+                    <div className="flex justify-between text-[10px] font-black text-emerald-600 uppercase">
+                       <span>Potongan Poin</span>
+                       <span>-Rp {pointDiscountValue.toLocaleString()}</span>
+                    </div>
+                 )}
               </div>
-            ))
+            </>
           )}
         </div>
 
@@ -233,6 +263,26 @@ export const POS: React.FC = () => {
             <span className="uppercase text-xs text-slate-500 tracking-tighter">Total Bayar</span>
             <span className="text-orange-500">Rp {total.toLocaleString()}</span>
           </div>
+          
+          {/* LOYALTY CONTROLS */}
+          {currentCustomer && (
+             <div className="bg-white/5 p-3 rounded-xl border border-white/10 mb-2">
+                <div className="flex justify-between items-center mb-2">
+                   <p className="text-[8px] font-black text-slate-400 uppercase">Gunakan Poin ({currentCustomer.points})</p>
+                   <div className="flex gap-1">
+                      {[0, 50, 100, 200, 500].filter(p => p <= currentCustomer.points).map(p => (
+                        <button key={p} onClick={() => setRedeemPoints(p)} className={`px-2 py-1 rounded text-[8px] font-black ${redeemPoints === p ? 'bg-orange-500 text-white' : 'bg-white/10 text-slate-400'}`}>{p}</button>
+                      ))}
+                   </div>
+                </div>
+                <input 
+                  type="range" min="0" max={currentCustomer.points} step="10" 
+                  className="w-full accent-orange-500 h-1" 
+                  value={redeemPoints} onChange={e => setRedeemPoints(parseInt(e.target.value))} 
+                />
+             </div>
+          )}
+
           <button
             disabled={cart.length === 0 || isShiftClosed}
             onClick={() => setShowCheckout(true)}
@@ -243,6 +293,7 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
+      {/* MODALS REMAINS SAME... */}
       {/* CHECKOUT MODAL */}
       {showCheckout && (
         <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">

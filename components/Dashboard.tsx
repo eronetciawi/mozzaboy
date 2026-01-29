@@ -188,7 +188,9 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                       <div className="flex justify-between font-black border-t border-slate-100 pt-1 mt-1"><span>Order ID:</span><span>#{viewingTransaction.id.slice(-6)}</span></div>
                    </div>
                    <div className="w-full border-b-2 border-slate-900 mb-6"></div>
-                   <div className="space-y-4 mb-10">
+                   
+                   {/* ITEMS LIST */}
+                   <div className="space-y-4 mb-8">
                       {viewingTransaction.items.map((it, idx) => (
                         <div key={idx} className="flex justify-between items-start gap-4">
                            <span className="flex-1 leading-tight">{it.product.name} x {it.quantity}</span>
@@ -196,9 +198,29 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                         </div>
                       ))}
                    </div>
+                   
+                   {/* DISCOUNT BREAKDOWN IN RECEIPT */}
+                   <div className="w-full border-t border-dashed border-slate-200 py-4 space-y-2">
+                      <div className="flex justify-between"><span>Subtotal</span><span>Rp {viewingTransaction.subtotal.toLocaleString()}</span></div>
+                      {viewingTransaction.bulkDiscount && viewingTransaction.bulkDiscount > 0 && (
+                         <div className="flex justify-between text-indigo-600 italic"><span>Diskon Grosir</span><span>-Rp {viewingTransaction.bulkDiscount.toLocaleString()}</span></div>
+                      )}
+                      {viewingTransaction.membershipDiscount && viewingTransaction.membershipDiscount > 0 && (
+                         <div className="flex justify-between text-orange-600 italic"><span>Diskon Member</span><span>-Rp {viewingTransaction.membershipDiscount.toLocaleString()}</span></div>
+                      )}
+                      {viewingTransaction.pointDiscountValue && viewingTransaction.pointDiscountValue > 0 && (
+                         <div className="flex justify-between text-emerald-600 italic"><span>Potongan Poin</span><span>-Rp {viewingTransaction.pointDiscountValue.toLocaleString()}</span></div>
+                      )}
+                   </div>
+
                    <div className="w-full border-b border-dashed border-slate-300 mb-6"></div>
                    <div className="flex justify-between text-[13px] font-black"><span>TOTAL</span><span className="text-orange-600">Rp {viewingTransaction.total.toLocaleString()}</span></div>
+                   
+                   {/* FOOTER INFO */}
                    <div className="text-center mt-6 space-y-4">
+                      {viewingTransaction.customerId && (
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">+ {viewingTransaction.pointsEarned} Poin Didapat ✓</p>
+                      )}
                       <div className="inline-block p-3 border border-slate-100 rounded-2xl bg-slate-50">
                          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${viewingTransaction.id}&color=1a1a1a`} alt="Audit QR" className="w-14 h-14 grayscale opacity-80" crossOrigin="anonymous" />
                       </div>

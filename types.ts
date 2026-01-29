@@ -290,6 +290,8 @@ export interface Transaction {
   pointsEarned?: number;
   pointsRedeemed?: number;
   pointDiscountValue?: number;
+  membershipDiscount?: number;
+  bulkDiscount?: number;
 }
 
 export interface Outlet {

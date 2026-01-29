@@ -21,7 +21,7 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   const Δλ = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
           Math.cos(φ1) * Math.cos(φ2) *
-          Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+          Math.sin(Δφ / 2) * Math.sin(Δφ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 };
@@ -89,7 +89,7 @@ interface AppActions {
   removeFromCart: (productId: string) => void;
   updateCartQuantity: (productId: string, delta: number) => void;
   clearCart: () => void;
-  checkout: (paymentMethod: PaymentMethod, redeemPoints?: number) => void;
+  checkout: (paymentMethod: PaymentMethod, redeemPoints?: number, membershipDiscount?: number, bulkDiscount?: number) => void;
   addStaff: (member: StaffMember) => void;
   updateStaff: (member: StaffMember) => void;
   deleteStaff: (id: string) => void;
@@ -353,7 +353,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     removeFromCart: (productId) => setCart(prev => prev.filter(i => i.product.id !== productId)),
     updateCartQuantity: (productId, delta) => setCart(prev => prev.map(i => i.product.id === productId ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0)),
     clearCart: () => setCart([]),
-    checkout: (paymentMethod, redeemPoints = 0) => {
+    checkout: (paymentMethod, redeemPoints = 0, membershipDiscount = 0, bulkDiscount = 0) => {
       if (cart.length === 0) return;
       let subtotal = 0; let totalCost = 0;
       
@@ -381,7 +381,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       const pointDiscountValue = loyaltyConfig.isEnabled ? redeemPoints * loyaltyConfig.redemptionValuePerPoint : 0;
-      const finalTotal = Math.max(0, subtotal - pointDiscountValue);
+      // Final total must subtract ALL specific discounts passed from UI
+      const finalTotal = Math.max(0, subtotal - membershipDiscount - bulkDiscount - pointDiscountValue);
       const pointsEarned = loyaltyConfig.isEnabled ? Math.floor(finalTotal / loyaltyConfig.earningAmountPerPoint) : 0;
 
       const newTx: Transaction = {
@@ -400,7 +401,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cashierName: currentUser?.name || 'System', 
         pointsEarned, 
         pointsRedeemed: redeemPoints, 
-        pointDiscountValue
+        pointDiscountValue,
+        membershipDiscount,
+        bulkDiscount
       };
 
       setInventory(prevInv => {
@@ -501,7 +504,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const shiftTxs = transactions.filter(t => 
         t.outletId === selectedOutletId && 
         new Date(t.timestamp) >= todayStart && 
-        t.cashierId === currentUser?.id
+        t.cashierId === currentUser?.id &&
+        t.status === OrderStatus.CLOSED
       );
       
       const cashSales = shiftTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+b.total, 0);
