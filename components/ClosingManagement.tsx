@@ -125,49 +125,46 @@ export const ClosingManagement: React.FC = () => {
     const salesRecap = calculateSalesRecap(reportDate);
     const detailedMovement = calculateDetailedMovement(reportDate);
     
-    // NEW: Expense Details for the report
     const startOfDay = new Date(reportDate); startOfDay.setHours(0,0,0,0);
     const endOfDay = new Date(reportDate); endOfDay.setHours(23,59,59,999);
     const reportExpenses = expenses.filter(e => e.outletId === selectedOutletId && new Date(e.timestamp) >= startOfDay && new Date(e.timestamp) <= endOfDay);
 
     return (
       <div 
-        className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300"
+        className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-0 md:p-4 lg:p-10 animate-in fade-in duration-300 overflow-y-auto no-scrollbar print:relative print:bg-white print:p-0"
         onClick={() => setSelectedClosingReport(null)}
       >
         <div 
-          className="bg-white rounded-[40px] w-full max-w-5xl h-full flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden"
+          className="bg-white rounded-none md:rounded-[40px] w-full max-w-5xl min-h-screen md:min-h-0 flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 print:shadow-none print:rounded-none print:w-full"
           onClick={e => e.stopPropagation()}
         >
           {/* HEADER TOOLBAR */}
-          <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 no-print shrink-0">
+          <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 no-print shrink-0 sticky top-0 z-50">
             <div className="flex items-center gap-4">
               <button 
                 onClick={() => setSelectedClosingReport(null)} 
-                className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 shadow-sm hover:bg-slate-50 transition-all"
+                className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 shadow-sm hover:bg-slate-50 transition-all"
               >✕</button>
               <div>
-                <h3 className="text-sm md:text-base font-black text-slate-800 uppercase tracking-tighter">Audit Daily Report</h3>
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Shift PIC: {cls.staffName}</p>
+                <h3 className="text-xs md:text-base font-black text-slate-800 uppercase tracking-tighter">Pratinjau Laporan Audit</h3>
+                <p className="text-[7px] md:text-[9px] font-black text-slate-400 uppercase tracking-widest">Digital Archive System</p>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => window.print()} className="px-6 py-3 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg shadow-orange-600/20 active:scale-95 transition-all">
-                CETAK LAPORAN 📑
-              </button>
-            </div>
+            <button onClick={() => window.print()} className="px-5 md:px-8 py-3 md:py-4 bg-orange-600 text-white rounded-2xl text-[9px] md:text-[10px] font-black uppercase shadow-lg shadow-orange-600/20 active:scale-95 transition-all">
+              CETAK LAPORAN 📑
+            </button>
           </div>
 
           {/* SCROLLABLE AREA */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-16 space-y-12 pb-24 print:p-0 print:overflow-visible">
+          <div className="flex-1 p-6 md:p-16 space-y-12 pb-24 print:p-0 print:m-0 print:overflow-visible overflow-visible">
             
             {/* DOCUMENT HEADER */}
-            <div className="flex flex-col md:flex-row justify-between items-start gap-8 border-b-4 border-slate-900 pb-10">
+            <header className="flex flex-col md:flex-row justify-between items-start gap-8 border-b-4 border-slate-900 pb-10 print:pb-6">
                 <div className="space-y-4">
-                   <div className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-3xl font-black">M</div>
+                   <div className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-3xl font-black print:w-12 print:h-12 print:text-xl">M</div>
                    <div>
-                      <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter leading-none">Mozza Boy Enterprise</h1>
-                      <p className="text-[10px] font-black text-orange-600 uppercase tracking-[0.4em] mt-2">Inventory & Sales Audit Report</p>
+                      <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter leading-none print:text-2xl">Mozza Boy Enterprise</h1>
+                      <p className="text-[10px] font-black text-orange-600 uppercase tracking-[0.4em] mt-2">Audit & Financial Document</p>
                    </div>
                    <div className="text-[10px] text-slate-500 font-bold uppercase leading-relaxed">
                       Outlet: {activeOutlet?.name}<br/>
@@ -176,162 +173,139 @@ export const ClosingManagement: React.FC = () => {
                 </div>
 
                 <div className="text-left md:text-right space-y-6 w-full md:w-auto">
-                   <div className="inline-block px-8 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Audit ID</p>
-                      <p className="text-lg font-mono font-black text-slate-900">#CLS-{cls.id.slice(-8).toUpperCase()}</p>
+                   <div className="inline-block px-8 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl print:px-4 print:py-2 print:rounded-xl">
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Doc Code</p>
+                      <p className="text-lg font-mono font-black text-slate-900 print:text-base">#CLS-{cls.id.slice(-8).toUpperCase()}</p>
                    </div>
                    <div className="space-y-1">
-                      <p className="text-[9px] font-black text-slate-900 uppercase">Periode Laporan</p>
-                      <p className="text-[11px] font-bold text-slate-400 uppercase">{reportDate.toLocaleString('id-ID')}</p>
+                      <p className="text-[9px] font-black text-slate-900 uppercase">Tgl Dokumen</p>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase">{reportDate.toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' })}</p>
                    </div>
                 </div>
-            </div>
+            </header>
 
-            {/* FINANCIAL SECTION */}
-            <section className="space-y-6">
+            {/* I. FINANCIAL RECAP */}
+            <section className="space-y-6 print:space-y-4">
                <div className="flex items-center gap-4">
                   <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">I. Rekapitulasi Kas & Biaya</h3>
                   <div className="flex-1 h-px bg-slate-100"></div>
                </div>
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl">
-                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Kas Tunai Sistem</p>
+               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:gap-2">
+                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl print:p-3 print:rounded-xl">
+                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Tunai Sistem</p>
                      <p className="text-sm font-black text-slate-800">Rp {cls.totalSalesCash.toLocaleString()}</p>
                   </div>
-                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl">
-                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">QRIS / Digital</p>
+                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl print:p-3 print:rounded-xl">
+                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Non-Tunai (QRIS)</p>
                      <p className="text-sm font-black text-blue-600">Rp {cls.totalSalesQRIS.toLocaleString()}</p>
                   </div>
-                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl">
+                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl print:p-3 print:rounded-xl">
                      <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Pengeluaran</p>
                      <p className="text-sm font-black text-red-600">Rp {cls.totalExpenses.toLocaleString()}</p>
                   </div>
-                  <div className={`p-5 border-2 rounded-3xl ${cls.discrepancy === 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Fisik di Laci</p>
+                  <div className={`p-5 border-2 rounded-3xl print:p-3 print:rounded-xl ${cls.discrepancy === 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Setoran Fisik</p>
                      <p className="text-sm font-black text-slate-900">Rp {cls.actualCash.toLocaleString()}</p>
                   </div>
                </div>
             </section>
 
-            {/* EXPENSE DETAIL SECTION (NEW) */}
-            <section className="space-y-6">
+            {/* II. EXPENSE DETAIL */}
+            <section className="space-y-6 print:space-y-4">
                <div className="flex items-center gap-4">
-                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">II. Rincian Pengeluaran Operasional</h3>
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">II. Rincian Biaya Operasional</h3>
                   <div className="flex-1 h-px bg-slate-100"></div>
                </div>
-               <div className="overflow-hidden border-2 border-slate-100 rounded-3xl">
+               <div className="overflow-hidden border-2 border-slate-100 rounded-3xl print:rounded-xl">
                   <table className="w-full text-[10px] text-left">
-                     <thead className="bg-slate-900 text-white uppercase text-[8px] font-black tracking-widest">
+                     <thead className="bg-slate-900 text-white uppercase text-[8px] font-black">
                         <tr>
-                           <th className="py-4 px-6">Jenis Biaya</th>
-                           <th className="py-4 px-4">Keterangan</th>
-                           <th className="py-4 px-4">PIC</th>
-                           <th className="py-4 px-6 text-right">Nominal</th>
+                           <th className="py-4 px-6 print:py-2 print:px-4">Kategori</th>
+                           <th className="py-4 px-4 print:py-2">Keterangan / Notes</th>
+                           <th className="py-4 px-4 print:py-2">PIC</th>
+                           <th className="py-4 px-6 text-right print:py-2 print:px-4">Nominal</th>
                         </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
                         {reportExpenses.length === 0 ? (
-                           <tr>
-                              <td colSpan={4} className="py-8 text-center text-slate-400 italic uppercase font-bold">Nihil / Tidak ada pengeluaran hari ini</td>
-                           </tr>
+                           <tr><td colSpan={4} className="py-10 text-center text-slate-400 italic font-bold">Nihil</td></tr>
                         ) : (
                            reportExpenses.map(exp => (
                               <tr key={exp.id}>
-                                 <td className="py-3 px-6 font-black uppercase text-slate-800">
+                                 <td className="py-3 px-6 font-black uppercase text-slate-800 print:py-1.5 print:px-4">
                                     {expenseTypes.find(t => t.id === exp.typeId)?.name || 'Lain-lain'}
                                  </td>
-                                 <td className="py-3 px-4 font-medium text-slate-500 italic">
-                                    "{exp.notes || '-'}"
-                                 </td>
-                                 <td className="py-3 px-4 font-black text-slate-400 uppercase">
-                                    {exp.staffName.split(' ')[0]}
-                                 </td>
-                                 <td className="py-3 px-6 text-right font-black text-red-600">
-                                    Rp {exp.amount.toLocaleString()}
-                                 </td>
+                                 <td className="py-3 px-4 font-medium text-slate-500 italic print:py-1.5">"{exp.notes || '-'}"</td>
+                                 <td className="py-3 px-4 font-black text-slate-400 uppercase print:py-1.5">{exp.staffName.split(' ')[0]}</td>
+                                 <td className="py-3 px-6 text-right font-black text-red-600 print:py-1.5 print:px-4">Rp {exp.amount.toLocaleString()}</td>
                               </tr>
                            ))
                         )}
                      </tbody>
-                     <tfoot className="bg-red-50 font-black">
+                     <tfoot className="bg-slate-50 font-black">
                         <tr>
-                           <td colSpan={3} className="py-4 px-6 text-slate-400 uppercase text-right">Total Pengeluaran</td>
-                           <td className="py-4 px-6 text-right text-red-600">Rp {cls.totalExpenses.toLocaleString()}</td>
+                           <td colSpan={3} className="py-4 px-6 text-right text-slate-400 uppercase print:py-2">Total Biaya</td>
+                           <td className="py-4 px-6 text-right text-red-600 print:py-2">Rp {cls.totalExpenses.toLocaleString()}</td>
                         </tr>
                      </tfoot>
                   </table>
                </div>
             </section>
 
-            {/* SALES RECAP SECTION */}
-            <section className="space-y-6">
+            {/* III. PRODUCT RECAP */}
+            <section className="space-y-6 print:space-y-4">
                <div className="flex items-center gap-4">
-                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">III. Rekapitulasi Penjualan Produk</h3>
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">III. Rekapitulasi Produk Terjual</h3>
                   <div className="flex-1 h-px bg-slate-100"></div>
                </div>
-               <div className="overflow-hidden border-2 border-slate-100 rounded-3xl">
+               <div className="overflow-hidden border-2 border-slate-100 rounded-3xl print:rounded-xl">
                   <table className="w-full text-[10px] text-left">
-                     <thead className="bg-slate-900 text-white uppercase text-[8px] font-black tracking-widest">
+                     <thead className="bg-slate-900 text-white uppercase text-[8px] font-black">
                         <tr>
-                           <th className="py-4 px-6">Nama Produk</th>
-                           <th className="py-4 px-4 text-center">Qty Terjual</th>
-                           <th className="py-4 px-6 text-right">Subtotal Omzet</th>
+                           <th className="py-4 px-6 print:py-2 print:px-4">Menu Name</th>
+                           <th className="py-4 px-4 text-center print:py-2">Quantity</th>
+                           <th className="py-4 px-6 text-right print:py-2 print:px-4">Gross Sales</th>
                         </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
                         {salesRecap.map(item => (
                            <tr key={item.name}>
-                              <td className="py-3 px-6 font-black uppercase text-slate-800">{item.name}</td>
-                              <td className="py-3 px-4 text-center font-bold text-slate-500">{item.qty} PCS</td>
-                              <td className="py-3 px-6 text-right font-black text-slate-900">Rp {item.total.toLocaleString()}</td>
+                              <td className="py-3 px-6 font-black uppercase text-slate-800 print:py-1.5 print:px-4">{item.name}</td>
+                              <td className="py-3 px-4 text-center font-bold text-slate-500 print:py-1.5">{item.qty} Unit</td>
+                              <td className="py-3 px-6 text-right font-black text-slate-900 print:py-1.5 print:px-4">Rp {item.total.toLocaleString()}</td>
                            </tr>
                         ))}
                      </tbody>
-                     <tfoot className="bg-slate-50 font-black">
-                        <tr>
-                           <td className="py-4 px-6 text-slate-400 uppercase">Total Penjualan</td>
-                           <td className="py-4 px-4 text-center">{salesRecap.reduce((a,b)=>a+b.qty, 0)} PCS</td>
-                           <td className="py-4 px-6 text-right text-orange-600">Rp {salesRecap.reduce((a,b)=>a+b.total, 0).toLocaleString()}</td>
-                        </tr>
-                     </tfoot>
                   </table>
                </div>
             </section>
 
-            {/* INVENTORY MOVEMENT SECTION */}
-            <section className="space-y-6">
+            {/* IV. INVENTORY AUDIT */}
+            <section className="space-y-6 print:space-y-4">
                <div className="flex items-center gap-4">
                   <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">IV. Audit Pergerakan Inventori</h3>
                   <div className="flex-1 h-px bg-slate-100"></div>
                </div>
 
-               <div className="overflow-x-auto border-2 border-slate-900 rounded-[32px] bg-white shadow-sm">
-                  <table className="w-full text-left border-collapse min-w-[800px]">
+               <div className="overflow-x-auto border-2 border-slate-900 rounded-[32px] bg-white print:rounded-xl print:overflow-visible">
+                  <table className="w-full text-left border-collapse min-w-[700px] print:min-w-0">
                      <thead>
                         <tr className="bg-slate-900 text-white text-[8px] font-black uppercase tracking-widest">
-                           <th className="py-4 px-6 sticky left-0 bg-slate-900">Material</th>
-                           <th className="py-4 px-4 text-center">Awal</th>
-                           <th className="py-4 px-4 text-center text-green-400">Beli (+)</th>
-                           <th className="py-4 px-4 text-center text-blue-400">Mutasi (±)</th>
-                           <th className="py-4 px-4 text-center text-purple-400">Prod (±)</th>
-                           <th className="py-4 px-4 text-center text-red-400">Jual (-)</th>
-                           <th className="py-4 px-6 text-right bg-slate-800">Akhir</th>
+                           <th className="py-4 px-6 print:px-3 print:py-2">Bahan Baku</th>
+                           <th className="py-4 px-4 text-center print:px-1 print:py-2">Awal</th>
+                           <th className="py-4 px-4 text-center text-green-400 print:px-1 print:py-2">In (+)</th>
+                           <th className="py-4 px-4 text-center text-red-400 print:px-1 print:py-2">Out (-)</th>
+                           <th className="py-4 px-6 text-right bg-slate-800 print:px-3 print:py-2">Stok Akhir</th>
                         </tr>
                      </thead>
-                     <tbody className="divide-y divide-slate-100 text-[10px]">
+                     <tbody className="divide-y divide-slate-100 text-[10px] print:text-[8px]">
                         {detailedMovement.map(m => (
-                           <tr key={m.name} className="hover:bg-slate-50 transition-colors">
-                              <td className="py-3 px-6 font-black text-slate-800 uppercase sticky left-0 bg-white group-hover:bg-slate-50">{m.name}</td>
-                              <td className="py-3 px-4 text-center font-bold text-slate-400">{m.initial.toFixed(2)}</td>
-                              <td className="py-3 px-4 text-center font-black text-green-600">{m.purchase > 0 ? `+${m.purchase}` : '-'}</td>
-                              <td className={`py-3 px-4 text-center font-black ${m.transfer >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                                 {m.transfer !== 0 ? (m.transfer > 0 ? `+${m.transfer}` : m.transfer) : '-'}
-                              </td>
-                              <td className={`py-3 px-4 text-center font-black ${m.production >= 0 ? 'text-purple-600' : 'text-orange-500'}`}>
-                                 {m.production !== 0 ? (m.production > 0 ? `+${m.production}` : m.production) : '-'}
-                              </td>
-                              <td className="py-3 px-4 text-center font-black text-red-500">{m.sold > 0 ? `-${m.sold.toFixed(2)}` : '-'}</td>
-                              <td className="py-3 px-6 text-right font-black text-slate-900 bg-slate-50/50">
+                           <tr key={m.name} className="hover:bg-slate-50">
+                              <td className="py-3 px-6 font-black text-slate-800 uppercase print:px-3 print:py-1.5">{m.name}</td>
+                              <td className="py-3 px-4 text-center font-bold text-slate-400 print:px-1">{m.initial.toFixed(2)}</td>
+                              <td className="py-3 px-4 text-center font-black text-green-600 print:px-1">{(m.purchase + (m.transfer > 0 ? m.transfer : 0) + (m.production > 0 ? m.production : 0)).toFixed(2)}</td>
+                              <td className="py-3 px-4 text-center font-black text-red-500 print:px-1">{(m.sold + (m.transfer < 0 ? Math.abs(m.transfer) : 0) + (m.production < 0 ? Math.abs(m.production) : 0)).toFixed(2)}</td>
+                              <td className="py-3 px-6 text-right font-black text-slate-900 bg-slate-50/50 print:px-3">
                                  {m.final.toFixed(2)} <span className="text-[7px] text-slate-300 ml-1">{m.unit}</span>
                               </td>
                            </tr>
@@ -341,27 +315,27 @@ export const ClosingManagement: React.FC = () => {
                </div>
             </section>
 
-            {/* FOOTER / SIGNATURES */}
-            <div className="pt-12 border-t border-slate-100">
-               <div className="grid grid-cols-2 md:grid-cols-3 gap-12">
-                  <div className="text-center space-y-16">
+            {/* V. SIGNATURES */}
+            <footer className="pt-20 border-t border-slate-100 no-break-page print:pt-10">
+               <div className="grid grid-cols-2 md:grid-cols-3 gap-12 print:gap-6">
+                  <div className="text-center space-y-16 print:space-y-12">
                      <p className="text-[9px] font-black text-slate-400 uppercase">Dibuat Oleh (PIC)</p>
                      <div className="border-b border-slate-300 w-40 mx-auto"></div>
                      <p className="text-[10px] font-black uppercase text-slate-900">{cls.staffName}</p>
                   </div>
-                  <div className="hidden md:flex flex-col items-center justify-center text-center space-y-4">
-                     <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-xl p-2 opacity-50 grayscale">
+                  <div className="hidden md:flex flex-col items-center justify-center text-center space-y-4 print:flex">
+                     <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-xl p-2 opacity-50 grayscale print:w-12 print:h-12">
                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=VERIFIED-AUDIT-${cls.id}&color=0f172a`} alt="Audit QR" />
                      </div>
-                     <p className="text-[7px] font-black text-slate-300 uppercase">System Validated</p>
+                     <p className="text-[7px] font-black text-slate-300 uppercase">Secure Digital Hash</p>
                   </div>
-                  <div className="text-center space-y-16">
-                     <p className="text-[9px] font-black text-slate-400 uppercase">Otorisasi (Owner)</p>
+                  <div className="text-center space-y-16 print:space-y-12">
+                     <p className="text-[9px] font-black text-slate-400 uppercase">Verifikasi (Owner)</p>
                      <div className="border-b border-slate-300 w-40 mx-auto"></div>
                      <p className="text-[10px] font-black uppercase text-slate-300 italic">Signature & Stamp</p>
                   </div>
                </div>
-            </div>
+            </footer>
           </div>
         </div>
       </div>

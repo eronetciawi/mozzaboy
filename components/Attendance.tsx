@@ -18,6 +18,8 @@ export const Attendance: React.FC = () => {
 
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   const todayStr = new Date().toISOString().split('T')[0];
+  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
   const myAttendanceRecords = useMemo(() => 
     [...attendance].filter(a => a.staffId === currentUser.id).sort((a,b) => b.date.localeCompare(a.date)),
     [attendance, currentUser.id]
@@ -106,6 +108,7 @@ export const Attendance: React.FC = () => {
   };
 
   const handleSaveProfile = () => {
+    if (!profileForm.name?.trim()) return alert("Nama lengkap tidak boleh kosong.");
     setIsSavingProfile(true);
     setTimeout(() => {
       updateStaff({ ...currentUser, ...profileForm } as StaffMember);
@@ -302,10 +305,42 @@ export const Attendance: React.FC = () => {
                     <h3 className="text-lg font-black text-slate-800 uppercase leading-tight">{currentUser.name}</h3>
                     <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">{currentUser.role}</p>
                  </div>
+                 
+                 {/* SCHEDULE INFO TILE */}
+                 <div className="mt-6 bg-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 text-4xl">🗓️</div>
+                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-4">Informasi Jadwal</p>
+                    <div className="space-y-4">
+                       <div className="flex justify-between items-center border-b border-white/5 pb-3">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">Hari Libur Rutin</span>
+                          <span className="text-xs font-black text-orange-400 uppercase tracking-wider">{days[currentUser.weeklyOffDay || 0]}</span>
+                       </div>
+                       <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">Jam Kerja</span>
+                          <span className="text-xs font-black text-white">{currentUser.shiftStartTime} - {currentUser.shiftEndTime}</span>
+                       </div>
+                    </div>
+                 </div>
               </div>
 
               <div className="md:col-span-2 space-y-6">
                  <div className="bg-white p-6 md:p-8 rounded-[40px] border border-slate-100 shadow-sm space-y-8">
+                    <section>
+                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Identitas Utama</h4>
+                       <div className="grid grid-cols-1 gap-4">
+                          <div>
+                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Nama Lengkap (Sesuai KTP)</label>
+                             <input 
+                               type="text" 
+                               className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-sm focus:border-orange-500 outline-none transition-all" 
+                               value={profileForm.name || ''} 
+                               onChange={e => setProfileForm({...profileForm, name: e.target.value})} 
+                               placeholder="Nama Lengkap"
+                             />
+                          </div>
+                       </div>
+                    </section>
+
                     <section className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100">
                        <h4 className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-4 border-b border-indigo-100 pb-2">Keamanan & Akses Akun</h4>
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -321,7 +356,7 @@ export const Attendance: React.FC = () => {
                     </section>
 
                     <section>
-                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Identitas & Kontak</h4>
+                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Kontak & Domisili</h4>
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                              <label className="text-[8px] font-black text-slate-400 uppercase ml-1">No. WhatsApp</label>
@@ -334,24 +369,6 @@ export const Attendance: React.FC = () => {
                           <div className="md:col-span-2">
                              <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Alamat Domisili</label>
                              <textarea className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs h-16" value={profileForm.address || ''} onChange={e => setProfileForm({...profileForm, address: e.target.value})} />
-                          </div>
-                       </div>
-                    </section>
-
-                    <section>
-                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Media Sosial</h4>
-                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Instagram (@)</label>
-                             <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.instagram || ''} onChange={e => setProfileForm({...profileForm, instagram: e.target.value})} placeholder="mozzaboy.id" />
-                          </div>
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Telegram (@)</label>
-                             <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.telegram || ''} onChange={e => setProfileForm({...profileForm, telegram: e.target.value})} placeholder="username_tg" />
-                          </div>
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">TikTok (@)</label>
-                             <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.tiktok || ''} onChange={e => setProfileForm({...profileForm, tiktok: e.target.value})} placeholder="user_tiktok" />
                           </div>
                        </div>
                     </section>
@@ -371,7 +388,7 @@ export const Attendance: React.FC = () => {
                     </section>
 
                     <button disabled={isSavingProfile} onClick={handleSaveProfile} className={`w-full py-5 rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl transition-all ${isSavingProfile ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white hover:bg-orange-600'}`}>
-                       {isSavingProfile ? 'MEMPROSES...' : 'SIMPAN PERUBAHAN PROFIL & AKSES 💾'}
+                       {isSavingProfile ? 'MEMPROSES...' : 'SIMPAN PERUBAHAN PROFIL 💾'}
                     </button>
                  </div>
               </div>
