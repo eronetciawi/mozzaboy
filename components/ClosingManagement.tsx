@@ -1,12 +1,12 @@
 
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../store';
-import { OrderStatus, PaymentMethod, DailyClosing, UserRole } from '../types';
+import { OrderStatus, PaymentMethod, DailyClosing, UserRole, Product } from '../types';
 
 export const ClosingManagement: React.FC = () => {
   const { 
-    transactions, expenses, expenseTypes, dailyClosings, performClosing, 
-    currentUser, selectedOutletId, outlets, inventory, purchases, stockTransfers, staff, productionRecords
+    transactions, expenses, dailyClosings, performClosing, 
+    currentUser, selectedOutletId, outlets, inventory, purchases, stockTransfers, staff, productionRecords, products
   } = useApp();
   
   const [actualCash, setActualCash] = useState(0);
@@ -37,6 +37,24 @@ export const ClosingManagement: React.FC = () => {
   const discrepancy = actualCash - expectedCash;
   const hasDiscrepancy = discrepancy !== 0;
 
+  // --- CALCULATE SALES RECAP ---
+  const calculateSalesRecap = (reportDate: Date) => {
+    const start = new Date(reportDate); start.setHours(0,0,0,0);
+    const end = new Date(reportDate); end.setHours(23,59,59,999);
+    const periodTxs = transactions.filter(tx => tx.outletId === selectedOutletId && new Date(tx.timestamp) >= start && new Date(tx.timestamp) <= end && tx.status === OrderStatus.CLOSED);
+    
+    const recap: Record<string, { name: string, qty: number, total: number }> = {};
+    periodTxs.forEach(tx => {
+      tx.items.forEach(item => {
+        if (!recap[item.product.id]) recap[item.product.id] = { name: item.product.name, qty: 0, total: 0 };
+        recap[item.product.id].qty += item.quantity;
+        recap[item.product.id].total += (item.product.outletSettings?.[selectedOutletId]?.price || item.product.price) * item.quantity;
+      });
+    });
+    return Object.values(recap).sort((a,b) => b.qty - a.qty);
+  };
+
+  // --- CALCULATE DETAILED STOCK MOVEMENT ---
   const calculateDetailedMovement = (reportDate: Date) => {
     const auditStart = new Date(reportDate); auditStart.setHours(0,0,0,0);
     const auditEnd = new Date(reportDate); auditEnd.setHours(23,59,59,999);
@@ -50,10 +68,20 @@ export const ClosingManagement: React.FC = () => {
       let soldQty = 0;
       periodTxs.forEach(tx => {
         tx.items.forEach(cartItem => {
-          cartItem.product.bom.forEach(bom => {
-            const templateItem = inventory.find(inv => inv.id === bom.inventoryItemId);
-            if (templateItem && templateItem.name === item.name) soldQty += (bom.quantity * cartItem.quantity);
-          });
+          const processBOM = (prod: Product, multiplier: number) => {
+            if (prod.isCombo && prod.comboItems) {
+               prod.comboItems.forEach(ci => {
+                  const inner = products.find(p => p.id === ci.productId);
+                  if (inner) processBOM(inner, multiplier * ci.quantity);
+               });
+            } else {
+               prod.bom.forEach(bom => {
+                  const templateItem = inventory.find(inv => inv.id === bom.inventoryItemId);
+                  if (templateItem && templateItem.name === item.name) soldQty += (bom.quantity * multiplier);
+               });
+            }
+          };
+          processBOM(cartItem.product, cartItem.quantity);
         });
       });
 
@@ -61,6 +89,7 @@ export const ClosingManagement: React.FC = () => {
       const transferInQty = periodTransfers.filter(t => t.toOutletId === selectedOutletId && t.itemName === item.name).reduce((a,b) => a + b.quantity, 0);
       const transferOutQty = periodTransfers.filter(t => t.fromOutletId === selectedOutletId && t.itemName === item.name).reduce((a,b) => a + b.quantity, 0);
       const prodInQty = periodProduction.filter(p => p.resultItemId === item.id).reduce((a,b) => a + b.resultQuantity, 0);
+      
       let prodOutQty = 0;
       periodProduction.forEach(p => {
         p.components.forEach(comp => {
@@ -78,14 +107,218 @@ export const ClosingManagement: React.FC = () => {
         unit: item.unit,
         initial: initialStock,
         purchase: purchaseQty,
-        transferIn: transferInQty,
-        transferOut: transferOutQty,
-        productionIn: prodInQty,
-        productionOut: prodOutQty,
+        transfer: transferInQty - transferOutQty,
+        production: prodInQty - prodOutQty,
         sold: soldQty,
         final: item.quantity
       };
     });
+  };
+
+  const handleClosing = () => {
+    performClosing(actualCash, notes);
+    setShowConfirm(false);
+    setActualCash(0);
+    setNotes('');
+  };
+
+  const renderAuditReport = (cls: DailyClosing) => {
+    const reportDate = new Date(cls.timestamp);
+    const salesRecap = calculateSalesRecap(reportDate);
+    const detailedMovement = calculateDetailedMovement(reportDate);
+
+    return (
+      <div className="fixed inset-0 z-[300] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6 overflow-y-auto no-scrollbar">
+        <div className="bg-white rounded-none md:rounded-[40px] w-full max-w-5xl min-h-screen md:min-h-0 flex flex-col shadow-2xl animate-in zoom-in-95 overflow-hidden">
+          
+          {/* HEADER TOOLBAR (HIDDEN ON PRINT) */}
+          <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 no-print shrink-0">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setSelectedClosingReport(null)} className="w-10 h-10 rounded-full bg-white border flex items-center justify-center text-slate-400 shadow-sm">←</button>
+              <div>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Audit Daily Report</h3>
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{reportDate.toLocaleDateString()}</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => window.print()} className="px-6 py-2.5 bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-orange-600/20 active:scale-95 transition-all">
+                CETAK AUDIT 📑
+              </button>
+            </div>
+          </div>
+
+          {/* PRINTABLE CONTENT AREA */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-16 space-y-12 pb-32 print:p-0 print:overflow-visible">
+            
+            {/* DOCUMENT HEADER */}
+            <div className="flex flex-col md:flex-row justify-between items-start gap-8 border-b-4 border-slate-900 pb-10">
+                <div className="space-y-4">
+                   <div className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-3xl font-black">M</div>
+                   <div>
+                      <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter leading-none">Mozza Boy Enterprise</h1>
+                      <p className="text-[10px] font-black text-orange-600 uppercase tracking-[0.4em] mt-2">Inventory & Sales Audit Report</p>
+                   </div>
+                   <div className="text-[10px] text-slate-500 font-bold uppercase leading-relaxed">
+                      Outlet: {activeOutlet?.name}<br/>
+                      Admin PIC: {cls.staffName}
+                   </div>
+                </div>
+
+                <div className="text-left md:text-right space-y-6 w-full md:w-auto">
+                   <div className="inline-block px-8 py-4 bg-slate-50 border-2 border-slate-100 rounded-3xl">
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Audit ID</p>
+                      <p className="text-lg font-mono font-black text-slate-900">#CLS-{cls.id.slice(-8).toUpperCase()}</p>
+                   </div>
+                   <div className="space-y-1">
+                      <p className="text-[9px] font-black text-slate-900 uppercase">Periode Laporan</p>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase">{reportDate.toLocaleString('id-ID')}</p>
+                   </div>
+                </div>
+            </div>
+
+            {/* SECTION 1: FINANCIALS */}
+            <section className="space-y-6">
+               <div className="flex items-center gap-4">
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">I. Rekapitulasi Kas & Biaya</h3>
+                  <div className="flex-1 h-px bg-slate-100"></div>
+               </div>
+               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl">
+                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Kas Tunai Sistem</p>
+                     <p className="text-sm font-black text-slate-800">Rp {cls.totalSalesCash.toLocaleString()}</p>
+                  </div>
+                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl">
+                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">QRIS / Digital</p>
+                     <p className="text-sm font-black text-blue-600">Rp {cls.totalSalesQRIS.toLocaleString()}</p>
+                  </div>
+                  <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl">
+                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Pengeluaran</p>
+                     <p className="text-sm font-black text-red-600">Rp {cls.totalExpenses.toLocaleString()}</p>
+                  </div>
+                  <div className={`p-5 border-2 rounded-3xl ${cls.discrepancy === 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                     <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Fisik di Laci</p>
+                     <p className="text-sm font-black text-slate-900">Rp {cls.actualCash.toLocaleString()}</p>
+                  </div>
+               </div>
+            </section>
+
+            {/* SECTION 2: SALES RECAP */}
+            <section className="space-y-6">
+               <div className="flex items-center gap-4">
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">II. Rekapitulasi Penjualan Produk</h3>
+                  <div className="flex-1 h-px bg-slate-100"></div>
+               </div>
+               <div className="overflow-hidden border-2 border-slate-100 rounded-3xl">
+                  <table className="w-full text-[10px] text-left">
+                     <thead className="bg-slate-900 text-white uppercase text-[8px] font-black tracking-widest">
+                        <tr>
+                           <th className="py-4 px-6">Nama Produk</th>
+                           <th className="py-4 px-4 text-center">Qty Terjual</th>
+                           <th className="py-4 px-6 text-right">Subtotal Omzet</th>
+                        </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100">
+                        {salesRecap.map(item => (
+                           <tr key={item.name}>
+                              <td className="py-3 px-6 font-black uppercase text-slate-800">{item.name}</td>
+                              <td className="py-3 px-4 text-center font-bold text-slate-500">{item.qty} PCS</td>
+                              <td className="py-3 px-6 text-right font-black text-slate-900">Rp {item.total.toLocaleString()}</td>
+                           </tr>
+                        ))}
+                     </tbody>
+                     <tfoot className="bg-slate-50 font-black">
+                        <tr>
+                           <td className="py-4 px-6 text-slate-400 uppercase">Total Penjualan</td>
+                           <td className="py-4 px-4 text-center">{salesRecap.reduce((a,b)=>a+b.qty, 0)} PCS</td>
+                           <td className="py-4 px-6 text-right text-orange-600">Rp {salesRecap.reduce((a,b)=>a+b.total, 0).toLocaleString()}</td>
+                        </tr>
+                     </tfoot>
+                  </table>
+               </div>
+            </section>
+
+            {/* SECTION 3: DETAILED INVENTORY MOVEMENT */}
+            <section className="space-y-6">
+               <div className="flex items-center gap-4">
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">III. Audit Pergerakan Inventori</h3>
+                  <div className="flex-1 h-px bg-slate-100"></div>
+               </div>
+
+               <div className="overflow-x-auto border-2 border-slate-900 rounded-[32px] bg-white">
+                  <table className="w-full text-left border-collapse min-w-[800px]">
+                     <thead>
+                        <tr className="bg-slate-900 text-white text-[8px] font-black uppercase tracking-widest">
+                           <th className="py-4 px-6 sticky left-0 bg-slate-900">Material</th>
+                           <th className="py-4 px-4 text-center">Awal</th>
+                           <th className="py-4 px-4 text-center text-green-400">Beli (+)</th>
+                           <th className="py-4 px-4 text-center text-blue-400">Mutasi (±)</th>
+                           <th className="py-4 px-4 text-center text-purple-400">Prod (±)</th>
+                           <th className="py-4 px-4 text-center text-red-400">Jual (-)</th>
+                           <th className="py-4 px-6 text-right bg-slate-800">Akhir</th>
+                        </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100 text-[10px]">
+                        {detailedMovement.map(m => (
+                           <tr key={m.name} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-3 px-6 font-black text-slate-800 uppercase sticky left-0 bg-white group-hover:bg-slate-50">{m.name}</td>
+                              <td className="py-3 px-4 text-center font-bold text-slate-400">{m.initial.toFixed(2)}</td>
+                              <td className="py-3 px-4 text-center font-black text-green-600">{m.purchase > 0 ? `+${m.purchase}` : '-'}</td>
+                              <td className={`py-3 px-4 text-center font-black ${m.transfer >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                                 {m.transfer !== 0 ? (m.transfer > 0 ? `+${m.transfer}` : m.transfer) : '-'}
+                              </td>
+                              <td className={`py-3 px-4 text-center font-black ${m.production >= 0 ? 'text-purple-600' : 'text-orange-500'}`}>
+                                 {m.production !== 0 ? (m.production > 0 ? `+${m.production}` : m.production) : '-'}
+                              </td>
+                              <td className="py-3 px-4 text-center font-black text-red-500">{m.sold > 0 ? `-${m.sold.toFixed(2)}` : '-'}</td>
+                              <td className="py-3 px-6 text-right font-black text-slate-900 bg-slate-50/50">
+                                 {m.final.toFixed(2)} <span className="text-[7px] text-slate-300 ml-1">{m.unit}</span>
+                              </td>
+                           </tr>
+                        ))}
+                     </tbody>
+                  </table>
+               </div>
+               <p className="text-[8px] text-slate-400 italic px-4 font-medium uppercase leading-relaxed">
+                  * Data pergerakan dihitung otomatis berdasarkan Log Transaksi, Log Pembelian, Log Mutasi, dan Log Produksi pada tanggal terpilih.
+               </p>
+            </section>
+
+            {/* SECTION 4: SIGNATURES */}
+            <div className="pt-12 border-t border-slate-100">
+               <div className="mb-10">
+                  <p className="text-[9px] font-black text-slate-400 uppercase mb-3">Catatan Audit Akhir:</p>
+                  <div className="p-6 bg-slate-50 rounded-3xl border border-dashed border-slate-300 min-h-[80px] italic text-[11px] text-slate-600">
+                     "{cls.notes || 'Tidak ada catatan tambahan.'}"
+                  </div>
+               </div>
+
+               <div className="grid grid-cols-2 md:grid-cols-3 gap-12">
+                  <div className="text-center space-y-16">
+                     <p className="text-[9px] font-black text-slate-400 uppercase">Dibuat Oleh (PIC)</p>
+                     <div className="border-b border-slate-300 w-40 mx-auto"></div>
+                     <p className="text-[10px] font-black uppercase text-slate-900">{cls.staffName}</p>
+                  </div>
+                  
+                  <div className="hidden md:flex flex-col items-center justify-center text-center space-y-4">
+                     <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-xl p-2 opacity-50 grayscale">
+                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=VERIFIED-AUDIT-${cls.id}&color=0f172a`} alt="Audit QR" />
+                     </div>
+                     <p className="text-[7px] font-black text-slate-300 uppercase">System Validated</p>
+                  </div>
+
+                  <div className="text-center space-y-16">
+                     <p className="text-[9px] font-black text-slate-400 uppercase">Otorisasi (Owner)</p>
+                     <div className="border-b border-slate-300 w-40 mx-auto"></div>
+                     <p className="text-[10px] font-black uppercase text-slate-300 italic">Signature & Stamp</p>
+                  </div>
+               </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 h-4 w-full shrink-0"></div>
+        </div>
+      </div>
+    );
   };
 
   const validateAndClosing = () => {
@@ -109,227 +342,14 @@ export const ClosingManagement: React.FC = () => {
     }
   };
 
-  const handleClosing = () => {
-    performClosing(actualCash, notes);
-    setShowConfirm(false);
-    setActualCash(0);
-    setNotes('');
-  };
-
-  const renderAuditReport = (cls: DailyClosing) => {
-    const reportDate = new Date(cls.timestamp);
-    const detailedMovement = calculateDetailedMovement(reportDate);
-
-    return (
-      <div className="fixed inset-0 z-[300] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6 no-scrollbar overflow-y-auto">
-        <div className="bg-white rounded-none md:rounded-[40px] w-full max-w-5xl min-h-screen md:min-h-0 flex flex-col shadow-2xl animate-in zoom-in-95 print-area overflow-hidden">
-          {/* COMPACT TOOLBAR - MOBILE FRIENDLY */}
-          <div className="p-4 md:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 sticky top-0 z-20 no-print shrink-0">
-            <div className="flex items-center gap-3">
-              <button onClick={() => setSelectedClosingReport(null)} className="md:hidden w-8 h-8 flex items-center justify-center text-slate-400">←</button>
-              <div>
-                <h3 className="text-sm md:text-lg font-black text-slate-800 uppercase tracking-tighter">Laporan Audit</h3>
-                <p className="text-[8px] md:text-[9px] font-black text-slate-400 uppercase tracking-widest">{reportDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => window.print()} 
-                className="px-4 md:px-6 py-2 bg-orange-600 text-white rounded-xl text-[9px] md:text-[10px] font-black uppercase shadow-lg shadow-orange-600/20 active:scale-95 transition-all"
-              >
-                Cetak PDF 🖨️
-              </button>
-              <button onClick={() => setSelectedClosingReport(null)} className="hidden md:flex w-10 h-10 rounded-full bg-white border items-center justify-center text-slate-400">✕</button>
-            </div>
-          </div>
-
-          <div className="flex-1 p-4 md:p-12 space-y-8 md:space-y-12 overflow-y-auto custom-scrollbar pb-24 md:pb-12">
-            {/* BRANDING HEADER - PDF COMPATIBLE */}
-            <div className="flex flex-col md:flex-row justify-between items-start border-b-2 md:border-b-4 border-slate-900 pb-6 md:pb-8 gap-4">
-                <div>
-                   <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">MOZZA BOY</h1>
-                   <p className="text-[8px] md:text-[10px] font-black text-orange-600 uppercase tracking-[0.3em] mb-3 md:mb-4">Enterprise Operating System</p>
-                   <div className="space-y-0.5">
-                      <p className="text-[10px] md:text-[11px] font-bold text-slate-700">{activeOutlet?.name}</p>
-                      <p className="text-[8px] md:text-[10px] text-slate-400 max-w-xs leading-relaxed uppercase">{activeOutlet?.address}</p>
-                   </div>
-                </div>
-                <div className="w-full md:w-auto text-left md:text-right">
-                   <div className="inline-block p-2 md:p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl md:rounded-3xl mb-3 md:mb-4">
-                      <p className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase mb-0.5 md:mb-1 tracking-widest">ID Audit</p>
-                      <p className="text-xs md:text-sm font-mono font-black text-slate-800">#{cls.id.slice(-8).toUpperCase()}</p>
-                   </div>
-                   <div className="flex md:flex-col justify-between md:justify-end gap-2 px-1">
-                      <p className="text-[9px] md:text-[10px] font-black text-slate-900 uppercase">Petugas: {cls.staffName}</p>
-                      <p className="text-[8px] md:text-[9px] text-slate-400 font-bold uppercase">{reportDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
-                   </div>
-                </div>
-            </div>
-
-            {/* FINANCIAL SUMMARY */}
-            <section>
-               <h4 className="text-[9px] md:text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] mb-4 md:mb-6 flex items-center gap-3">
-                  <span className="w-6 md:w-8 h-px bg-slate-900"></span> REKAPITULASI FINANSIAL
-               </h4>
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                  <div className="p-4 md:p-6 bg-slate-50 rounded-2xl md:rounded-3xl border border-slate-200">
-                     <p className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase mb-1 md:mb-2 tracking-widest">Tunai Sistem</p>
-                     <p className="text-sm md:text-lg font-black text-slate-800">Rp {cls.totalSalesCash.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 md:p-6 bg-slate-50 rounded-2xl md:rounded-3xl border border-slate-200">
-                     <p className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase mb-1 md:mb-2 tracking-widest">Digital/QRIS</p>
-                     <p className="text-sm md:text-lg font-black text-blue-600">Rp {cls.totalSalesQRIS.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 md:p-6 bg-slate-50 rounded-2xl md:rounded-3xl border border-slate-200">
-                     <p className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase mb-1 md:mb-2 tracking-widest">Total Biaya</p>
-                     <p className="text-sm md:text-lg font-black text-red-600">Rp {cls.totalExpenses.toLocaleString()}</p>
-                  </div>
-                  <div className={`p-4 md:p-6 rounded-2xl md:rounded-3xl border-2 ${cls.discrepancy === 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                     <p className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase mb-1 md:mb-2 tracking-widest">Fisik Laci</p>
-                     <p className="text-sm md:text-lg font-black text-slate-900">Rp {cls.actualCash.toLocaleString()}</p>
-                  </div>
-               </div>
-               {cls.discrepancy !== 0 && (
-                 <div className="mt-3 p-3 bg-red-600 text-white rounded-xl text-center shadow-lg shadow-red-600/10">
-                    <p className="text-[9px] font-black uppercase tracking-widest">🚨 TERDETEKSI SELISIH KAS: Rp {cls.discrepancy.toLocaleString()}</p>
-                 </div>
-               )}
-            </section>
-
-            {/* DETAILED STOCK MOVEMENT - HYBRID VIEW */}
-            <section>
-               <h4 className="text-[9px] md:text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] mb-4 md:mb-6 flex items-center gap-3">
-                  <span className="w-6 md:w-8 h-px bg-slate-900"></span> AUDIT PERGERAKAN STOK
-               </h4>
-
-               {/* DESKTOP VIEW & PRINT OUTPUT (Always Table) */}
-               <div className="hidden md:block overflow-hidden rounded-[32px] border-2 border-slate-900">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse min-w-[800px]">
-                      <thead>
-                          <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
-                            <th className="py-4 px-6">Nama Material</th>
-                            <th className="py-4 px-4 text-center">Awal</th>
-                            <th className="py-4 px-4 text-center text-green-400">+ Beli</th>
-                            <th className="py-4 px-4 text-center text-blue-400">± Mutasi</th>
-                            <th className="py-4 px-4 text-center text-purple-400">± Prod</th>
-                            <th className="py-4 px-4 text-center text-red-400">- Jual</th>
-                            <th className="py-4 px-6 text-right bg-slate-800">Akhir</th>
-                          </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                          {detailedMovement.map(m => (
-                            <tr key={m.name} className="hover:bg-slate-50 transition-colors text-[11px]">
-                                <td className="py-4 px-6 font-black text-slate-800 uppercase leading-none">
-                                   {m.name}
-                                   <p className="text-[7px] text-slate-400 mt-1 font-bold">Unit: {m.unit}</p>
-                                </td>
-                                <td className="py-4 px-4 text-center font-bold text-slate-400">{m.initial}</td>
-                                <td className="py-4 px-4 text-center font-black text-green-600">{m.purchase > 0 ? `+${m.purchase}` : '-'}</td>
-                                <td className="py-4 px-4 text-center font-bold">
-                                   <div className="flex flex-col gap-0.5">
-                                      {m.transferIn > 0 && <div className="text-blue-600 text-[9px]">+{m.transferIn} In</div>}
-                                      {m.transferOut > 0 && <div className="text-slate-400 text-[9px]">-{m.transferOut} Out</div>}
-                                      {m.transferIn === 0 && m.transferOut === 0 && <span className="text-slate-200">-</span>}
-                                   </div>
-                                </td>
-                                <td className="py-4 px-4 text-center font-bold">
-                                   <div className="flex flex-col gap-0.5">
-                                      {m.productionIn > 0 && <div className="text-purple-600 text-[9px]">+{m.productionIn} WIP</div>}
-                                      {m.productionOut > 0 && <div className="text-slate-400 text-[9px]">-{m.productionOut} Use</div>}
-                                      {m.productionIn === 0 && m.productionOut === 0 && <span className="text-slate-200">-</span>}
-                                   </div>
-                                </td>
-                                <td className="py-4 px-4 text-center font-black text-red-500">{m.sold > 0 ? `-${m.sold.toFixed(1)}` : '-'}</td>
-                                <td className="py-4 px-6 text-right font-black text-slate-900 bg-slate-50">
-                                   {m.final} <span className="text-[8px] text-slate-300 font-bold ml-1 uppercase">{m.unit}</span>
-                                </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-               </div>
-
-               {/* MOBILE VIEW (Elegant Card Grid) - Hidden in Print */}
-               <div className="md:hidden space-y-4 no-print">
-                  {detailedMovement.map(m => (
-                    <div key={m.name} className="bg-white p-5 rounded-[28px] border border-slate-100 shadow-sm flex flex-col group active:bg-slate-50 transition-all">
-                       <div className="flex justify-between items-start mb-4">
-                          <div className="min-w-0 flex-1">
-                             <h4 className="text-[11px] font-black text-slate-800 uppercase leading-tight truncate">{m.name}</h4>
-                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Satuan: {m.unit}</p>
-                          </div>
-                          <div className="text-right pl-4">
-                             <p className="text-[7px] font-black text-slate-400 uppercase mb-0.5 tracking-tighter">Stok Akhir</p>
-                             <div className="flex items-baseline justify-end gap-1">
-                                <span className="text-xl font-black text-slate-900 leading-none">{m.final}</span>
-                                <span className="text-[8px] font-black text-slate-400 uppercase">{m.unit}</span>
-                             </div>
-                          </div>
-                       </div>
-
-                       <div className="grid grid-cols-5 gap-0.5 bg-slate-50/50 p-2 rounded-2xl border border-slate-100/50">
-                          <div className="flex flex-col items-center">
-                             <p className="text-[6px] font-black text-slate-400 uppercase mb-1">Awal</p>
-                             <p className="text-[10px] font-bold text-slate-600">{m.initial}</p>
-                          </div>
-                          <div className="flex flex-col items-center border-l border-slate-200">
-                             <p className="text-[6px] font-black text-green-500 uppercase mb-1">Beli</p>
-                             <p className="text-[10px] font-black text-green-600">{m.purchase > 0 ? `+${m.purchase}` : '-'}</p>
-                          </div>
-                          <div className="flex flex-col items-center border-l border-slate-200">
-                             <p className="text-[6px] font-black text-blue-500 uppercase mb-1">Mutasi</p>
-                             <p className={`text-[10px] font-bold ${m.transferIn - m.transferOut > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
-                                {(m.transferIn - m.transferOut) !== 0 ? (m.transferIn - m.transferOut > 0 ? `+${m.transferIn - m.transferOut}` : m.transferIn - m.transferOut) : '-'}
-                             </p>
-                          </div>
-                          <div className="flex flex-col items-center border-l border-slate-200">
-                             <p className="text-[6px] font-black text-purple-500 uppercase mb-1">Dapur</p>
-                             <p className={`text-[10px] font-bold ${m.productionIn - m.productionOut > 0 ? 'text-purple-600' : 'text-slate-400'}`}>
-                                {(m.productionIn - m.productionOut) !== 0 ? (m.productionIn - m.productionOut > 0 ? `+${m.productionIn - m.productionOut}` : (m.productionIn - m.productionOut).toFixed(1)) : '-'}
-                             </p>
-                          </div>
-                          <div className="flex flex-col items-center border-l border-slate-200">
-                             <p className="text-[6px] font-black text-red-500 uppercase mb-1">Jual</p>
-                             <p className="text-[10px] font-black text-red-600">{m.sold > 0 ? `-${m.sold.toFixed(1)}` : '-'}</p>
-                          </div>
-                       </div>
-                    </div>
-                  ))}
-               </div>
-            </section>
-
-            {/* NOTES & VERIFICATION */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 pb-10">
-               <div className="p-6 md:p-8 bg-slate-50 rounded-[28px] md:rounded-[32px] border border-dashed border-slate-200">
-                  <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase mb-3 md:mb-4 tracking-[0.2em]">Catatan Audit Shift:</p>
-                  <p className="text-xs md:text-sm text-slate-600 italic font-medium leading-relaxed">
-                     "{cls.notes || 'Tidak ada catatan tambahan untuk laporan ini.'}"
-                  </p>
-               </div>
-               <div className="flex flex-col items-center justify-center text-center p-6 md:p-8 bg-slate-900 rounded-[28px] md:rounded-[32px] text-white shadow-xl relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16"></div>
-                  <div className="w-12 h-12 md:w-16 md:h-16 bg-white/10 rounded-full flex items-center justify-center text-xl md:text-2xl mb-3 md:mb-4 relative z-10">🛡️</div>
-                  <h5 className="text-[10px] md:text-xs font-black uppercase tracking-widest relative z-10">Integritas Audit Terjamin</h5>
-                  <p className="text-[8px] md:text-[9px] text-slate-400 mt-2 leading-relaxed px-4 md:px-10 uppercase font-bold relative z-10">Laporan ini dihasilkan sistem secara otomatis dan telah melalui verifikasi otorisasi pada {reportDate.toLocaleDateString()}.</p>
-               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24">
+    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
       <div className="mb-6">
         <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Tutup Buku Shift</h2>
         <p className="text-slate-500 font-medium text-[10px] uppercase tracking-widest italic">{activeOutlet?.name}</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        {/* FINANCIAL SUMMARY INPUT */}
         <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Audit Finansial</h3>
@@ -361,7 +381,6 @@ export const ClosingManagement: React.FC = () => {
           </div>
         </div>
 
-        {/* INPUT ACTUAL CASH */}
         <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-xl flex flex-col relative overflow-hidden">
           {existingClosingToday ? (
              <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 py-10">
@@ -406,11 +425,10 @@ export const ClosingManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* HISTORY CARDS */}
       <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-4">Laporan Tutup Buku Terakhir</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
          {[...dailyClosings].filter(c => c.outletId === selectedOutletId).slice(0, 12).map(cls => (
-           <div key={cls.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center group active:bg-slate-50 transition-colors" onClick={() => setSelectedClosingReport(cls)}>
+           <div key={cls.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center group active:bg-slate-50 transition-colors cursor-pointer" onClick={() => setSelectedClosingReport(cls)}>
               <div className="flex items-center gap-3">
                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${cls.discrepancy === 0 ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
                     {cls.discrepancy === 0 ? '✅' : '⚠️'}
@@ -422,22 +440,19 @@ export const ClosingManagement: React.FC = () => {
               </div>
               <div className="text-right">
                  <p className="text-xs font-black text-slate-900">Rp {(cls.actualCash/1000).toFixed(0)}k</p>
-                 <span className={`text-[7px] font-black px-1.5 py-0.5 rounded uppercase ${cls.discrepancy === 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                    {cls.discrepancy === 0 ? 'BALANCE' : 'SELISIH'}
-                 </span>
+                 <p className="text-[7px] font-black text-orange-500 uppercase tracking-widest">Detail ➔</p>
               </div>
            </div>
          ))}
       </div>
 
-      {/* MODALS APPROVAL & CONFIRM */}
       {showApproval && (
         <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 shadow-2xl animate-in zoom-in-95">
             <div className="text-center mb-6">
                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4 shadow-inner">🔒</div>
                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter leading-tight">Otorisasi Manager<br/><span className="text-red-600 text-xs">(Terdeteksi Selisih Kas)</span></h3>
-               <p className="text-slate-500 font-medium text-[10px] mt-2 px-4 uppercase leading-relaxed">Input fisik tidak sesuai sistem. Masukkan kredensial Manager/Owner untuk menyetujui penutupan.</p>
+               <p className="text-slate-500 font-medium text-[10px] mt-2 px-4 uppercase leading-relaxed text-center">Input fisik tidak sesuai sistem. Masukkan kredensial Manager/Owner untuk menyetujui penutupan.</p>
             </div>
             {approvalError && <div className="bg-red-50 text-red-600 p-3 rounded-xl text-[8px] font-black text-center mb-4 uppercase border border-red-100">{approvalError}</div>}
             <div className="space-y-4">
