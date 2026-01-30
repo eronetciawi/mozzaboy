@@ -126,12 +126,12 @@ interface AppActions {
   resetOutletData: (outletId: string) => Promise<void>;
   voidTransaction: (txId: string) => Promise<void>;
   fetchFromCloud: () => Promise<void>;
-  // Penyesuaian Maintenance
-  exportData?: () => void;
-  importData?: (json: string) => boolean;
-  resetGlobalData?: () => void;
-  updateSupabaseConfig?: (config: SupabaseConfig) => void;
-  syncToCloud?: () => void;
+  // Maintenance actions made non-optional to resolve build errors
+  exportData: () => void;
+  importData: (json: string) => boolean;
+  resetGlobalData: () => void;
+  updateSupabaseConfig: (config: SupabaseConfig) => void;
+  syncToCloud: () => void;
 }
 
 const AppContext = createContext<(AppState & AppActions) | undefined>(undefined);
@@ -467,7 +467,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     resetOutletData: async (oid) => { await supabase!.from('transactions').delete().eq('outletId', oid); await fetchFromCloud(); },
     selectCustomer: setSelectedCustomerId,
     setConnectedPrinter,
-    // Stub functions for Maintenance to satisfy UI but prevent cloud standalone conflicts
     exportData: () => {
       const data = { products, categories, inventory, staff, outlets, transactions, expenses, dailyClosings };
       const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
