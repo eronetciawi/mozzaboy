@@ -8,9 +8,9 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = login(username, password);
+    const result = await login(username, password);
     if (!result.success) {
       setError(result.message || 'Kredensial tidak valid. Silakan coba lagi.');
     }

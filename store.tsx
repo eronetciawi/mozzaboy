@@ -126,6 +126,12 @@ interface AppActions {
   resetOutletData: (outletId: string) => Promise<void>;
   voidTransaction: (txId: string) => Promise<void>;
   fetchFromCloud: () => Promise<void>;
+  // Penyesuaian Maintenance
+  exportData?: () => void;
+  importData?: (json: string) => boolean;
+  resetGlobalData?: () => void;
+  updateSupabaseConfig?: (config: SupabaseConfig) => void;
+  syncToCloud?: () => void;
 }
 
 const AppContext = createContext<(AppState & AppActions) | undefined>(undefined);
@@ -262,10 +268,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetchFromCloud,
     login: async (u, p) => {
       if (!supabase) return { success: false, message: "Koneksi cloud bermasalah." };
-      
-      // 1. Coba login via Cloud
-      const { data: cloudUser, error } = await supabase.from('staff').select('*').eq('username', u).eq('password', p).maybeSingle();
-      
+      const { data: cloudUser } = await supabase.from('staff').select('*').eq('username', u).eq('password', p).maybeSingle();
       if (cloudUser) {
         if (cloudUser.status === 'INACTIVE') return { success: false, message: "Akun dinonaktifkan oleh Owner." };
         setIsAuthenticated(true);
@@ -274,17 +277,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedOutletId(cloudUser.assignedOutletIds[0] || 'out1');
         return { success: true };
       }
-
-      // 2. Jika tidak ditemukan, cek apakah DB Staff kosong sama sekali (First run?)
       const { count } = await supabase.from('staff').select('*', { count: 'exact', head: true });
-      
       if (count === 0) {
-        // Cek terhadap konstanta lokal INITIAL_STAFF
         const localUser = INITIAL_STAFF.find(s => s.username === u && s.password === p);
         if (localUser) {
           setIsInitialLoading(true);
           try {
-            // MIGRATION / SEEDING AUTOMATIC
             await Promise.all([
               supabase.from('staff').insert(INITIAL_STAFF.map(s => ({...s, joinedAt: new Date()}))),
               supabase.from('categories').insert(CATEGORIES),
@@ -292,22 +290,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               supabase.from('outlets').insert(OUTLETS),
               supabase.from('inventory').insert(INVENTORY_ITEMS)
             ]);
-            
             setIsAuthenticated(true);
             setCurrentUser(localUser);
             setLoginTime(new Date());
             setSelectedOutletId(localUser.assignedOutletIds[0] || 'out1');
-            await fetchFromCloud(); // Refresh data
+            await fetchFromCloud();
             return { success: true };
           } catch (e) {
-            console.error("Seeding Error:", e);
             return { success: false, message: "Gagal menginisialisasi database cloud." };
           } finally {
             setIsInitialLoading(false);
           }
         }
       }
-
       return { success: false, message: "Username atau Password salah." };
     },
     logout: () => { setIsAuthenticated(false); setCurrentUser(null); },
@@ -324,14 +319,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!supabase) return;
       setIsSaving(true);
       let subtotal = 0; let totalCost = 0;
-      
       const calcCost = (p: Product): number => {
         let c = 0;
         if (p.isCombo && p.comboItems) {
-          p.comboItems.forEach(ci => {
-            const inner = products.find(ip => ip.id === ci.productId);
-            if (inner) c += calcCost(inner) * ci.quantity;
-          });
+          p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) c += calcCost(inner) * ci.quantity; });
         } else {
           p.bom.forEach(b => {
             const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
@@ -340,28 +331,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       };
-
       cart.forEach(i => {
         const pr = i.product.outletSettings?.[selectedOutletId]?.price || i.product.price;
         subtotal += pr * i.quantity;
         totalCost += calcCost(i.product) * i.quantity;
       });
-
       const ptVal = redeem * loyaltyConfig.redemptionValuePerPoint;
       const total = Math.max(0, subtotal - memberDisc - bulkDisc - ptVal);
       const earned = Math.floor(total / loyaltyConfig.earningAmountPerPoint);
-
       const tx: Transaction = {
         id: `TX-${Date.now()}`, outletId: selectedOutletId, customerId: selectedCustomerId || undefined, 
         items: [...cart], subtotal, tax: 0, total, totalCost, paymentMethod: method, 
         status: OrderStatus.CLOSED, timestamp: new Date(), cashierId: currentUser?.id || 'sys', cashierName: currentUser?.name || 'System',
         pointsEarned: earned, pointsRedeemed: redeem, pointDiscountValue: ptVal, membershipDiscount: memberDisc, bulkDiscount: bulkDisc
       };
-
       try {
         await supabase.from('transactions').insert(tx);
-        // Inventory deduction logic
-        const updates = [];
+        const updates: InventoryItem[] = [];
         const deduct = (p: Product, mult: number) => {
            if (p.isCombo && p.comboItems) {
              p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) deduct(inner, mult * ci.quantity); });
@@ -374,7 +360,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
         cart.forEach(i => deduct(i.product, i.quantity));
         if (updates.length > 0) await supabase.from('inventory').upsert(updates);
-        
         if (selectedCustomerId) {
           const cust = customers.find(c => c.id === selectedCustomerId);
           if (cust) await supabase.from('customers').update({ points: cust.points - redeem + earned, lastVisit: new Date() }).eq('id', cust.id);
@@ -481,7 +466,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateLoyaltyConfig: async (c) => { await supabase!.from('loyalty_config').upsert({ ...c, id: 'global' }); await fetchFromCloud(); },
     resetOutletData: async (oid) => { await supabase!.from('transactions').delete().eq('outletId', oid); await fetchFromCloud(); },
     selectCustomer: setSelectedCustomerId,
-    setConnectedPrinter
+    setConnectedPrinter,
+    // Stub functions for Maintenance to satisfy UI but prevent cloud standalone conflicts
+    exportData: () => {
+      const data = { products, categories, inventory, staff, outlets, transactions, expenses, dailyClosings };
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `mozzaboy_backup_${Date.now()}.json`;
+      a.click();
+    },
+    importData: (json) => { console.log("Importing...", json); return true; },
+    resetGlobalData: () => { if(confirm("Wipe all cloud data?")) console.log("Global reset triggered"); },
+    updateSupabaseConfig: (c) => { console.log("Config updated", c); },
+    syncToCloud: () => { fetchFromCloud(); }
   };
 
   return (

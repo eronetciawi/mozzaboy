@@ -39,8 +39,8 @@ export const Attendance: React.FC = () => {
 
     setIsLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const result = clockIn(pos.coords.latitude, pos.coords.longitude);
+      async (pos) => {
+        const result = await clockIn(pos.coords.latitude, pos.coords.longitude);
         if (result && !result.success) {
            alert(result.message);
         }
