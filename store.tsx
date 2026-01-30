@@ -126,7 +126,6 @@ interface AppActions {
   resetOutletData: (outletId: string) => Promise<void>;
   voidTransaction: (txId: string) => Promise<void>;
   fetchFromCloud: () => Promise<void>;
-  // Maintenance actions made non-optional to resolve build errors
   exportData: () => void;
   importData: (json: string) => boolean;
   resetGlobalData: () => void;
@@ -160,9 +159,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
   const [isCloudConnected, setIsCloudConnected] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isFirstLoad, setIsFirstLoad] = useState(true); // Baru: Untuk mencegah UI hilang saat update
   const [isSaving, setIsSaving] = useState(false);
 
-  // Core States
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -202,7 +201,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchFromCloud = async () => {
     if (!supabase) return;
-    setIsInitialLoading(true);
+    // Hanya nyalakan loader jika ini adalah load pertama kali
+    if (isFirstLoad) setIsInitialLoading(true);
+    
     try {
       const [
         { data: prod }, { data: cat }, { data: inv }, { data: out }, 
@@ -257,6 +258,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error("Fetch Cloud Error:", e);
     } finally {
       setIsInitialLoading(false);
+      setIsFirstLoad(false); // Tandai load pertama selesai
     }
   };
 
@@ -497,6 +499,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
            <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Menghubungkan ke Cloud Database...</p>
         </div>
       ) : children}
+      
+      {/* Background Sync Indicator (Non-blocking) */}
+      {isSaving && !isInitialLoading && (
+        <div className="fixed bottom-4 right-4 z-[999] bg-slate-900/90 text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl border border-white/10 animate-in fade-in slide-in-from-bottom-2">
+           <div className="w-2 h-2 bg-orange-500 rounded-full animate-ping"></div>
+           <span className="text-[8px] font-black uppercase tracking-widest">Sinkronisasi Cloud...</span>
+        </div>
+      )}
     </AppContext.Provider>
   );
 };

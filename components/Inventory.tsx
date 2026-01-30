@@ -67,6 +67,13 @@ export const Inventory: React.FC = () => {
 
   const handleAddItem = () => { if (newItem.name) { addInventoryItem({ ...newItem, type: activeTab }); setShowAddModal(false); setNewItem({ name: '', unit: 'kg', quantity: 0, minStock: 1, costPerUnit: 0, type: activeTab }); } };
   const handleUpdateItem = () => { if (editingItem) { updateInventoryItem(editingItem); setEditingItem(null); } };
+  
+  const handleConfirmDelete = () => {
+    if (itemToDelete) {
+      deleteInventoryItem(itemToDelete.id);
+      setItemToDelete(null);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col p-4 md:p-8 overflow-hidden bg-slate-50/30 pb-20 md:pb-8">
@@ -137,7 +144,7 @@ export const Inventory: React.FC = () => {
                          <div className="flex items-center gap-3 text-[9px] font-bold text-slate-400 uppercase"><span>📅 {new Date(log.timestamp).toLocaleDateString()}</span><span>⏰ {new Date(log.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span><span className="hidden md:inline px-2 py-0.5 bg-slate-50 rounded border border-slate-100 font-mono text-slate-300">{log.ref}</span></div>
                       </div>
                       <div className="flex items-center justify-between w-full md:w-auto gap-8 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-8">
-                         <div className="text-left md:text-right min-w-[120px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Keterangan / Sumber</p><p className="text-[10px] font-black text-slate-700 uppercase truncate max-w-[180px]">{log.source}</p><p className="text-[8px] font-bold text-slate-300 uppercase mt-0.5">PIC: {log.staff.split(' ')[0]}</p></div>
+                         <div className="text-left md:text-right min-w-[120px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Keterangan / Sumber</p><p className="text-sm font-black text-slate-700 uppercase truncate max-w-[180px]">{log.source}</p><p className="text-[8px] font-bold text-slate-300 uppercase mt-0.5">PIC: {log.staff.split(' ')[0]}</p></div>
                          <div className="text-right shrink-0"><div className={`text-lg md:text-xl font-black tracking-tighter ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{isPositive ? '+' : ''}{log.qty.toFixed(2)}</div><p className="text-[7px] font-black uppercase text-slate-300 tracking-[0.2em] leading-none">Net Change</p></div>
                       </div>
                       <div className="md:hidden absolute top-4 right-4 font-mono text-[7px] text-slate-200">{log.ref}</div>
@@ -150,7 +157,7 @@ export const Inventory: React.FC = () => {
         )}
       </div>
 
-      {/* MODALS - WITH AUTO-SELECT FOR FAST UX */}
+      {/* MODALS */}
       {showAddModal && (
         <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-lg p-8 md:p-12 shadow-2xl animate-in slide-in-from-bottom-10">
@@ -186,8 +193,23 @@ export const Inventory: React.FC = () => {
           </div>
         </div>
       )}
-      
-      {/* ... (rest of modals) */}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-6">
+           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-6">🗑️</div>
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Material?</h3>
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">
+                 Menghapus <span className="text-red-600 font-black">{itemToDelete.name}</span> akan berdampak pada resep produk yang menggunakannya.
+              </p>
+              <div className="flex flex-col gap-3">
+                 <button onClick={handleConfirmDelete} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all">IYA, HAPUS PERMANEN</button>
+                 <button onClick={() => setItemToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batalkan</button>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
