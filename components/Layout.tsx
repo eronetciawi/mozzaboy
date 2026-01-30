@@ -87,7 +87,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-slate-300">
       <div className="p-6 flex items-center gap-3 shrink-0">
-        <div className="w-10 h-10 bg-orange-500 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-xl shadow-orange-500/20 transform -rotate-3">M</div>
+        <img src="/logo.png" className="w-12 h-12 object-contain drop-shadow-lg transform -rotate-2" alt="Mozza Boy Logo" />
         <div>
           <div className="font-black text-white text-sm tracking-tighter uppercase leading-none">Mozza Boy</div>
           <div className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">Enterprise ROS</div>

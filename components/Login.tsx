@@ -23,11 +23,13 @@ export const Login: React.FC = () => {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[120px]"></div>
 
       <div className="w-full max-w-[400px] relative z-10">
-        <div className="bg-white rounded-[32px] shadow-2xl overflow-hidden border border-slate-100">
+        <div className="bg-white rounded-[48px] shadow-2xl overflow-hidden border border-slate-100">
           <div className="p-8 pb-4 text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-2xl flex items-center justify-center text-white font-black text-3xl mx-auto mb-6 shadow-lg shadow-orange-500/20">
-              M
-            </div>
+            <img 
+              src="/logo.png" 
+              className="w-32 h-32 object-contain mx-auto mb-6 drop-shadow-2xl animate-in zoom-in duration-700" 
+              alt="Mozza Boy Logo" 
+            />
             <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-tight">
               Mozza Boy
             </h1>

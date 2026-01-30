@@ -1,3 +1,4 @@
+
 import React, { useState, useRef } from 'react';
 import { useApp } from '../store';
 import { UserRole } from '../types';
@@ -6,7 +7,7 @@ export const Maintenance: React.FC = () => {
   const { 
     exportData, importData, resetOutletData, resetGlobalData, 
     currentUser, outlets, supabaseConfig, updateSupabaseConfig, 
-    isCloudConnected, syncToCloud 
+    isCloudConnected, syncToCloud, cloneOutletSetup, isSaving
   } = useApp();
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -14,6 +15,11 @@ export const Maintenance: React.FC = () => {
   const [showOutletResetConfirm, setShowOutletResetConfirm] = useState(false);
   const [showGlobalResetConfirm, setShowGlobalResetConfirm] = useState(false);
   
+  // Clone State
+  const [cloneFromId, setCloneFromId] = useState('');
+  const [cloneToId, setCloneToId] = useState('');
+  const [showCloneConfirm, setShowCloneConfirm] = useState(false);
+
   // Supabase Form State
   const [localSbUrl, setLocalSbUrl] = useState(supabaseConfig.url);
   const [localSbKey, setLocalSbKey] = useState(supabaseConfig.key);
@@ -30,6 +36,15 @@ export const Maintenance: React.FC = () => {
     );
   }
 
+  const handleClone = async () => {
+     if (!cloneFromId || !cloneToId || cloneFromId === cloneToId) return;
+     await cloneOutletSetup(cloneFromId, cloneToId);
+     setShowCloneConfirm(false);
+     setCloneFromId('');
+     setCloneToId('');
+     alert("Konfigurasi Cabang Berhasil Direplikasi!");
+  };
+
   const handleSaveCloud = () => {
     updateSupabaseConfig({
       url: localSbUrl,
@@ -44,12 +59,77 @@ export const Maintenance: React.FC = () => {
       <div className="max-w-6xl mx-auto pb-20">
         <div className="mb-10">
           <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Infrastructure Management</h2>
-          <p className="text-slate-500 font-medium text-xs italic">Kelola sinkronisasi cloud Supabase dan pembersihan data audit</p>
+          <p className="text-slate-500 font-medium text-xs italic">Kelola sinkronisasi cloud Supabase dan replikasi infrastruktur cabang</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* SUPABASE CLOUD CONNECTOR */}
-          <div className="lg:col-span-2 bg-white p-10 rounded-[48px] border-2 border-slate-100 shadow-sm flex flex-col">
+          {/* BRANCH SETUP REPLICATOR (REVISED HIGH-CONTRAST UI) */}
+          <div className="lg:col-span-2 bg-white p-10 rounded-[48px] border-2 border-orange-100 shadow-xl shadow-orange-500/5 relative overflow-hidden flex flex-col">
+             <div className="absolute top-0 right-0 p-8 opacity-5 text-6xl grayscale">⚡</div>
+             <div className="relative z-10 mb-8">
+                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Branch Replicator</h3>
+                <p className="text-[10px] font-black text-orange-600 uppercase tracking-[0.2em] mt-2">Copy Master Data & Konfigurasi ke Cabang Baru</p>
+             </div>
+             
+             <p className="text-xs text-slate-500 font-medium leading-relaxed mb-8 relative z-10 max-w-lg">
+                Fitur otomatisasi infrastruktur untuk menyalin daftar <b>Bahan Baku (Inventory)</b> dan <b>Setting Regional Menu</b> dari satu cabang ke cabang lainnya secara instan.
+             </p>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 relative z-10">
+                <div>
+                   <label className="block text-[9px] font-black text-slate-400 uppercase mb-3 ml-1 tracking-widest">Dari Cabang (Sumber Template)</label>
+                   <select 
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-slate-800 outline-none focus:border-orange-500 transition-all cursor-pointer" 
+                      value={cloneFromId} 
+                      onChange={e => setCloneFromId(e.target.value)}
+                   >
+                      <option value="">-- Pilih Sumber --</option>
+                      {outlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                   </select>
+                </div>
+                <div>
+                   <label className="block text-[9px] font-black text-slate-400 uppercase mb-3 ml-1 tracking-widest">Ke Cabang (Target Baru)</label>
+                   <select 
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xs text-slate-800 outline-none focus:border-orange-500 transition-all cursor-pointer" 
+                      value={cloneToId} 
+                      onChange={e => setCloneToId(e.target.value)}
+                   >
+                      <option value="">-- Pilih Tujuan --</option>
+                      {outlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                   </select>
+                </div>
+             </div>
+
+             <button 
+                disabled={!cloneFromId || !cloneToId || cloneFromId === cloneToId || isSaving}
+                onClick={() => setShowCloneConfirm(true)}
+                className={`w-full py-6 rounded-[28px] font-black text-xs uppercase tracking-[0.3em] transition-all relative z-10 shadow-2xl ${(!cloneFromId || !cloneToId || cloneFromId === cloneToId) ? 'bg-slate-100 text-slate-300' : 'bg-slate-900 text-white hover:bg-orange-600 shadow-slate-900/20 active:scale-[0.98]'}`}
+             >
+                {isSaving ? 'SEDANG MEREPLIKASI...' : 'REPLIKASI INFRASTRUKTUR SEKARANG 🚀'}
+             </button>
+          </div>
+
+          {/* BACKUP & RESTORE */}
+          <div className="bg-white p-10 rounded-[48px] border-2 border-slate-100 shadow-sm flex flex-col">
+            <div className="w-14 h-14 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center text-2xl mb-6 shadow-inner">💾</div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Offline Backup</h3>
+            <p className="text-xs text-slate-400 font-medium leading-relaxed mb-10">
+              Amankan data secara manual jika Anda tidak menggunakan Cloud.
+            </p>
+            <div className="space-y-4 mt-auto">
+              <button onClick={exportData} className="w-full py-4 bg-slate-50 text-slate-600 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest">Unduh .json</button>
+              <button onClick={() => fileInputRef.current?.click()} className="w-full py-4 bg-white border-2 border-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase">Upload Backup</button>
+              <input type="file" ref={fileInputRef} onChange={e => {
+                const reader = new FileReader();
+                reader.onload = (ev) => { if (importData(ev.target?.result as string)) alert("Restore Sukses!"); };
+                if (e.target.files?.[0]) reader.readAsText(e.target.files[0]);
+              }} className="hidden" accept=".json" />
+            </div>
+          </div>
+        </div>
+
+        {/* SUPABASE CLOUD CONNECTOR */}
+        <div className="mt-8 bg-white p-10 rounded-[48px] border-2 border-slate-100 shadow-sm flex flex-col">
             <div className="flex justify-between items-start mb-8">
                <div className="flex items-center gap-4">
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-inner ${isCloudConnected ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-300'}`}>
@@ -70,11 +150,6 @@ export const Maintenance: React.FC = () => {
                  >Sync Force 🚀</button>
                )}
             </div>
-
-            <p className="text-xs text-slate-500 font-medium leading-relaxed mb-8">
-               Hubungkan aplikasi POS Anda ke database Supabase untuk mengaktifkan sinkronisasi lintas perangkat (Owner di rumah, Kasir di toko). 
-               Pastikan tabel <b>transactions</b>, <b>inventory</b>, dan <b>staff</b> sudah tersedia di Supabase Anda.
-            </p>
 
             <div className="space-y-6">
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -114,29 +189,10 @@ export const Maintenance: React.FC = () => {
                   )}
                </div>
             </div>
-          </div>
-
-          {/* BACKUP & RESTORE */}
-          <div className="bg-white p-10 rounded-[48px] border-2 border-slate-100 shadow-sm flex flex-col">
-            <div className="w-14 h-14 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center text-2xl mb-6 shadow-inner">💾</div>
-            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Offline Backup</h3>
-            <p className="text-xs text-slate-400 font-medium leading-relaxed mb-10">
-              Amankan data secara manual jika Anda tidak menggunakan Cloud.
-            </p>
-            <div className="space-y-4 mt-auto">
-              <button onClick={exportData} className="w-full py-4 bg-slate-50 text-slate-600 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest">Unduh .json</button>
-              <button onClick={() => fileInputRef.current?.click()} className="w-full py-4 bg-white border-2 border-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase">Upload Backup</button>
-              <input type="file" ref={fileInputRef} onChange={e => {
-                const reader = new FileReader();
-                reader.onload = (ev) => { if (importData(ev.target?.result as string)) alert("Restore Sukses!"); };
-                if (e.target.files?.[0]) reader.readAsText(e.target.files[0]);
-              }} className="hidden" accept=".json" />
-            </div>
-          </div>
         </div>
 
-        {/* DATA MANAGEMENT */}
-        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* DATA CLEANING */}
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
            <div className="bg-white p-10 rounded-[48px] border-2 border-slate-100 shadow-sm flex flex-col relative overflow-hidden">
               <div className="absolute top-0 right-0 p-8 opacity-10 text-4xl">🧹</div>
               <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Pembersihan Data Cabang</h3>
@@ -162,6 +218,25 @@ export const Maintenance: React.FC = () => {
            </div>
         </div>
       </div>
+
+      {/* CLONE CONFIRMATION */}
+      {showCloneConfirm && (
+        <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-4">
+          <div className="bg-white rounded-[48px] w-full max-w-lg p-12 shadow-2xl text-center">
+             <div className="text-5xl mb-6">⚡</div>
+             <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter mb-4">Mulai Replikasi?</h3>
+             <p className="text-slate-500 text-xs font-bold leading-relaxed uppercase">
+                Anda akan menyalin infrastruktur dari <b>{outlets.find(o=>o.id===cloneFromId)?.name}</b> ke <b>{outlets.find(o=>o.id===cloneToId)?.name}</b>.
+                <br/><br/>
+                <span className="text-red-600 italic">Perhatian: Stok di cabang baru akan diset ke 0 gram/pcs agar Anda dapat melakukan input belanja awal.</span>
+             </p>
+             <div className="flex flex-col gap-3 mt-10">
+                <button onClick={handleClone} className="w-full py-5 bg-orange-500 text-white rounded-[24px] font-black text-xs uppercase shadow-xl hover:bg-orange-600 transition-all">YA, REPLIKASI SEKARANG</button>
+                <button onClick={() => setShowCloneConfirm(false)} className="w-full py-4 text-slate-400 font-black uppercase text-[10px]">BATALKAN</button>
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* CONFIRMATION MODALS (REUSED) */}
       {showOutletResetConfirm && (

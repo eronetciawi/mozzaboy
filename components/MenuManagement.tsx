@@ -42,6 +42,16 @@ export const MenuManagement: React.FC = () => {
     setCurrentComboItems([]);
   };
 
+  const applyToAllBranches = () => {
+     if (!formData.price) return alert("Masukkan harga default dulu.");
+     const newSettings: Record<string, OutletSetting> = {};
+     outlets.forEach(o => {
+        newSettings[o.id] = { price: formData.price || 0, isAvailable: true };
+     });
+     setFormData({ ...formData, outletSettings: newSettings });
+     alert("Konfigurasi diterapkan ke semua cabang!");
+  };
+
   const handleEditClick = (p: Product) => {
     setEditingProduct(p);
     setFormData(p);
@@ -135,7 +145,7 @@ export const MenuManagement: React.FC = () => {
                   <button onClick={() => setActiveModalTab('logic')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeModalTab === 'logic' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400'}`}>
                     {formData.isCombo ? 'Combo Architect' : 'Recipe / BOM'}
                   </button>
-                  <button onClick={() => setActiveModalTab('branches')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeModalTab === 'branches' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400'}`}>Availability</button>
+                  <button onClick={() => setActiveModalTab('branches')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeModalTab === 'branches' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400'}`}>Regional & Sync</button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 md:p-10 pt-0 space-y-8 custom-scrollbar">
@@ -273,10 +283,22 @@ export const MenuManagement: React.FC = () => {
                    </div>
                  )}
 
-                 {/* TAB 3: REGIONAL AVAILABILITY */}
+                 {/* TAB 3: REGIONAL AVAILABILITY & SYNC (IMPROVED) */}
                  {activeModalTab === 'branches' && (
-                   <div className="space-y-4 animate-in fade-in duration-300">
-                      <p className="text-[10px] text-slate-400 font-black italic uppercase mb-6 text-center tracking-widest">Ketersediaan Menu & Penyesuaian Harga Tiap Cabang</p>
+                   <div className="space-y-6 animate-in fade-in duration-300">
+                      <div className="bg-slate-900 p-6 rounded-[32px] border-2 border-white/5 shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6">
+                         <div>
+                            <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Global Synchronization Tool</p>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 leading-relaxed">Terapkan harga default Rp{formData.price?.toLocaleString()} ke seluruh cabang sekaligus.</p>
+                         </div>
+                         <button 
+                           onClick={applyToAllBranches}
+                           className="px-6 py-3 bg-orange-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-orange-500/20"
+                         >
+                           APPLY TO ALL BRANCHES
+                         </button>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {outlets.map(o => (
                           <div key={o.id} className="p-5 bg-white rounded-3xl border-2 border-slate-100 flex flex-col gap-4 shadow-sm">

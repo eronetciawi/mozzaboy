@@ -178,7 +178,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                 <div ref={receiptRef} className="bg-white p-8 md:p-10 w-full shadow-2xl flex flex-col text-slate-900 font-mono text-[10px] md:text-[11px] uppercase border-t-[8px] border-orange-500 relative">
                    <div className="absolute top-0 left-0 w-full h-3 bg-[radial-gradient(circle,transparent:5px,white:5px)] bg-[length:12px_12px] bg-repeat-x -mt-1.5"></div>
                    <div className="text-center mb-10">
-                      <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-3xl font-black mx-auto mb-4">M</div>
+                      <img src="/logo.png" className="w-20 h-20 object-contain mx-auto mb-4 grayscale contrast-125" alt="Logo" />
                       <h3 className="text-base font-black tracking-tight leading-none mb-1">MOZZA BOY</h3>
                       <div className="w-full border-b border-dashed border-slate-200 mb-6"></div>
                       <h3 className="text-[10px] font-black text-slate-800">{activeOutlet?.name}</h3>

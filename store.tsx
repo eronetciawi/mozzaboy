@@ -126,6 +126,7 @@ interface AppActions {
   resetOutletData: (outletId: string) => Promise<void>;
   voidTransaction: (txId: string) => Promise<void>;
   fetchFromCloud: () => Promise<void>;
+  cloneOutletSetup: (fromOutletId: string, toOutletId: string) => Promise<void>;
   exportData: () => void;
   importData: (json: string) => boolean;
   resetGlobalData: () => void;
@@ -159,7 +160,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
   const [isCloudConnected, setIsCloudConnected] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isFirstLoad, setIsFirstLoad] = useState(true); // Baru: Untuk mencegah UI hilang saat update
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -201,7 +202,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchFromCloud = async () => {
     if (!supabase) return;
-    // Hanya nyalakan loader jika ini adalah load pertama kali
     if (isFirstLoad) setIsInitialLoading(true);
     
     try {
@@ -258,7 +258,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error("Fetch Cloud Error:", e);
     } finally {
       setIsInitialLoading(false);
-      setIsFirstLoad(false); // Tandai load pertama selesai
+      setIsFirstLoad(false);
     }
   };
 
@@ -467,6 +467,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteSimulation: async (id) => { await supabase!.from('simulations').delete().eq('id', id); await fetchFromCloud(); },
     updateLoyaltyConfig: async (c) => { await supabase!.from('loyalty_config').upsert({ ...c, id: 'global' }); await fetchFromCloud(); },
     resetOutletData: async (oid) => { await supabase!.from('transactions').delete().eq('outletId', oid); await fetchFromCloud(); },
+    // Removed duplicate voidTransaction key definition previously at line 470
+    cloneOutletSetup: async (fromId, toId) => {
+      if (!supabase) return;
+      setIsSaving(true);
+      try {
+         // 1. Clone Inventory
+         const { data: sourceInv } = await supabase.from('inventory').select('*').eq('outletId', fromId);
+         if (sourceInv) {
+            const newInv = sourceInv.map(item => ({
+               ...item,
+               id: `inv-${Date.now()}-${Math.random().toString(36).substr(2,5)}`,
+               outletId: toId,
+               quantity: 0 // Stok baru selalu mulai dari 0
+            }));
+            await supabase.from('inventory').insert(newInv);
+         }
+         // 2. Clone Product Settings
+         const { data: allProds } = await supabase.from('products').select('*');
+         if (allProds) {
+            const updates = allProds.map(p => {
+               const settings = p.outletSettings || {};
+               const sourceSetting = settings[fromId] || { price: p.price, isAvailable: true };
+               return {
+                  ...p,
+                  outletSettings: { ...settings, [toId]: sourceSetting }
+               };
+            });
+            await supabase.from('products').upsert(updates);
+         }
+         await fetchFromCloud();
+      } finally {
+         setIsSaving(false);
+      }
+    },
     selectCustomer: setSelectedCustomerId,
     setConnectedPrinter,
     exportData: () => {
@@ -500,7 +534,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         </div>
       ) : children}
       
-      {/* Background Sync Indicator (Non-blocking) */}
       {isSaving && !isInitialLoading && (
         <div className="fixed bottom-4 right-4 z-[999] bg-slate-900/90 text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl border border-white/10 animate-in fade-in slide-in-from-bottom-2">
            <div className="w-2 h-2 bg-orange-500 rounded-full animate-ping"></div>
