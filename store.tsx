@@ -20,7 +20,6 @@ export const getPermissionsByRole = (role: UserRole): Permissions => {
     case UserRole.MANAGER:
       return { canAccessReports: true, canManageStaff: false, canManageMenu: true, canManageInventory: true, canProcessSales: true, canVoidTransactions: true, canManageSettings: true };
     case UserRole.CASHIER:
-      // Kasir diberikan izin Manage Inventory agar bisa melakukan Mixing/Produksi bahan preparasi
       return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: true, canProcessSales: true, canVoidTransactions: false, canManageSettings: false };
     case UserRole.KITCHEN:
       return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: true, canProcessSales: false, canVoidTransactions: false, canManageSettings: false };
@@ -135,10 +134,12 @@ interface AppActions {
   fetchFromCloud: () => Promise<void>;
   cloneOutletSetup: (fromOutletId: string, toOutletId: string) => Promise<void>;
   exportData: () => void;
-  importData: (json: string) => boolean;
-  resetGlobalData: () => void;
+  importData: (json: string) => Promise<boolean>;
+  resetGlobalData: () => Promise<void>;
   updateSupabaseConfig: (config: SupabaseConfig) => void;
   syncToCloud: () => void;
+  exportTableToCSV: (table: 'products' | 'inventory' | 'categories' | 'outlets' | 'staff' | 'wip_recipes') => void;
+  importCSVToTable: (table: 'products' | 'inventory' | 'categories' | 'outlets' | 'staff' | 'wip_recipes', csv: string) => Promise<boolean>;
 }
 
 const AppContext = createContext<(AppState & AppActions) | undefined>(undefined);
@@ -277,6 +278,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (supabase) fetchFromCloud();
   }, [supabase]);
 
+  const jsonToCSV = (data: any[]): string => {
+    if (data.length === 0) return "";
+    const headers = Object.keys(data[0]);
+    const csvRows = [headers.join(',')];
+    for (const row of data) {
+      const values = headers.map(header => {
+        const val = row[header];
+        if (val === null || val === undefined) return "";
+        if (typeof val === 'object') return `"${JSON.stringify(val).replace(/"/g, '""')}"`;
+        return `"${val.toString().replace(/"/g, '""')}"`;
+      });
+      csvRows.push(values.join(','));
+    }
+    return csvRows.join('\n');
+  };
+
+  const csvToJSON = (csv: string): any[] => {
+    const lines = csv.split(/\r?\n/).filter(l => l.trim() !== "");
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/^"|"$/g, '').trim());
+    return lines.slice(1).map(line => {
+      const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+      const obj: any = {};
+      headers.forEach((h, i) => {
+        let val: any = values[i];
+        if (val === undefined || val === "") {
+          obj[h] = null;
+        } else if (val.startsWith('{') || val.startsWith('[')) {
+          try { obj[h] = JSON.parse(val); } catch(e) { obj[h] = val; }
+        } else if (val.toLowerCase() === 'true') {
+          obj[h] = true;
+        } else if (val.toLowerCase() === 'false') {
+          obj[h] = false;
+        } else if (!isNaN(val) && val.trim() !== "") {
+          obj[h] = Number(val);
+        } else {
+          obj[h] = val;
+        }
+      });
+      return obj;
+    });
+  };
+
   const actions: AppActions = {
     fetchFromCloud,
     login: async (u, p) => {
@@ -382,7 +426,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     },
     updateLeaveStatus: async (id, s) => { await supabase!.from('leave_requests').update({ status: s }).eq('id', id); await fetchFromCloud(); },
     addInventoryItem: async (i, outletIds = []) => { 
-      // Multi-Branch Support: Create entry for each selected branch
       const targets = outletIds.length > 0 ? outletIds : [selectedOutletId];
       const payloads = targets.map(oid => ({
          ...i,
@@ -425,33 +468,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addPurchase: async (p, rid) => {
       const item = inventory.find(i => i.id === p.inventoryItemId);
       if (!item) return;
-
       const purchaseQty = p.quantity;
       const purchasePricePerUnit = p.unitPrice / purchaseQty;
       const currentQty = item.quantity > 0 ? item.quantity : 0;
       const currentCost = item.costPerUnit || purchasePricePerUnit;
       const newTotalQty = currentQty + purchaseQty;
       const newAverageCost = ((currentQty * currentCost) + (purchaseQty * purchasePricePerUnit)) / newTotalQty;
-
-      await supabase!.from('purchases').insert({ 
-        id: `pur-${Date.now()}`, 
-        outletId: selectedOutletId, 
-        inventoryItemId: p.inventoryItemId, 
-        itemName: item.name, 
-        quantity: purchaseQty, 
-        unitPrice: purchasePricePerUnit, 
-        totalPrice: p.unitPrice, 
-        staffId: currentUser!.id, 
-        staffName: currentUser!.name, 
-        timestamp: new Date(), 
-        requestId: rid 
-      });
-
-      await supabase!.from('inventory').update({ 
-        quantity: newTotalQty,
-        costPerUnit: Math.round(newAverageCost)
-      }).eq('id', p.inventoryItemId);
-
+      await supabase!.from('purchases').insert({ id: `pur-${Date.now()}`, outletId: selectedOutletId, inventoryItemId: p.inventoryItemId, itemName: item.name, quantity: purchaseQty, unitPrice: purchasePricePerUnit, totalPrice: p.unitPrice, staffId: currentUser!.id, staffName: currentUser!.name, timestamp: new Date(), requestId: rid });
+      await supabase!.from('inventory').update({ quantity: newTotalQty, costPerUnit: Math.round(newAverageCost) }).eq('id', p.inventoryItemId);
       if (rid) await supabase!.from('stock_requests').update({ status: RequestStatus.FULFILLED }).eq('id', rid);
       await fetchFromCloud();
     },
@@ -475,42 +499,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const currentWIPCost = resultItem.costPerUnit || producedCostPerUnit;
         const newTotalWIPQty = currentWIPQty + producedQty;
         const newAverageWIPCost = ((currentWIPQty * currentWIPCost) + (producedQty * producedCostPerUnit)) / newTotalWIPQty;
-
-        await supabase!.from('production_records').insert({ 
-          ...d, 
-          id: `prod-${Date.now()}`, 
-          outletId: selectedOutletId, 
-          timestamp: new Date(), 
-          staffId: currentUser!.id, 
-          staffName: currentUser!.name 
-        });
-
+        await supabase!.from('production_records').insert({ ...d, id: `prod-${Date.now()}`, outletId: selectedOutletId, timestamp: new Date(), staffId: currentUser!.id, staffName: currentUser!.name });
         if (materialUpdates.length > 0) await supabase!.from('inventory').upsert(materialUpdates);
-        await supabase!.from('inventory').update({ 
-          quantity: newTotalWIPQty,
-          costPerUnit: Math.round(newAverageWIPCost)
-        }).eq('id', d.resultItemId);
+        await supabase!.from('inventory').update({ quantity: newTotalWIPQty, costPerUnit: Math.round(newAverageWIPCost) }).eq('id', d.resultItemId);
         await fetchFromCloud();
       } finally { setIsSaving(false); }
     },
     addWIPRecipe: async (recipe) => {
       setIsSaving(true);
-      try {
-        await supabase!.from('wip_recipes').insert({ ...recipe, id: `wipr-${Date.now()}` });
-        await fetchFromCloud();
-      } finally { setIsSaving(false); }
+      try { await supabase!.from('wip_recipes').insert({ ...recipe, id: `wipr-${Date.now()}` }); await fetchFromCloud(); } finally { setIsSaving(false); }
     },
     updateWIPRecipe: async (recipe) => {
       setIsSaving(true);
-      try {
-        await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id);
-        await fetchFromCloud();
-      } finally { setIsSaving(false); }
+      try { await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id); await fetchFromCloud(); } finally { setIsSaving(false); }
     },
-    deleteWIPRecipe: async (id) => {
-      await supabase!.from('wip_recipes').delete().eq('id', id);
-      await fetchFromCloud();
-    },
+    deleteWIPRecipe: async (id) => { await supabase!.from('wip_recipes').delete().eq('id', id); await fetchFromCloud(); },
     addCustomer: async (c) => { await supabase!.from('customers').insert({ ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date(), registeredByStaffId: currentUser!.id, registeredByStaffName: currentUser!.name, registeredAtOutletId: selectedOutletId, registeredAtOutletName: outlets.find(o=>o.id===selectedOutletId)?.name }); await fetchFromCloud(); },
     updateCustomer: async (c) => { await supabase!.from('customers').update(c).eq('id', c.id); await fetchFromCloud(); },
     deleteCustomer: async (id) => { await supabase!.from('customers').delete().eq('id', id); await fetchFromCloud(); },
@@ -542,12 +545,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
          const { data: sourceInv } = await supabase.from('inventory').select('*').eq('outletId', fromId);
          if (sourceInv) {
-            const newInv = sourceInv.map(item => ({
-               ...item,
-               id: `inv-${Date.now()}-${Math.random().toString(36).substr(2,5)}`,
-               outletId: toId,
-               quantity: 0
-            }));
+            const newInv = sourceInv.map(item => ({ ...item, id: `inv-${Date.now()}-${Math.random().toString(36).substr(2,5)}`, outletId: toId, quantity: 0 }));
             await supabase.from('inventory').insert(newInv);
          }
          const { data: allProds } = await supabase.from('products').select('*');
@@ -555,10 +553,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const updates = allProds.map(p => {
                const settings = p.outletSettings || {};
                const sourceSetting = settings[fromId] || { price: p.price, isAvailable: true };
-               return {
-                  ...p,
-                  outletSettings: { ...settings, [toId]: sourceSetting }
-               };
+               return { ...p, outletSettings: { ...settings, [toId]: sourceSetting } };
             });
             await supabase.from('products').upsert(updates);
          }
@@ -568,15 +563,109 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     selectCustomer: setSelectedCustomerId,
     setConnectedPrinter,
     exportData: () => {
-      const data = { products, categories, inventory, staff, outlets, transactions, expenses, dailyClosings };
-      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const data = { products, categories, inventory, staff, outlets, transactions, expenses, dailyClosings, wipRecipes, loyaltyConfig, membershipTiers, bulkDiscounts };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `mozzaboy_backup_${Date.now()}.json`;
+      a.href = url; a.download = `mozzaboy_master_${new Date().toISOString().split('T')[0]}.json`;
       a.click();
     },
-    importData: (json) => { console.log("Importing...", json); return true; },
-    resetGlobalData: () => { if(confirm("Wipe all cloud data?")) console.log("Global reset triggered"); },
+    importData: async (json) => { 
+      if (!supabase) return false;
+      setIsSaving(true);
+      try {
+        const data = JSON.parse(json);
+        const tables = ['categories', 'products', 'inventory', 'staff', 'outlets', 'membership_tiers', 'bulk_discounts', 'wip_recipes', 'loyalty_config'];
+        
+        for (const table of tables) {
+          if (data[table] && Array.isArray(data[table])) {
+            if (table === 'staff') {
+              await supabase.from(table).delete().neq('id', currentUser?.id || '0');
+            } else {
+              await supabase.from(table).delete().neq('id', 'keep_all'); 
+            }
+            await supabase.from(table).insert(data[table]);
+          } else if (data[table] && typeof data[table] === 'object' && table === 'loyalty_config') {
+            await supabase.from(table).upsert({ ...data[table], id: 'global' });
+          }
+        }
+        await fetchFromCloud();
+        return true;
+      } catch (e) {
+        console.error("Import Error:", e);
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    exportTableToCSV: (table) => {
+      let data: any[] = [];
+      if (table === 'products') data = products;
+      else if (table === 'inventory') data = inventory;
+      else if (table === 'categories') data = categories;
+      else if (table === 'outlets') data = outlets;
+      else if (table === 'staff') data = staff;
+      else if (table === 'wip_recipes') data = wipRecipes;
+      const csv = jsonToCSV(data);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `mozzaboy_${table}_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+    },
+    importCSVToTable: async (table, csv) => {
+      if (!supabase) return false;
+      setIsSaving(true);
+      try {
+        const json = csvToJSON(csv);
+        if (!json || json.length === 0) return false;
+        // Broad wipe strategy
+        if (table === 'staff') {
+           const { error: delErr } = await supabase.from(table).delete().neq('id', currentUser?.id || '0');
+           if (delErr) throw delErr;
+        } else {
+           const { error: delErr } = await supabase.from(table).delete().neq('id', 'wipe_placeholder_safe');
+           if (delErr) throw delErr;
+        }
+        // Strict mapping for CSV-originated numbers
+        const sanitized = json.map(row => {
+          const r = { ...row };
+          if (r.price !== undefined) r.price = Number(r.price) || 0;
+          if (r.quantity !== undefined) r.quantity = Number(r.quantity) || 0;
+          if (r.costPerUnit !== undefined) r.costPerUnit = Number(r.costPerUnit) || 0;
+          if (r.minStock !== undefined) r.minStock = Number(r.minStock) || 0;
+          if (r.resultQuantity !== undefined) r.resultQuantity = Number(r.resultQuantity) || 0;
+          return r;
+        });
+        const { error: insErr } = await supabase.from(table).insert(sanitized);
+        if (insErr) throw insErr;
+        await fetchFromCloud();
+        return true;
+      } catch (e) {
+        console.error(`CSV Import Error [${table}]:`, e);
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    resetGlobalData: async () => { 
+       if (!supabase) return;
+       setIsSaving(true);
+       try {
+         const tables = [
+           'transactions', 'expenses', 'daily_closings', 'purchases', 
+           'stock_transfers', 'stock_requests', 'production_records', 
+           'attendance', 'leave_requests', 'customers', 'simulations',
+           'products', 'inventory', 'categories', 'wip_recipes', 
+           'membership_tiers', 'bulk_discounts'
+         ];
+         for (const table of tables) { await supabase.from(table).delete().neq('id', '0'); }
+         await supabase.from('staff').delete().neq('role', UserRole.OWNER);
+         await fetchFromCloud();
+       } catch (e) {
+         console.error("Global Reset Error:", e);
+       } finally { setIsSaving(false); }
+    },
     updateSupabaseConfig: (c) => { console.log("Config updated", c); },
     syncToCloud: () => { fetchFromCloud(); }
   };

@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../store';
-import { Product, BOMComponent, UserRole, ComboItem, OutletSetting } from '../types';
+import { Product, BOMComponent, UserRole, ComboItem, OutletSetting, InventoryItem } from '../types';
 
 interface UIBOM extends BOMComponent {
   id: string;
@@ -17,30 +17,63 @@ export const MenuManagement: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [activeModalTab, setActiveModalTab] = useState<'info' | 'logic' | 'branches'>('info');
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState<Partial<Product>>({ 
-    name: '', price: 0, categoryId: '', image: 'https://api.dicebear.com/7.x/food/svg?seed=food', bom: [], isAvailable: true, isCombo: false, comboItems: [], outletSettings: {}
+    name: '', price: 0, categoryId: '', image: '', bom: [], isAvailable: true, isCombo: false, comboItems: [], outletSettings: {}
   });
 
   const [currentBOM, setCurrentBOM] = useState<UIBOM[]>([]);
   const [currentComboItems, setCurrentComboItems] = useState<UICombo[]>([]);
   
-  // Per-row search filters for BOM
-  const [bomSearches, setBomSearches] = useState<Record<string, string>>({});
+  // Picker State
+  const [pickerModal, setPickerModal] = useState<{rowId: string, type: 'material' | 'product'} | null>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
 
   const handleSaveProduct = () => {
     if (!formData.name || !formData.categoryId) return alert("Nama dan Kategori wajib diisi.");
+    
+    // Filter out incomplete rows before saving
+    const finalBOM = currentBOM
+      .filter(b => b.inventoryItemId && b.quantity > 0)
+      .map(({ inventoryItemId, quantity }) => ({ inventoryItemId, quantity }));
+
+    const finalCombo = currentComboItems
+      .filter(c => c.productId && c.quantity > 0)
+      .map(({ productId, quantity }) => ({ productId, quantity }));
+
     const baseData = { 
       ...formData, 
-      bom: formData.isCombo ? [] : currentBOM.map(({ inventoryItemId, quantity }) => ({ inventoryItemId, quantity })),
-      comboItems: formData.isCombo ? currentComboItems.map(({ productId, quantity }) => ({ productId, quantity })) : []
+      image: formData.image || `https://api.dicebear.com/7.x/food/svg?seed=${formData.name || Date.now()}`,
+      bom: formData.isCombo ? [] : finalBOM,
+      comboItems: formData.isCombo ? finalCombo : []
     };
-    if (editingProduct) updateProduct({ ...editingProduct, ...baseData } as Product);
-    else addProduct({ ...baseData, id: `p-${Date.now()}` } as Product);
-    setShowModal(false);
-    setEditingProduct(null);
-    setCurrentBOM([]);
-    setCurrentComboItems([]);
+
+    try {
+      if (editingProduct) {
+        updateProduct({ ...editingProduct, ...baseData } as Product);
+      } else {
+        addProduct({ ...baseData, id: `p-${Date.now()}` } as Product);
+      }
+      setShowModal(false);
+      setEditingProduct(null);
+      setCurrentBOM([]);
+      setCurrentComboItems([]);
+    } catch (err) {
+      alert("Gagal menyimpan ke database. Periksa koneksi internet Anda.");
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, image: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const applyToAllBranches = () => {
@@ -62,13 +95,43 @@ export const MenuManagement: React.FC = () => {
     setShowModal(true);
   };
 
-  const addBOMRow = () => {
+  const addBOMRow = (item?: InventoryItem) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setCurrentBOM([...currentBOM, { id, inventoryItemId: '', quantity: 1 }]);
+    setCurrentBOM([...currentBOM, { 
+      id, 
+      inventoryItemId: item?.id || '', 
+      quantity: 1 
+    }]);
+    setPickerModal(null);
+    setPickerSearch('');
   };
 
   const addComboRow = () => {
     setCurrentComboItems([...currentComboItems, { id: Math.random().toString(36).substr(2, 9), productId: '', quantity: 1 }]);
+  };
+
+  const filteredPickerItems = useMemo(() => {
+    if (!pickerModal) return [];
+    if (pickerModal.type === 'material') {
+      return inventory
+        .filter(i => i.outletId === selectedOutletId)
+        .filter(i => i.name.toLowerCase().includes(pickerSearch.toLowerCase()));
+    } else {
+      return products
+        .filter(p => !p.isCombo && p.id !== formData.id)
+        .filter(p => p.name.toLowerCase().includes(pickerSearch.toLowerCase()));
+    }
+  }, [pickerModal, pickerSearch, inventory, products, selectedOutletId, formData.id]);
+
+  const selectItemForPicker = (id: string) => {
+    if (!pickerModal) return;
+    if (pickerModal.type === 'material') {
+      setCurrentBOM(prev => prev.map(row => row.id === pickerModal.rowId ? { ...row, inventoryItemId: id } : row));
+    } else {
+      setCurrentComboItems(prev => prev.map(row => row.id === pickerModal.rowId ? { ...row, productId: id } : row));
+    }
+    setPickerModal(null);
+    setPickerSearch('');
   };
 
   return (
@@ -81,7 +144,7 @@ export const MenuManagement: React.FC = () => {
         <button 
           onClick={() => {
             setEditingProduct(null);
-            setFormData({ name: '', price: 0, categoryId: categories[0]?.id || '', image: `https://api.dicebear.com/7.x/food/svg?seed=${Date.now()}`, bom: [], isAvailable: true, isCombo: false, comboItems: [], outletSettings: {} });
+            setFormData({ name: '', price: 0, categoryId: categories[0]?.id || '', image: '', bom: [], isAvailable: true, isCombo: false, comboItems: [], outletSettings: {} });
             setCurrentBOM([]);
             setCurrentComboItems([]);
             setActiveModalTab('info');
@@ -143,22 +206,44 @@ export const MenuManagement: React.FC = () => {
                          <button onClick={() => setFormData({...formData, isCombo: false})} className={`flex-1 py-4 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${!formData.isCombo ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400'}`}>Single Item</button>
                          <button onClick={() => setFormData({...formData, isCombo: true})} className={`flex-1 py-4 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${formData.isCombo ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400'}`}>Package / Combo</button>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="col-span-full">
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Produk</label>
-                          <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-orange-500 shadow-sm" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Contoh: Corndog Mozza Jumbo" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Kategori</label>
-                          <select className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-bold outline-none shadow-sm" value={formData.categoryId || ''} onChange={e => setFormData({...formData, categoryId: e.target.value})}>
-                             <option value="">-- Pilih Kategori --</option>
-                             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Harga Default</label>
-                          <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-orange-500 shadow-sm" value={formData.price ?? 0} onChange={e => setFormData({...formData, price: parseInt(e.target.value) || 0})} />
-                        </div>
+                      
+                      <div className="flex flex-col md:flex-row gap-8 items-start">
+                         <div className="w-full md:w-48 shrink-0 space-y-3">
+                            <label className="text-[10px] font-black text-slate-400 uppercase block ml-1 tracking-widest text-center">Foto Produk</label>
+                            <div 
+                              onClick={() => fileInputRef.current?.click()}
+                              className="aspect-square w-full rounded-[40px] bg-slate-50 border-4 border-white shadow-xl overflow-hidden cursor-pointer group relative"
+                            >
+                               <img src={formData.image || 'https://api.dicebear.com/7.x/food/svg?seed=placeholder'} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                               <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <span className="text-white font-black text-[10px] uppercase">Ganti Foto</span>
+                                </div>
+                            </div>
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                            <p className="text-[7px] text-slate-400 text-center uppercase font-bold">Klik gambar untuk unggah foto</p>
+                         </div>
+
+                         <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                           <div className="col-span-full">
+                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Produk</label>
+                             <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-orange-500 shadow-sm text-slate-900" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Contoh: Corndog Mozza Jumbo" />
+                           </div>
+                           <div>
+                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Kategori</label>
+                             <select className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-bold outline-none shadow-sm text-slate-900" value={formData.categoryId || ''} onChange={e => setFormData({...formData, categoryId: e.target.value})}>
+                                <option value="">-- Pilih Kategori --</option>
+                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                             </select>
+                           </div>
+                           <div>
+                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Harga Default</label>
+                             <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-orange-500 shadow-sm text-slate-900" value={formData.price ?? 0} onChange={e => setFormData({...formData, price: parseInt(e.target.value) || 0})} />
+                           </div>
+                           <div className="col-span-full">
+                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Atau Gunakan URL Gambar</label>
+                              <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-medium text-xs outline-none focus:border-orange-500 shadow-sm text-slate-900" value={formData.image || ''} onChange={e => setFormData({...formData, image: e.target.value})} placeholder="https://..." />
+                           </div>
+                         </div>
                       </div>
                    </div>
                  )}
@@ -171,14 +256,17 @@ export const MenuManagement: React.FC = () => {
                               <div key={item.id} className="p-5 bg-slate-50 rounded-3xl border border-slate-200 flex gap-4 items-end shadow-sm">
                                  <div className="flex-1">
                                     <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block">Pilih Produk Tunggal</label>
-                                    <select className="w-full p-3 bg-white border-2 rounded-2xl font-bold text-xs outline-none" value={item.productId} onChange={e => setCurrentComboItems(prev => prev.map(c => c.id === item.id ? {...c, productId: e.target.value} : c))}>
-                                       <option value="">-- Menu Satuan --</option>
-                                       {products.filter(p => !p.isCombo && p.id !== formData.id).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                    </select>
+                                    <button 
+                                      onClick={() => setPickerModal({ rowId: item.id, type: 'product' })}
+                                      className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-left text-slate-900 outline-none flex justify-between items-center"
+                                    >
+                                       <span>{products.find(p => p.id === item.productId)?.name || '-- Pilih Produk --'}</span>
+                                       <span className="opacity-30">🔍</span>
+                                    </button>
                                  </div>
                                  <div className="w-24 text-center">
                                     <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block">Qty</label>
-                                    <input type="number" className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-center outline-none shadow-inner" value={item.quantity} onChange={e => setCurrentComboItems(prev => prev.map(c => c.id === item.id ? {...c, quantity: parseInt(e.target.value) || 1} : c))} />
+                                    <input type="number" className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-center outline-none shadow-inner text-slate-900" value={item.quantity} onChange={e => setCurrentComboItems(prev => prev.map(c => c.id === item.id ? {...c, quantity: parseInt(e.target.value) || 1} : c))} />
                                  </div>
                                  <button onClick={() => setCurrentComboItems(prev => prev.filter(c => c.id !== item.id))} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl">✕</button>
                               </div>
@@ -190,33 +278,23 @@ export const MenuManagement: React.FC = () => {
                            {currentBOM.map((bom) => (
                               <div key={bom.id} className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 flex flex-col md:flex-row gap-4 items-start md:items-end shadow-sm">
                                  <div className="flex-1 w-full space-y-2">
-                                    <div className="flex justify-between items-center">
-                                       <label className="text-[8px] font-black text-slate-400 uppercase">Material Bahan Baku</label>
-                                       <input 
-                                          type="text" 
-                                          placeholder="🔍 Cari..." 
-                                          className="p-1 bg-white border rounded text-[8px] font-bold outline-none w-32"
-                                          value={bomSearches[bom.id] || ''}
-                                          onChange={e => setBomSearches({...bomSearches, [bom.id]: e.target.value})}
-                                       />
-                                    </div>
-                                    <select className="w-full p-3 bg-white border-2 rounded-2xl font-bold text-xs outline-none" value={bom.inventoryItemId} onChange={e => setCurrentBOM(prev => prev.map(b => b.id === bom.id ? {...b, inventoryItemId: e.target.value} : b))}>
-                                       <option value="">-- Pilih Material --</option>
-                                       {inventory
-                                          .filter(i => i.outletId === selectedOutletId)
-                                          .filter(i => i.name.toLowerCase().includes((bomSearches[bom.id] || '').toLowerCase()))
-                                          .map(inv => <option key={inv.id} value={inv.id}>{inv.name} ({inv.unit})</option>)
-                                       }
-                                    </select>
+                                    <label className="text-[8px] font-black text-slate-400 uppercase">Material Bahan Baku</label>
+                                    <button 
+                                      onClick={() => setPickerModal({ rowId: bom.id, type: 'material' })}
+                                      className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-left text-slate-900 outline-none flex justify-between items-center"
+                                    >
+                                       <span>{inventory.find(i => i.id === bom.inventoryItemId)?.name || '-- Cari Bahan Baku --'}</span>
+                                       <span className="opacity-30">🔍</span>
+                                    </button>
                                  </div>
                                  <div className="w-full md:w-32">
                                     <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block text-center">Takaran</label>
-                                    <input type="number" step="any" className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-center outline-none shadow-inner" value={bom.quantity} onChange={e => setCurrentBOM(prev => prev.map(b => b.id === bom.id ? {...b, quantity: parseFloat(e.target.value) || 0} : b))} />
+                                    <input type="number" step="any" className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-center outline-none shadow-inner text-slate-900" value={bom.quantity} onChange={e => setCurrentBOM(prev => prev.map(b => b.id === bom.id ? {...b, quantity: parseFloat(e.target.value) || 0} : b))} />
                                  </div>
                                  <button onClick={() => setCurrentBOM(prev => prev.filter(b => b.id !== bom.id))} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm">✕</button>
                               </div>
                            ))}
-                           <button onClick={addBOMRow} className="w-full py-5 border-2 border-dashed border-slate-200 rounded-3xl text-[10px] font-black uppercase text-slate-400 hover:border-indigo-500 transition-all">+ TAMBAH BARIS BAHAN BAKU</button>
+                           <button onClick={() => setPickerModal({ rowId: 'new', type: 'material' })} className="w-full py-5 border-2 border-dashed border-slate-200 rounded-3xl text-[10px] font-black uppercase text-slate-400 hover:border-indigo-500 transition-all">+ TAMBAH BARIS BAHAN BAKU</button>
                         </div>
                       )}
                    </div>
@@ -268,6 +346,74 @@ export const MenuManagement: React.FC = () => {
                  <button onClick={handleSaveProduct} className="w-full py-5 bg-slate-900 text-white rounded-[28px] font-black text-xs uppercase tracking-[0.3em] shadow-2xl active:scale-95 transition-all">SIMPAN DATABASE 💾</button>
               </div>
            </div>
+        </div>
+      )}
+
+      {/* SEARCHABLE PICKER MODAL */}
+      {pickerModal && (
+        <div className="fixed inset-0 z-[300] bg-slate-950/90 backdrop-blur-xl flex flex-col p-4 md:p-12 animate-in fade-in duration-200">
+           <div className="max-w-2xl mx-auto w-full flex flex-col h-full">
+              <div className="flex justify-between items-center mb-8">
+                 <div>
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter">Pilih {pickerModal.type === 'material' ? 'Bahan Baku' : 'Menu Satuan'}</h3>
+                    <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Master Database {selectedOutletId}</p>
+                 </div>
+                 <button onClick={() => { setPickerModal(null); setPickerSearch(''); }} className="w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center text-xl">✕</button>
+              </div>
+
+              <div className="relative mb-6">
+                 <input 
+                    autoFocus
+                    type="text" 
+                    placeholder="Ketik nama untuk mencari..." 
+                    className="w-full p-6 bg-white rounded-3xl font-black text-xl text-slate-900 outline-none border-4 border-indigo-500 shadow-2xl"
+                    value={pickerSearch}
+                    onChange={e => setPickerSearch(e.target.value)}
+                 />
+                 <span className="absolute right-6 top-1/2 -translate-y-1/2 text-2xl opacity-20">🔍</span>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2 pb-10">
+                 {filteredPickerItems.map((item: any) => (
+                    <button 
+                       key={item.id} 
+                       onClick={() => {
+                          if (pickerModal.rowId === 'new') addBOMRow(item as InventoryItem);
+                          else selectItemForPicker(item.id);
+                       }}
+                       className="w-full p-6 bg-white/5 border border-white/10 rounded-[32px] text-left hover:bg-white/10 transition-all flex justify-between items-center group"
+                    >
+                       <div>
+                          <p className="text-white font-black uppercase text-sm group-hover:text-indigo-400 transition-colors">{item.name}</p>
+                          <p className="text-white/40 text-[9px] font-bold uppercase mt-1">
+                             {pickerModal.type === 'material' ? `Stok: ${item.quantity} ${item.unit}` : `Kategori: ${categories.find(c => c.id === item.categoryId)?.name}`}
+                          </p>
+                       </div>
+                       <span className="text-white opacity-20 text-xl group-hover:opacity-100 transition-opacity">➔</span>
+                    </button>
+                 ))}
+                 {filteredPickerItems.length === 0 && (
+                    <div className="py-20 text-center opacity-30 text-white">
+                       <p className="text-2xl mb-4">🚫</p>
+                       <p className="text-[10px] font-black uppercase tracking-widest italic">Item tidak ditemukan</p>
+                    </div>
+                 )}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRM */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-6">
+          <div className="bg-white rounded-[48px] w-full max-w-sm p-12 shadow-2xl text-center animate-in zoom-in-95">
+            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter mb-4">Hapus Menu?</h3>
+            <p className="text-slate-500 text-xs font-bold leading-relaxed px-4 uppercase mb-10">Data <span className="text-red-600">"{productToDelete.name}"</span> akan dihapus permanen dari katalog.</p>
+            <div className="flex flex-col gap-3">
+              <button onClick={() => { deleteProduct(productToDelete.id); setProductToDelete(null); }} className="w-full py-5 bg-red-600 text-white rounded-[24px] font-black text-xs uppercase shadow-xl active:scale-95 transition-all">HAPUS PERMANEN 🗑️</button>
+              <button onClick={() => setProductToDelete(null)} className="w-full py-4 text-slate-400 font-black uppercase text-[10px]">BATALKAN</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
