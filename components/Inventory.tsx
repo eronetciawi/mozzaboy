@@ -18,7 +18,7 @@ export const Inventory: React.FC = () => {
   
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [newItem, setNewItem] = useState<Omit<InventoryItem, 'id' | 'outletId'>>({ 
-    name: '', unit: 'gr', quantity: 0, minStock: 0, costPerUnit: 0, type: InventoryItemType.RAW, isCashierOperated: false
+    name: '', unit: 'gr', quantity: 0, minStock: 0, costPerUnit: 0, type: InventoryItemType.RAW, isCashierOperated: false, canCashierPurchase: false
   });
 
   const isOwnerOrManager = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
@@ -62,7 +62,7 @@ export const Inventory: React.FC = () => {
     if (newItem.name && selectedBranches.length > 0) { 
       addInventoryItem({ ...newItem, type: activeTab }, selectedBranches); 
       setShowAddModal(false); 
-      setNewItem({ name: '', unit: 'gr', quantity: 0, minStock: 0, costPerUnit: 0, type: activeTab, isCashierOperated: false });
+      setNewItem({ name: '', unit: 'gr', quantity: 0, minStock: 0, costPerUnit: 0, type: activeTab, isCashierOperated: false, canCashierPurchase: false });
       setSelectedBranches([]);
     } 
   };
@@ -113,10 +113,15 @@ export const Inventory: React.FC = () => {
                       <td className="py-4 px-4 text-center text-slate-400 font-black text-[10px] uppercase">{item.unit}</td>
                       <td className={`py-4 px-4 text-right font-black text-sm ${item.quantity <= (item.minStock || 0) ? 'text-red-600 animate-pulse' : ''}`}>{item.quantity.toLocaleString()}</td>
                       <td className="py-4 px-4 text-right font-black text-slate-300 text-xs">{item.minStock?.toLocaleString() || '0'}</td>
-                      <td className="py-4 px-4 text-center">
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase ${item.isCashierOperated ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-300'}`}>
-                           {item.isCashierOperated ? 'Aktif' : 'Non-Aktif'}
-                        </span>
+                      <td className="py-4 px-4 text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase ${item.isCashierOperated ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-300'}`}>
+                             {item.isCashierOperated ? 'Lihat: Aktif' : 'Lihat: Off'}
+                          </span>
+                          <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase ${item.canCashierPurchase ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-300'}`}>
+                             {item.canCashierPurchase ? 'Beli: Boleh' : 'Beli: No'}
+                          </span>
+                        </div>
                       </td>
                       {isOwnerOrManager && (
                         <td className="py-4 px-8 text-right">
@@ -161,6 +166,10 @@ export const Inventory: React.FC = () => {
                            <p className="text-lg font-black text-slate-300">{item.minStock?.toLocaleString() || '0'}</p>
                         </div>
                      </div>
+                     <div className="flex gap-2">
+                        <span className={`flex-1 text-[7px] font-black px-2 py-1.5 rounded-lg text-center uppercase ${item.isCashierOperated ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>Lihat Kasir: {item.isCashierOperated ? 'ON' : 'OFF'}</span>
+                        <span className={`flex-1 text-[7px] font-black px-2 py-1.5 rounded-lg text-center uppercase ${item.canCashierPurchase ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-400'}`}>Beli Kasir: {item.canCashierPurchase ? 'YES' : 'NO'}</span>
+                     </div>
                   </div>
                ))}
             </div>
@@ -190,7 +199,7 @@ export const Inventory: React.FC = () => {
       {/* MODAL EDIT (Manager Only) */}
       {editingItem && isOwnerOrManager && (
         <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
-          <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-lg p-8 md:p-12 shadow-2xl">
+          <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-lg p-8 md:p-12 shadow-2xl overflow-y-auto max-h-[90vh]">
              <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 mb-8 text-center">Update Data Stok</h3>
              <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
@@ -207,12 +216,29 @@ export const Inventory: React.FC = () => {
                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">HPP Unit (Rp)</label>
                    <input type="number" onFocus={e => e.target.select()} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-indigo-600 outline-none" value={editingItem.costPerUnit} onChange={e => setEditingItem({...editingItem, costPerUnit: parseInt(e.target.value) || 0})} />
                 </div>
-                <div className="p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 flex items-center justify-between">
-                   <p className="text-[10px] font-black uppercase text-slate-600">Berikan Akses Lihat ke Kasir?</p>
-                   <button onClick={() => setEditingItem({...editingItem, isCashierOperated: !editingItem.isCashierOperated})} className={`w-14 h-7 rounded-full relative transition-all ${editingItem.isCashierOperated ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all ${editingItem.isCashierOperated ? 'right-1' : 'left-1'}`}></div>
-                   </button>
+                
+                <div className="space-y-3">
+                   <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Pengaturan Akses Kasir</p>
+                   <div className="p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                         <span className="text-xl">👁️</span>
+                         <p className="text-[10px] font-black uppercase text-slate-600">Muncul di Daftar Stok?</p>
+                      </div>
+                      <button onClick={() => setEditingItem({...editingItem, isCashierOperated: !editingItem.isCashierOperated})} className={`w-14 h-7 rounded-full relative transition-all ${editingItem.isCashierOperated ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+                         <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all ${editingItem.isCashierOperated ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                   </div>
+                   <div className="p-4 bg-orange-50 rounded-2xl border-2 border-orange-100 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                         <span className="text-xl">🚚</span>
+                         <p className="text-[10px] font-black uppercase text-orange-700">Kasir Boleh Belanja Ini?</p>
+                      </div>
+                      <button onClick={() => setEditingItem({...editingItem, canCashierPurchase: !editingItem.canCashierPurchase})} className={`w-14 h-7 rounded-full relative transition-all ${editingItem.canCashierPurchase ? 'bg-orange-500' : 'bg-slate-300'}`}>
+                         <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all ${editingItem.canCashierPurchase ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                   </div>
                 </div>
+
                 <div className="flex gap-3 pt-4">
                   <button onClick={() => setEditingItem(null)} className="flex-1 py-4 text-slate-400 font-black text-[10px] uppercase">Batal</button>
                   <button onClick={() => { updateInventoryItem(editingItem); setEditingItem(null); }} className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl">Simpan Data 💾</button>
@@ -247,6 +273,20 @@ export const Inventory: React.FC = () => {
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">HPP Unit (Rp)</label>
                 <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm" value={newItem.costPerUnit} onChange={e => setNewItem({...newItem, costPerUnit: parseInt(e.target.value) || 0})} />
+              </div>
+              <div className="md:col-span-2 space-y-4">
+                 <div className="p-4 bg-slate-50 rounded-2xl border flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase text-slate-600">Muncul di Daftar Stok Kasir?</p>
+                    <button onClick={() => setNewItem({...newItem, isCashierOperated: !newItem.isCashierOperated})} className={`w-12 h-6 rounded-full relative transition-all ${newItem.isCashierOperated ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+                       <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${newItem.isCashierOperated ? 'right-1' : 'left-1'}`}></div>
+                    </button>
+                 </div>
+                 <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase text-orange-700">Kasir Boleh Belanja Ini?</p>
+                    <button onClick={() => setNewItem({...newItem, canCashierPurchase: !newItem.canCashierPurchase})} className={`w-12 h-6 rounded-full relative transition-all ${newItem.canCashierPurchase ? 'bg-orange-500' : 'bg-slate-300'}`}>
+                       <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${newItem.canCashierPurchase ? 'right-1' : 'left-1'}`}></div>
+                    </button>
+                 </div>
               </div>
               <div className="md:col-span-2 p-5 bg-slate-900 rounded-3xl text-white">
                  <div className="flex justify-between items-center mb-4">

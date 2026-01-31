@@ -110,6 +110,7 @@ export interface InventoryItem {
   costPerUnit: number;
   type: InventoryItemType;
   isCashierOperated?: boolean; 
+  canCashierPurchase?: boolean;
 }
 
 export interface ProductionComponent {

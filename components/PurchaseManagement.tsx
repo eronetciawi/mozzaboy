@@ -29,7 +29,10 @@ export const PurchaseManagement: React.FC = () => {
   
   const filteredInventoryItems = useMemo(() => {
     let base = inventory.filter(i => i.outletId === selectedOutletId);
-    if (isCashier) base = base.filter(i => i.isCashierOperated === true);
+    // FILTER SPESIFIK: Jika kasir, hanya barang yang canCashierPurchase === true
+    if (isCashier) {
+       base = base.filter(i => i.canCashierPurchase === true);
+    }
     return base.filter(i => i.name.toLowerCase().includes(itemPickerQuery.toLowerCase()));
   }, [inventory, selectedOutletId, isCashier, itemPickerQuery]);
 
@@ -142,7 +145,7 @@ export const PurchaseManagement: React.FC = () => {
                         onClick={() => setShowItemPicker(true)}
                         className="w-full p-6 bg-slate-50 border-4 border-dashed border-slate-200 rounded-[32px] text-slate-400 font-black text-sm uppercase hover:border-orange-500 hover:text-orange-500 transition-all"
                      >
-                        + Cari & Pilih Barang
+                        + Cari & Pilih Barang {isCashier && <span className="block text-[8px] mt-1 text-slate-300">(Hanya barang yang diizinkan Manager)</span>}
                      </button>
                    ) : (
                      <div className="p-6 bg-orange-50 border-2 border-orange-200 rounded-[32px] flex justify-between items-center shadow-sm">
@@ -155,7 +158,7 @@ export const PurchaseManagement: React.FC = () => {
                    )}
                 </div>
 
-                {/* 2. Kuantitas (FIXED: SEBELUMNYA HILANG) */}
+                {/* 2. Kuantitas */}
                 <div className="space-y-4">
                    <div className="flex justify-between items-center">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">2. Kuantitas / Berat Belanja</label>
@@ -191,7 +194,7 @@ export const PurchaseManagement: React.FC = () => {
                    )}
                 </div>
 
-                {/* 3. Total Harga (High Contrast Fix) */}
+                {/* 3. Total Harga */}
                 <div className="space-y-4">
                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">3. Total Nominal Nota (Rp)</label>
                    <div className="relative">
@@ -225,7 +228,10 @@ export const PurchaseManagement: React.FC = () => {
       {showItemPicker && (
          <div className="fixed inset-0 z-[300] bg-slate-900/95 backdrop-blur-2xl p-6 flex flex-col">
             <div className="flex justify-between items-center mb-6 text-white">
-               <h3 className="font-black uppercase tracking-tighter text-lg">Pilih Material Belanja</h3>
+               <div>
+                  <h3 className="font-black uppercase tracking-tighter text-lg">Pilih Material Belanja</h3>
+                  {isCashier && <p className="text-[8px] font-bold text-orange-400 uppercase tracking-widest">Restricted List: Izin Manager Diperlukan</p>}
+               </div>
                <button onClick={() => setShowItemPicker(false)} className="text-2xl">✕</button>
             </div>
             <input 
@@ -247,11 +253,21 @@ export const PurchaseManagement: React.FC = () => {
                     }}
                     className="w-full p-6 bg-white/10 border border-white/10 rounded-[32px] text-left hover:bg-orange-500 transition-all group"
                   >
-                     <p className="text-white font-black uppercase text-sm group-hover:text-white">{item.name}</p>
-                     <p className="text-white/40 text-[9px] font-bold uppercase mt-1 group-hover:text-white/60">Stok Saat Ini: {item.quantity} {item.unit}</p>
+                     <div className="flex justify-between items-center">
+                        <div>
+                           <p className="text-white font-black uppercase text-sm group-hover:text-white">{item.name}</p>
+                           <p className="text-white/40 text-[9px] font-bold uppercase mt-1 group-hover:text-white/60">Stok Saat Ini: {item.quantity} {item.unit}</p>
+                        </div>
+                        <span className="text-orange-500 opacity-40 group-hover:opacity-100">🚚+</span>
+                     </div>
                   </button>
                ))}
-               {filteredInventoryItems.length === 0 && <p className="text-center text-white/30 uppercase font-black py-20 italic">Tidak ditemukan</p>}
+               {filteredInventoryItems.length === 0 && (
+                  <div className="text-center py-20 px-10">
+                     <p className="text-white/30 uppercase font-black italic mb-2">Item tidak ditemukan atau akses terbatas</p>
+                     {isCashier && <p className="text-[8px] text-slate-500 font-bold uppercase">Hanya Manager yang dapat memberikan izin belanja barang ke Kasir.</p>}
+                  </div>
+               )}
             </div>
          </div>
       )}
