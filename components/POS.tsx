@@ -3,11 +3,16 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store';
 import { Product, PaymentMethod, Customer, UserRole } from '../types';
 
-export const POS: React.FC = () => {
+interface POSProps {
+  setActiveTab: (tab: string) => void;
+}
+
+export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const { 
     products, categories, cart, addToCart, removeFromCart, 
     updateCartQuantity, checkout, customers, selectCustomer, selectedCustomerId,
-    membershipTiers, bulkDiscounts, selectedOutletId, loyaltyConfig, inventory, dailyClosings, currentUser
+    membershipTiers, bulkDiscounts, selectedOutletId, loyaltyConfig, inventory, 
+    dailyClosings, currentUser, attendance, clockIn
   } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -21,6 +26,15 @@ export const POS: React.FC = () => {
 
   // Success Toast State
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  
+  // Attendance Alert State
+  const [isLocating, setIsLocating] = useState(false);
+
+  const isClockedInToday = useMemo(() => {
+    if (!currentUser) return true;
+    const todayStr = new Date().toISOString().split('T')[0];
+    return attendance.some(a => a.staffId === currentUser.id && a.date === todayStr);
+  }, [attendance, currentUser]);
 
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
@@ -48,6 +62,22 @@ export const POS: React.FC = () => {
     });
   };
 
+  const handleQuickClockIn = () => {
+    if (!navigator.geolocation) return alert("Browser tidak mendukung GPS.");
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const result = await clockIn(pos.coords.latitude, pos.coords.longitude);
+        if (result && !result.success) alert(result.message);
+        setIsLocating(false);
+      },
+      (err) => {
+        alert("Gagal verifikasi lokasi. Aktifkan GPS Anda.");
+        setIsLocating(false);
+      }
+    );
+  };
+
   const filteredProducts = products.filter(p => {
     const branchSetting = p.outletSettings?.[selectedOutletId];
     const isAvailableInBranch = branchSetting ? branchSetting.isAvailable : p.isAvailable;
@@ -67,7 +97,6 @@ export const POS: React.FC = () => {
   const bulkDiscountRule = bulkDiscounts.filter(r => r.isActive && totalQty >= r.minQty).sort((a,b) => b.minQty - a.minQty)[0];
   const bulkDiscountPercent = bulkDiscountRule?.discountPercent || 0;
   
-  // Logic: Use whichever is higher (don't stack directly for simplicity unless configured otherwise)
   const isBulkBetter = bulkDiscountPercent > tierDiscountPercent;
   const appliedTierDiscount = isBulkBetter ? 0 : (subtotal * (tierDiscountPercent / 100));
   const appliedBulkDiscount = isBulkBetter ? (subtotal * (bulkDiscountPercent / 100)) : 0;
@@ -77,7 +106,9 @@ export const POS: React.FC = () => {
 
   const handleCheckout = (method: PaymentMethod) => {
     if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
-    // Pass ALL specific discount components to the store
+    if (!isClockedInToday && currentUser?.role !== UserRole.OWNER) {
+       return alert("Wajib Absen! Mohon absen masuk terlebih dahulu agar komisi penjualan Anda tercatat.");
+    }
     checkout(method, redeemPoints, appliedTierDiscount, appliedBulkDiscount);
     setShowCheckout(false);
     setRedeemPoints(0);
@@ -96,13 +127,33 @@ export const POS: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col md:flex-row overflow-hidden bg-slate-50 relative">
-      {/* ... (UI code remains the same but now correctly uses the breakdown above) ... */}
       
+      {/* ATTENDANCE WARNING BANNER */}
+      {!isClockedInToday && currentUser?.role !== UserRole.OWNER && (
+        <div className="absolute top-0 left-0 right-0 z-50 bg-amber-500 text-white px-4 md:px-8 py-3 flex items-center justify-between shadow-xl animate-in slide-in-from-top-full duration-500">
+           <div className="flex items-center gap-3">
+              <span className="text-xl animate-bounce">⏰</span>
+              <div className="hidden sm:block">
+                 <p className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Peringatan Performa</p>
+                 <p className="text-[9px] font-bold text-amber-100 uppercase mt-1">Anda belum absen masuk hari ini. Komisi & Target tidak akan terhitung!</p>
+              </div>
+              <p className="sm:hidden text-[10px] font-black uppercase tracking-tighter">BELUM ABSEN MASUK!</p>
+           </div>
+           <button 
+             disabled={isLocating}
+             onClick={handleQuickClockIn}
+             className={`px-5 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all shadow-lg ${isLocating ? 'bg-amber-600 text-amber-300' : 'bg-slate-900 text-white hover:bg-black active:scale-95'}`}
+           >
+             {isLocating ? 'VERIFIKASI LOKASI...' : 'ABSEN SEKARANG ➔'}
+           </button>
+        </div>
+      )}
+
       {/* SUCCESS TOAST OVERLAY */}
       {showSuccessToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-emerald-500/90 backdrop-blur-md text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-emerald-400/50">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl animate-bounce">✅</div>
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl">✅</div>
               <div>
                 <p className="text-[11px] font-black uppercase tracking-[0.2em] leading-none">Transaksi Berhasil</p>
                 <p className="text-[9px] font-bold text-emerald-100 uppercase mt-1">Struk & Stok Telah Diperbarui</p>
@@ -124,9 +175,9 @@ export const POS: React.FC = () => {
       )}
 
       {/* LEFT: PRODUCTS */}
-      <div className={`flex-1 flex flex-col min-w-0 min-h-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`flex-1 flex flex-col min-w-0 min-h-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'} ${!isClockedInToday && currentUser?.role !== UserRole.OWNER ? 'mt-14' : ''}`}>
         <div className="p-3 md:p-6 bg-white border-b border-slate-100 shrink-0 z-10 space-y-3">
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <div className="relative flex-1">
               <input 
                 type="text" 
@@ -136,7 +187,29 @@ export const POS: React.FC = () => {
               />
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-30 text-xs">🔍</span>
             </div>
-            <button onClick={() => setShowMemberModal(true)} className={`px-4 rounded-xl border-2 transition-all flex items-center gap-2 ${currentCustomer ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+            
+            {/* QUICK LOGISTICS SHORTCUTS FOR CASHIER */}
+            <div className="flex gap-1.5 shrink-0">
+               <button 
+                  onClick={() => setActiveTab('production')}
+                  className="px-3 md:px-4 py-2.5 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-100 flex items-center gap-2 transition-all active:scale-90"
+                  title="Produksi / Mixing"
+               >
+                  <span className="text-sm">🧪</span>
+                  <span className="hidden lg:block text-[9px] font-black uppercase tracking-widest">Mixing</span>
+               </button>
+
+               <button 
+                  onClick={() => setActiveTab('purchases')}
+                  className="px-3 md:px-4 py-2.5 bg-orange-500 text-white rounded-xl shadow-lg shadow-orange-100 flex items-center gap-2 transition-all active:scale-90"
+                  title="Belanja Barang"
+               >
+                  <span className="text-sm">🚚</span>
+                  <span className="hidden lg:block text-[9px] font-black uppercase tracking-widest">Belanja</span>
+               </button>
+            </div>
+
+            <button onClick={() => setShowMemberModal(true)} className={`px-4 py-2.5 rounded-xl border-2 transition-all flex items-center gap-2 ${currentCustomer ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
               <span className="text-sm">👤</span>
               <span className="hidden lg:block text-[10px] font-black uppercase tracking-widest truncate max-w-[80px]">{currentCustomer?.name || 'MEMBER'}</span>
             </button>
@@ -183,7 +256,7 @@ export const POS: React.FC = () => {
         <div className="md:hidden fixed bottom-[76px] left-0 right-0 px-4 animate-in slide-in-from-bottom-10 z-[60]">
           <button 
             onClick={() => setMobileView('cart')}
-            className="w-full bg-orange-600 text-white rounded-2xl p-4 shadow-2xl shadow-orange-900/40 flex justify-between items-center active:scale-95 transition-all border border-orange-400/20"
+            className="w-full bg-orange-600 text-white rounded-2xl p-4 shadow-2xl shadow-orange-900/40 flex justify-between items-center active:scale-[0.98] transition-all border border-orange-400/20"
           >
             <div className="flex items-center gap-3">
                <div className="w-10 h-10 bg-white text-orange-600 rounded-xl flex items-center justify-center font-black shadow-inner">{totalQty}</div>
@@ -293,7 +366,7 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
-      {/* MODALS REMAINS SAME... */}
+      {/* MODALS */}
       {/* CHECKOUT MODAL */}
       {showCheckout && (
         <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">

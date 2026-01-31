@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { AppProvider, useApp } from './store';
 import { Layout } from './components/Layout';
@@ -33,13 +34,13 @@ const MainApp: React.FC = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard setActiveTab={setActiveTab} />;
-      case 'pos': return <POS />;
+      case 'pos': return <POS setActiveTab={setActiveTab} />;
       case 'attendance': return <Attendance />;
       case 'crm': return <CRM />;
       case 'loyalty': return <LoyaltyManagement />;
       case 'printer': return <PrinterSettings />;
       case 'inventory': return <Inventory />;
-      case 'production': return <ProductionManagement />;
+      case 'production': return <ProductionManagement setActiveTab={setActiveTab} />;
       case 'transfers': return <StockTransferManagement />;
       case 'purchases': return <PurchaseManagement />;
       case 'menu': return <MenuManagement />;

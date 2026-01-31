@@ -6,7 +6,7 @@ import {
   CartItem, PaymentMethod, OrderStatus, UserRole, StaffMember, Permissions,
   Customer, Expense, ExpenseType, DailyClosing, Purchase, StockTransfer, StockRequest, RequestStatus,
   MembershipTier, BulkDiscountRule, InventoryItemType, ProductionRecord, Attendance, LeaveRequest,
-  MenuSimulation, LoyaltyConfig
+  MenuSimulation, LoyaltyConfig, WIPRecipe
 } from './types';
 import { PRODUCTS, CATEGORIES, INVENTORY_ITEMS, OUTLETS, INITIAL_STAFF } from './constants';
 
@@ -20,7 +20,8 @@ export const getPermissionsByRole = (role: UserRole): Permissions => {
     case UserRole.MANAGER:
       return { canAccessReports: true, canManageStaff: false, canManageMenu: true, canManageInventory: true, canProcessSales: true, canVoidTransactions: true, canManageSettings: true };
     case UserRole.CASHIER:
-      return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: false, canProcessSales: true, canVoidTransactions: false, canManageSettings: false };
+      // Kasir diberikan izin Manage Inventory agar bisa melakukan Mixing/Produksi bahan preparasi
+      return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: true, canProcessSales: true, canVoidTransactions: false, canManageSettings: false };
     case UserRole.KITCHEN:
       return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: true, canProcessSales: false, canVoidTransactions: false, canManageSettings: false };
     default:
@@ -41,6 +42,7 @@ interface AppState {
   stockTransfers: StockTransfer[];
   stockRequests: StockRequest[];
   productionRecords: ProductionRecord[];
+  wipRecipes: WIPRecipe[];
   transactions: Transaction[];
   filteredTransactions: Transaction[];
   outlets: Outlet[];
@@ -88,7 +90,7 @@ interface AppActions {
   addProduct: (product: Product) => Promise<void>;
   updateProduct: (product: Product) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
-  addInventoryItem: (item: any) => Promise<void>;
+  addInventoryItem: (item: any, outletIds?: string[]) => Promise<void>;
   updateInventoryItem: (item: InventoryItem) => Promise<void>;
   deleteInventoryItem: (id: string) => Promise<void>;
   addStockRequest: (itemId: string, qty: number) => Promise<void>;
@@ -97,13 +99,15 @@ interface AppActions {
   updateExpense: (id: string, data: Partial<Expense>) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
   addExpenseType: (name: string) => Promise<void>;
+  updateExpenseType: (id: string, name: string) => Promise<void>;
+  deleteExpenseType: (id: string) => Promise<void>;
   addCategory: (name: string) => Promise<void>;
   updateCategory: (id: string, name: string) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   performClosing: (actualCash: number, notes: string) => Promise<void>;
   approveClosing: (id: string) => Promise<void>;
   rejectClosing: (id: string) => Promise<void>;
-  addPurchase: (purchase: any, requestId?: string) => Promise<void>;
+  addPurchase: (purchase: { inventoryItemId: string; quantity: number; unitPrice: number }, requestId?: string) => Promise<void>;
   selectCustomer: (id: string | null) => void;
   addCustomer: (customer: any) => Promise<void>;
   updateCustomer: (customer: Customer) => Promise<void>;
@@ -112,7 +116,10 @@ interface AppActions {
   updateOutlet: (outlet: Outlet) => Promise<void>;
   deleteOutlet: (id: string) => Promise<void>;
   setConnectedPrinter: (device: any) => void;
-  processProduction: (data: any) => Promise<void>;
+  processProduction: (data: { resultItemId: string; resultQuantity: number; components: { inventoryItemId: string; quantity: number }[] }) => Promise<void>;
+  addWIPRecipe: (recipe: Omit<WIPRecipe, 'id'>) => Promise<void>;
+  updateWIPRecipe: (recipe: WIPRecipe) => Promise<void>;
+  deleteWIPRecipe: (id: string) => Promise<void>;
   transferStock: (from: string, to: string, item: string, qty: number) => Promise<void>;
   addMembershipTier: (tier: any) => Promise<void>;
   updateMembershipTier: (tier: any) => Promise<void>;
@@ -178,6 +185,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>([]);
   const [stockRequests, setStockRequests] = useState<StockRequest[]>([]);
   const [productionRecords, setProductionRecords] = useState<ProductionRecord[]>([]);
+  const [wipRecipes, setWipRecipes] = useState<WIPRecipe[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [membershipTiers, setMembershipTiers] = useState<MembershipTier[]>([]);
   const [bulkDiscounts, setBulkDiscounts] = useState<BulkDiscountRule[]>([]);
@@ -210,7 +218,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         { data: stf }, { data: att }, { data: leave }, { data: cust }, 
         { data: tx }, { data: exp }, { data: ext }, { data: cls }, 
         { data: str }, { data: stq }, { data: prd }, { data: pur },
-        { data: tier }, { data: bulk }, { data: sim }, { data: loyal }
+        { data: tier }, { data: bulk }, { data: sim }, { data: loyal },
+        { data: recipes }
       ] = await Promise.all([
         supabase.from('products').select('*'),
         supabase.from('categories').select('*'),
@@ -231,7 +240,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('membership_tiers').select('*'),
         supabase.from('bulk_discounts').select('*'),
         supabase.from('simulations').select('*'),
-        supabase.from('loyalty_config').select('*').eq('id', 'global').maybeSingle()
+        supabase.from('loyalty_config').select('*').eq('id', 'global').maybeSingle(),
+        supabase.from('wip_recipes').select('*')
       ]);
 
       if (prod) setProducts(prod);
@@ -254,6 +264,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (bulk) setBulkDiscounts(bulk);
       if (sim) setSimulations(hydrateDates(sim));
       if (loyal) setLoyaltyConfig(loyal);
+      if (recipes) setWipRecipes(recipes); else setWipRecipes([]);
     } catch (e) {
       console.error("Fetch Cloud Error:", e);
     } finally {
@@ -278,32 +289,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setLoginTime(new Date());
         setSelectedOutletId(cloudUser.assignedOutletIds[0] || 'out1');
         return { success: true };
-      }
-      const { count } = await supabase.from('staff').select('*', { count: 'exact', head: true });
-      if (count === 0) {
-        const localUser = INITIAL_STAFF.find(s => s.username === u && s.password === p);
-        if (localUser) {
-          setIsInitialLoading(true);
-          try {
-            await Promise.all([
-              supabase.from('staff').insert(INITIAL_STAFF.map(s => ({...s, joinedAt: new Date()}))),
-              supabase.from('categories').insert(CATEGORIES),
-              supabase.from('products').insert(PRODUCTS),
-              supabase.from('outlets').insert(OUTLETS),
-              supabase.from('inventory').insert(INVENTORY_ITEMS)
-            ]);
-            setIsAuthenticated(true);
-            setCurrentUser(localUser);
-            setLoginTime(new Date());
-            setSelectedOutletId(localUser.assignedOutletIds[0] || 'out1');
-            await fetchFromCloud();
-            return { success: true };
-          } catch (e) {
-            return { success: false, message: "Gagal menginisialisasi database cloud." };
-          } finally {
-            setIsInitialLoading(false);
-          }
-        }
       }
       return { success: false, message: "Username atau Password salah." };
     },
@@ -396,7 +381,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await fetchFromCloud();
     },
     updateLeaveStatus: async (id, s) => { await supabase!.from('leave_requests').update({ status: s }).eq('id', id); await fetchFromCloud(); },
-    addInventoryItem: async (i) => { await supabase!.from('inventory').insert({ ...i, id: `inv-${Date.now()}`, outletId: selectedOutletId }); await fetchFromCloud(); },
+    addInventoryItem: async (i, outletIds = []) => { 
+      // Multi-Branch Support: Create entry for each selected branch
+      const targets = outletIds.length > 0 ? outletIds : [selectedOutletId];
+      const payloads = targets.map(oid => ({
+         ...i,
+         id: `inv-${oid}-${Date.now()}`,
+         outletId: oid
+      }));
+      await supabase!.from('inventory').insert(payloads); 
+      await fetchFromCloud(); 
+    },
     updateInventoryItem: async (i) => { await supabase!.from('inventory').update(i).eq('id', i.id); await fetchFromCloud(); },
     deleteInventoryItem: async (id) => { await supabase!.from('inventory').delete().eq('id', id); await fetchFromCloud(); },
     addStockRequest: async (iid, q) => {
@@ -409,15 +404,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateExpense: async (id, d) => { await supabase!.from('expenses').update(d).eq('id', id); await fetchFromCloud(); },
     deleteExpense: async (id) => { await supabase!.from('expenses').delete().eq('id', id); await fetchFromCloud(); },
     addExpenseType: async (n) => { await supabase!.from('expense_types').insert({ id: `et-${Date.now()}`, name: n }); await fetchFromCloud(); },
+    updateExpenseType: async (id, n) => { await supabase!.from('expense_types').update({ name: n }).eq('id', id); await fetchFromCloud(); },
+    deleteExpenseType: async (id) => { await supabase!.from('expense_types').delete().eq('id', id); await fetchFromCloud(); },
     addCategory: async (n) => { await supabase!.from('categories').insert({ id: `cat-${Date.now()}`, name: n }); await fetchFromCloud(); },
     updateCategory: async (id, n) => { await supabase!.from('categories').update({ name: n }).eq('id', id); await fetchFromCloud(); },
     deleteCategory: async (id) => { await supabase!.from('categories').delete().eq('id', id); await fetchFromCloud(); },
     performClosing: async (actual, notes) => {
       const start = new Date(); start.setHours(0,0,0,0);
-      const shiftTxs = transactions.filter(t => t.outletId === selectedOutletId && new Date(t.timestamp) >= start && t.cashierId === currentUser!.id && t.status === OrderStatus.CLOSED);
+      const shiftTxs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser!.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start);
       const cash = shiftTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((acc,b)=>acc+b.total, 0);
       const qris = shiftTxs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((acc,b)=>acc+b.total, 0);
-      const exp = expenses.filter(e => e.outletId === selectedOutletId && new Date(e.timestamp) >= start && e.staffId === currentUser!.id).reduce((acc,b)=>acc+b.amount, 0);
+      const exp = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser!.id && new Date(e.timestamp) >= start).reduce((acc,b)=>acc+b.amount, 0);
       const disc = actual - (cash - exp);
       const cls = { id: `CLS-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser!.id, staffName: currentUser!.name, timestamp: new Date(), totalSalesCash: cash, totalSalesQRIS: qris, totalExpenses: exp, actualCash: actual, discrepancy: disc, notes, status: 'APPROVED' };
       await supabase!.from('daily_closings').insert(cls);
@@ -427,9 +424,91 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     rejectClosing: async (id) => { await supabase!.from('daily_closings').delete().eq('id', id); await fetchFromCloud(); },
     addPurchase: async (p, rid) => {
       const item = inventory.find(i => i.id === p.inventoryItemId);
-      await supabase!.from('purchases').insert({ id: `pur-${Date.now()}`, outletId: selectedOutletId, inventoryItemId: p.inventoryItemId, itemName: item?.name, quantity: p.quantity, unitPrice: p.unitPrice/p.quantity, totalPrice: p.unitPrice, staffId: currentUser!.id, staffName: currentUser!.name, timestamp: new Date(), requestId: rid });
-      await supabase!.from('inventory').update({ quantity: (item?.quantity || 0) + p.quantity }).eq('id', p.inventoryItemId);
+      if (!item) return;
+
+      const purchaseQty = p.quantity;
+      const purchasePricePerUnit = p.unitPrice / purchaseQty;
+      const currentQty = item.quantity > 0 ? item.quantity : 0;
+      const currentCost = item.costPerUnit || purchasePricePerUnit;
+      const newTotalQty = currentQty + purchaseQty;
+      const newAverageCost = ((currentQty * currentCost) + (purchaseQty * purchasePricePerUnit)) / newTotalQty;
+
+      await supabase!.from('purchases').insert({ 
+        id: `pur-${Date.now()}`, 
+        outletId: selectedOutletId, 
+        inventoryItemId: p.inventoryItemId, 
+        itemName: item.name, 
+        quantity: purchaseQty, 
+        unitPrice: purchasePricePerUnit, 
+        totalPrice: p.unitPrice, 
+        staffId: currentUser!.id, 
+        staffName: currentUser!.name, 
+        timestamp: new Date(), 
+        requestId: rid 
+      });
+
+      await supabase!.from('inventory').update({ 
+        quantity: newTotalQty,
+        costPerUnit: Math.round(newAverageCost)
+      }).eq('id', p.inventoryItemId);
+
       if (rid) await supabase!.from('stock_requests').update({ status: RequestStatus.FULFILLED }).eq('id', rid);
+      await fetchFromCloud();
+    },
+    processProduction: async (d) => {
+      setIsSaving(true);
+      try {
+        let totalMaterialCost = 0;
+        const materialUpdates: InventoryItem[] = [];
+        for (const c of d.components) {
+          const comp = inventory.find(i => i.id === c.inventoryItemId);
+          if (comp) {
+            totalMaterialCost += (comp.costPerUnit * c.quantity);
+            materialUpdates.push({ ...comp, quantity: comp.quantity - c.quantity });
+          }
+        }
+        const resultItem = inventory.find(i => i.id === d.resultItemId);
+        if (!resultItem) return;
+        const producedQty = d.resultQuantity;
+        const producedCostPerUnit = totalMaterialCost / producedQty;
+        const currentWIPQty = resultItem.quantity > 0 ? resultItem.quantity : 0;
+        const currentWIPCost = resultItem.costPerUnit || producedCostPerUnit;
+        const newTotalWIPQty = currentWIPQty + producedQty;
+        const newAverageWIPCost = ((currentWIPQty * currentWIPCost) + (producedQty * producedCostPerUnit)) / newTotalWIPQty;
+
+        await supabase!.from('production_records').insert({ 
+          ...d, 
+          id: `prod-${Date.now()}`, 
+          outletId: selectedOutletId, 
+          timestamp: new Date(), 
+          staffId: currentUser!.id, 
+          staffName: currentUser!.name 
+        });
+
+        if (materialUpdates.length > 0) await supabase!.from('inventory').upsert(materialUpdates);
+        await supabase!.from('inventory').update({ 
+          quantity: newTotalWIPQty,
+          costPerUnit: Math.round(newAverageWIPCost)
+        }).eq('id', d.resultItemId);
+        await fetchFromCloud();
+      } finally { setIsSaving(false); }
+    },
+    addWIPRecipe: async (recipe) => {
+      setIsSaving(true);
+      try {
+        await supabase!.from('wip_recipes').insert({ ...recipe, id: `wipr-${Date.now()}` });
+        await fetchFromCloud();
+      } finally { setIsSaving(false); }
+    },
+    updateWIPRecipe: async (recipe) => {
+      setIsSaving(true);
+      try {
+        await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id);
+        await fetchFromCloud();
+      } finally { setIsSaving(false); }
+    },
+    deleteWIPRecipe: async (id) => {
+      await supabase!.from('wip_recipes').delete().eq('id', id);
       await fetchFromCloud();
     },
     addCustomer: async (c) => { await supabase!.from('customers').insert({ ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date(), registeredByStaffId: currentUser!.id, registeredByStaffName: currentUser!.name, registeredAtOutletId: selectedOutletId, registeredAtOutletName: outlets.find(o=>o.id===selectedOutletId)?.name }); await fetchFromCloud(); },
@@ -438,16 +517,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addOutlet: async (o) => { await supabase!.from('outlets').insert(o); await fetchFromCloud(); },
     updateOutlet: async (o) => { await supabase!.from('outlets').update(o).eq('id', o.id); await fetchFromCloud(); },
     deleteOutlet: async (id) => { await supabase!.from('outlets').delete().eq('id', id); await fetchFromCloud(); },
-    processProduction: async (d) => {
-      await supabase!.from('production_records').insert({ ...d, id: `prod-${Date.now()}`, outletId: selectedOutletId, timestamp: new Date(), staffId: currentUser!.id, staffName: currentUser!.name });
-      const item = inventory.find(i => i.id === d.resultItemId);
-      await supabase!.from('inventory').update({ quantity: (item?.quantity || 0) + d.resultQuantity }).eq('id', d.resultItemId);
-      for (const c of d.components) {
-        const comp = inventory.find(i => i.id === c.inventoryItemId);
-        await supabase!.from('inventory').update({ quantity: (comp?.quantity || 0) - c.quantity }).eq('id', c.inventoryItemId);
-      }
-      await fetchFromCloud();
-    },
     transferStock: async (f, t, n, q) => {
       const itemF = inventory.find(i => i.outletId === f && i.name === n);
       const itemT = inventory.find(i => i.outletId === t && i.name === n);
@@ -467,23 +536,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteSimulation: async (id) => { await supabase!.from('simulations').delete().eq('id', id); await fetchFromCloud(); },
     updateLoyaltyConfig: async (c) => { await supabase!.from('loyalty_config').upsert({ ...c, id: 'global' }); await fetchFromCloud(); },
     resetOutletData: async (oid) => { await supabase!.from('transactions').delete().eq('outletId', oid); await fetchFromCloud(); },
-    // Removed duplicate voidTransaction key definition previously at line 470
     cloneOutletSetup: async (fromId, toId) => {
       if (!supabase) return;
       setIsSaving(true);
       try {
-         // 1. Clone Inventory
          const { data: sourceInv } = await supabase.from('inventory').select('*').eq('outletId', fromId);
          if (sourceInv) {
             const newInv = sourceInv.map(item => ({
                ...item,
                id: `inv-${Date.now()}-${Math.random().toString(36).substr(2,5)}`,
                outletId: toId,
-               quantity: 0 // Stok baru selalu mulai dari 0
+               quantity: 0
             }));
             await supabase.from('inventory').insert(newInv);
          }
-         // 2. Clone Product Settings
          const { data: allProds } = await supabase.from('products').select('*');
          if (allProds) {
             const updates = allProds.map(p => {
@@ -497,9 +563,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             await supabase.from('products').upsert(updates);
          }
          await fetchFromCloud();
-      } finally {
-         setIsSaving(false);
-      }
+      } finally { setIsSaving(false); }
     },
     selectCustomer: setSelectedCustomerId,
     setConnectedPrinter,
@@ -519,7 +583,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   return (
     <AppContext.Provider value={{ 
-      products, categories, inventory, stockTransfers, stockRequests, productionRecords, 
+      products, categories, inventory, stockTransfers, stockRequests, productionRecords, wipRecipes,
       transactions, filteredTransactions: transactions.filter(tx => tx.outletId === selectedOutletId), 
       outlets, currentUser, isAuthenticated, loginTime, cart, staff, attendance, 
       leaveRequests, selectedOutletId, customers, selectedCustomerId, expenses, 
@@ -533,7 +597,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
            <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Menghubungkan ke Cloud Database...</p>
         </div>
       ) : children}
-      
       {isSaving && !isInitialLoading && (
         <div className="fixed bottom-4 right-4 z-[999] bg-slate-900/90 text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl border border-white/10 animate-in fade-in slide-in-from-bottom-2">
            <div className="w-2 h-2 bg-orange-500 rounded-full animate-ping"></div>

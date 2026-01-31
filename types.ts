@@ -109,11 +109,22 @@ export interface InventoryItem {
   minStock: number;
   costPerUnit: number;
   type: InventoryItemType;
+  isCashierOperated?: boolean; 
 }
 
 export interface ProductionComponent {
   inventoryItemId: string;
   quantity: number;
+}
+
+export interface WIPRecipe {
+  id: string;
+  assignedOutletIds: string[]; 
+  name: string;
+  resultItemId: string;
+  resultQuantity: number;
+  components: ProductionComponent[];
+  isCashierOperated?: boolean; 
 }
 
 export interface ProductionRecord {

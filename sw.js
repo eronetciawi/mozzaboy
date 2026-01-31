@@ -1,9 +1,11 @@
 
-const CACHE_NAME = 'mozzaboy-v1';
+const CACHE_NAME = 'mozzaboy-v2';
 const ASSETS = [
   '/',
   '/index.html',
   '/index.tsx',
+  '/logo.png',
+  '/manifest.json',
   'https://cdn.tailwindcss.com'
 ];
 

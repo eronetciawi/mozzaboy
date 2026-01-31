@@ -30,6 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
   if (!currentUser) return null;
 
   const { permissions } = currentUser;
+  const isCashier = currentUser.role === UserRole.CASHIER;
   const pendingRequestsCount = stockRequests.filter(r => r.outletId === selectedOutletId && r.status === 'PENDING').length;
 
   const menuGroups: MenuGroup[] = [
@@ -55,8 +56,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       label: 'Logistik & Stok',
       items: [
         { id: 'inventory', label: 'Stok Barang', icon: '📦', visible: true }, 
-        { id: 'production', label: 'Produksi/Mixing', icon: '🧪', visible: permissions.canManageInventory },
-        { id: 'purchases', label: 'Pembelian Stok', icon: '🚛', visible: permissions.canManageInventory, badge: pendingRequestsCount > 0 ? pendingRequestsCount : null },
+        // For Cashiers, ensure these are explicitly visible if their role allows it (forced here for usability)
+        { id: 'production', label: 'Produksi/Mixing', icon: '🧪', visible: permissions.canManageInventory || isCashier },
+        { id: 'purchases', label: 'Pembelian Stok', icon: '🚛', visible: permissions.canManageInventory || isCashier, badge: pendingRequestsCount > 0 ? pendingRequestsCount : null },
         { id: 'transfers', label: 'Mutasi Stok', icon: '🔄', visible: permissions.canManageInventory },
       ]
     },
@@ -87,10 +89,10 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-slate-300">
       <div className="p-6 flex items-center gap-3 shrink-0">
-        <img src="/logo.png" className="w-12 h-12 object-contain drop-shadow-lg transform -rotate-2" alt="Mozza Boy Logo" />
+        <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg transform -rotate-2 select-none">M</div>
         <div>
           <div className="font-black text-white text-sm tracking-tighter uppercase leading-none">Mozza Boy</div>
-          <div className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">Enterprise ROS</div>
+          <div className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">Food OS</div>
         </div>
       </div>
 

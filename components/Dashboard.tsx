@@ -1,14 +1,17 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useApp } from '../store';
 import { Transaction, PaymentMethod, UserRole, Product } from '../types';
 import html2canvas from 'html2canvas';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-const StatCard: React.FC<{ title: string; value: string; trend: string; isPositive: boolean }> = ({ title, value, trend, isPositive }) => (
-  <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-    <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">{title}</p>
-    <h3 className="text-lg md:text-xl font-black text-slate-800">{value}</h3>
+const StatCard: React.FC<{ title: string; value: string; trend: string; isPositive: boolean; icon: string }> = ({ title, value, trend, isPositive, icon }) => (
+  <div className="bg-white p-4 md:p-5 rounded-[28px] border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-orange-500 transition-all">
+    <div className="flex justify-between items-start mb-2">
+      <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</p>
+      <span className="text-lg opacity-40 group-hover:opacity-100 transition-opacity">{icon}</span>
+    </div>
+    <h3 className="text-lg md:text-xl font-black text-slate-800 tracking-tighter">{value}</h3>
     <p className={`text-[8px] md:text-[9px] mt-2 flex items-center gap-1 font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
       <span>{isPositive ? '▲' : '▼'}</span> {trend}
     </p>
@@ -16,7 +19,12 @@ const StatCard: React.FC<{ title: string; value: string; trend: string; isPositi
 );
 
 export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ setActiveTab }) => {
-  const { filteredTransactions, inventory, selectedOutletId, outlets, currentUser, customers, dailyClosings, approveClosing, rejectClosing } = useApp();
+  const { 
+    filteredTransactions, inventory, selectedOutletId, outlets, 
+    currentUser, dailyClosings, approveClosing, rejectClosing,
+    transactions, attendance
+  } = useApp();
+  
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -29,6 +37,19 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
   const totalOrders = txs.length;
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
 
+  // --- PERFORMANCE LOGIC (From My Portal) ---
+  const todayStr = new Date().toISOString().split('T')[0];
+  const mySalesToday = useMemo(() => {
+    return transactions
+      .filter(tx => tx.cashierId === currentUser?.id && tx.status === 'CLOSED' && new Date(tx.timestamp).toISOString().split('T')[0] === todayStr)
+      .reduce((acc, tx) => acc + tx.total, 0);
+  }, [transactions, currentUser, todayStr]);
+
+  const targetSales = currentUser?.dailySalesTarget || 0;
+  const bonusAmount = currentUser?.targetBonusAmount || 0;
+  const progressPercent = targetSales > 0 ? Math.min(100, Math.round((mySalesToday / targetSales) * 100)) : 0;
+  const isTargetAchieved = targetSales > 0 && mySalesToday >= targetSales;
+
   const salesData = [
     { name: 'Pagi', sales: txs.filter(t => new Date(t.timestamp).getHours() < 12).reduce((a,b)=>a+b.total, 0) },
     { name: 'Siang', sales: txs.filter(t => new Date(t.timestamp).getHours() >= 12 && new Date(t.timestamp).getHours() < 15).reduce((a,b)=>a+b.total, 0) },
@@ -38,9 +59,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
 
   const lowStockItems = inventory.filter(item => item.outletId === selectedOutletId && item.quantity <= item.minStock);
 
-  const getPrice = (p: Product) => {
-    return p.outletSettings?.[selectedOutletId]?.price || p.price;
-  };
+  const getPrice = (p: Product) => p.outletSettings?.[selectedOutletId]?.price || p.price;
 
   const downloadReceipt = async () => {
     if (!receiptRef.current || !viewingTransaction) return;
@@ -60,89 +79,113 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
 
   return (
     <div className="p-3 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
+      
       {/* MANAGER NOTIFICATION BAR */}
       {isManager && pendingClosings.length > 0 && (
-        <div className="mb-8 space-y-3 animate-in slide-in-from-top-4">
+        <div className="mb-6 space-y-3 animate-in slide-in-from-top-4">
            {pendingClosings.map(cls => (
-             <div key={cls.id} className="bg-red-600 p-4 md:p-6 rounded-3xl text-white shadow-xl shadow-red-600/20 flex flex-col md:flex-row justify-between items-center gap-4">
+             <div key={cls.id} className="bg-red-600 p-4 md:p-5 rounded-3xl text-white shadow-xl shadow-red-600/20 flex flex-col md:flex-row justify-between items-center gap-4">
                 <div className="flex items-center gap-4">
-                   <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-2xl animate-pulse">🚨</div>
+                   <div className="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-center text-xl animate-pulse">🚨</div>
                    <div>
-                      <h4 className="text-[11px] md:text-sm font-black uppercase tracking-tight">Butuh Persetujuan Tutup Buku</h4>
-                      <p className="text-[9px] md:text-[10px] font-bold text-white/70 uppercase">
-                         Outlet: {outlets.find(o => o.id === cls.outletId)?.name} • Kasir: {cls.staffName} • Selisih: <span className="text-white font-black">Rp {cls.discrepancy.toLocaleString()}</span>
+                      <h4 className="text-[10px] md:text-xs font-black uppercase tracking-tight leading-none">Butuh Persetujuan Tutup Buku</h4>
+                      <p className="text-[8px] md:text-[9px] font-bold text-white/70 uppercase mt-1">
+                         {outlets.find(o => o.id === cls.outletId)?.name} • {cls.staffName} • Selisih: Rp {cls.discrepancy.toLocaleString()}
                       </p>
                    </div>
                 </div>
                 <div className="flex gap-2 w-full md:w-auto">
-                   <button onClick={() => approveClosing(cls.id)} className="flex-1 md:flex-none px-6 py-2.5 bg-white text-red-600 rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-slate-100 transition-all">SETUJUI</button>
-                   <button onClick={() => rejectClosing(cls.id)} className="flex-1 md:flex-none px-6 py-2.5 bg-red-800 text-white rounded-xl font-black text-[10px] uppercase hover:bg-red-900 transition-all">TOLAK</button>
+                   <button onClick={() => approveClosing(cls.id)} className="flex-1 md:flex-none px-5 py-2 bg-white text-red-600 rounded-xl font-black text-[9px] uppercase shadow-lg">SETUJUI</button>
+                   <button onClick={() => rejectClosing(cls.id)} className="flex-1 md:flex-none px-5 py-2 bg-red-800 text-white rounded-xl font-black text-[9px] uppercase">TOLAK</button>
                 </div>
              </div>
            ))}
         </div>
       )}
 
-      {/* STATS GRID */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-6">
-        <StatCard title="Omzet" value={`Rp ${(totalSales/1000).toFixed(0)}k`} trend="Live" isPositive={true} />
-        <StatCard title="Struk" value={totalOrders.toString()} trend="Orders" isPositive={true} />
-        <StatCard title="Avg Check" value={`Rp ${totalOrders > 0 ? (totalSales/totalOrders/1000).toFixed(0) : 0}k`} trend="Per Order" isPositive={true} />
-        <StatCard title="Stok Kritis" value={lowStockItems.length.toString()} trend="Items" isPositive={false} />
+      {/* TOP: MAIN STATS GRID */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4">
+        <StatCard title="Omzet" value={`Rp ${(totalSales/1000).toFixed(0)}k`} trend="Live" isPositive={true} icon="💰" />
+        <StatCard title="Struk" value={totalOrders.toString()} trend="Orders" isPositive={true} icon="🧾" />
+        <StatCard title="Avg Check" value={`Rp ${totalOrders > 0 ? (totalSales/totalOrders/1000).toFixed(0) : 0}k`} trend="Per Order" isPositive={true} icon="📈" />
+        <StatCard title="Stok Kritis" value={lowStockItems.length.toString()} trend="Items" isPositive={false} icon="⚠️" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest mb-6">Arus Kas Hari Ini</h4>
-          <div className="h-48 md:h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={salesData}>
-                <defs>
-                  <linearGradient id="colorSales" x1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/><stop offset="95%" stopColor="#f97316" stopOpacity={0}/></linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" fontSize={9} axisLine={false} tickLine={false} />
-                <YAxis fontSize={9} axisLine={false} tickLine={false} tickFormatter={(val) => `Rp${val/1000}k`} />
-                <Tooltip />
-                <Area type="monotone" dataKey="sales" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-fit">
-          <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest mb-4">Peringatan Stok</h4>
-          <div className="space-y-3">
-             {lowStockItems.slice(0, 3).map(item => (
-               <div key={item.id} className="p-3 bg-red-50 rounded-xl border border-red-100 flex justify-between items-center">
-                  <span className="text-[10px] font-black text-red-800 uppercase">{item.name}</span>
-                  <span className="text-[10px] font-bold text-red-600">{item.quantity} {item.unit}</span>
+      {/* MIDDLE: PERFORMANCE & LOW STOCK ALERT */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+         {/* INCENTIVE CARD (Personal Performance) */}
+         <div className={`lg:col-span-2 p-6 rounded-[32px] shadow-lg relative overflow-hidden transition-all duration-500 border border-white/10 ${isTargetAchieved ? 'bg-gradient-to-br from-emerald-600 to-teal-800' : 'bg-slate-900'}`}>
+            <div className="absolute top-0 right-0 p-6 opacity-10 text-4xl transform rotate-12">{isTargetAchieved ? '🏆' : '🎯'}</div>
+            <div className="relative z-10">
+               <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <p className={`text-[9px] font-black uppercase tracking-[0.2em] mb-1 ${isTargetAchieved ? 'text-emerald-200' : 'text-orange-500'}`}>
+                       Insentif Penjualan Anda
+                    </p>
+                    <h3 className="text-2xl font-black text-white tracking-tighter">Rp {mySalesToday.toLocaleString()}</h3>
+                  </div>
+                  {isTargetAchieved && (
+                    <div className="bg-white/20 px-3 py-1 rounded-full backdrop-blur-md">
+                       <p className="text-[8px] font-black text-white uppercase tracking-widest">Bonus: Rp {bonusAmount.toLocaleString()}</p>
+                    </div>
+                  )}
                </div>
-             ))}
-             {lowStockItems.length === 0 && <p className="text-[10px] text-slate-300 italic text-center py-6">Semua stok aman ✓</p>}
-          </div>
-        </div>
+               <div className="space-y-3">
+                  <div className="flex justify-between text-[8px] font-black uppercase text-slate-500">
+                     <span>Target: Rp {targetSales.toLocaleString()}</span>
+                     <span className="text-white">{progressPercent}%</span>
+                  </div>
+                  <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                     <div className={`h-full transition-all duration-1000 ${isTargetAchieved ? 'bg-emerald-400' : 'bg-orange-500'}`} style={{ width: `${progressPercent}%` }}></div>
+                  </div>
+               </div>
+            </div>
+         </div>
+
+         {/* LOW STOCK CARD */}
+         <div className="bg-white p-5 rounded-[32px] border border-slate-200 shadow-sm flex flex-col relative group">
+            <h4 className="text-[9px] font-black text-slate-800 uppercase tracking-widest mb-4 flex items-center gap-2">
+               <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+               Peringatan Stok
+            </h4>
+            <div className="space-y-2 flex-1">
+               {lowStockItems.slice(0, 2).map(item => (
+                 <div key={item.id} className="p-3 bg-red-50 rounded-2xl border border-red-100 flex justify-between items-center transition-transform hover:scale-[1.02]">
+                    <span className="text-[9px] font-black text-red-800 uppercase truncate max-w-[120px]">{item.name}</span>
+                    <span className="text-[10px] font-bold text-red-600 shrink-0">{item.quantity} {item.unit}</span>
+                 </div>
+               ))}
+               {lowStockItems.length > 2 && (
+                 <p className="text-[8px] font-black text-red-400 text-center uppercase tracking-widest mt-2">+{lowStockItems.length - 2} Item Lainnya</p>
+               )}
+               {lowStockItems.length === 0 && <p className="text-[10px] text-slate-300 italic text-center py-6">Semua stok aman ✓</p>}
+            </div>
+            <button 
+              onClick={() => setActiveTab && setActiveTab('inventory')}
+              className="mt-4 w-full py-2 bg-slate-50 text-[8px] font-black text-slate-400 uppercase rounded-xl border border-slate-100 hover:bg-slate-900 hover:text-white transition-all"
+            >Check Warehouse ➔</button>
+         </div>
       </div>
 
-      {/* RECENT TRANSACTIONS */}
-      <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden mb-10">
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
+      {/* RECENT TRANSACTIONS (Moved Up) */}
+      <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden mb-6">
+        <div className="p-5 md:px-8 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
           <div>
             <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Transaksi Terbaru</h4>
             <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Live Audit Trail</p>
           </div>
-          <button onClick={() => setActiveTab && setActiveTab('pos')} className="text-[9px] font-black bg-slate-900 text-white px-4 py-2 rounded-xl uppercase shadow-lg shadow-slate-900/10">Kasir Jualan +</button>
+          <button onClick={() => setActiveTab && setActiveTab('pos')} className="text-[9px] font-black bg-slate-900 text-white px-5 py-2.5 rounded-2xl uppercase shadow-lg shadow-slate-900/10 active:scale-95 transition-transform">+ Kasir Jualan</button>
         </div>
 
-        <div className="divide-y divide-slate-50">
+        <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto custom-scrollbar">
            {txs.slice(0, 10).map(tx => (
              <button 
                 key={tx.id} 
                 onClick={() => setViewingTransaction(tx)}
-                className="w-full p-5 flex items-center justify-between text-left active:bg-slate-50 transition-colors"
+                className="w-full p-5 md:px-8 flex items-center justify-between text-left active:bg-slate-50 transition-colors group"
              >
                 <div className="flex items-center gap-4">
-                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${tx.paymentMethod === 'TUNAI' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                   <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg shadow-sm ${tx.paymentMethod === 'TUNAI' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
                       {tx.paymentMethod === 'TUNAI' ? '💵' : '📱'}
                    </div>
                    <div>
@@ -153,13 +196,50 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                       <p className="text-[9px] font-bold text-slate-400 mt-0.5 line-clamp-1 uppercase italic">{tx.items.map(i => i.product.name).join(', ')}</p>
                    </div>
                 </div>
-                <div className="text-right">
-                   <p className="text-xs font-black text-slate-900 tracking-tight">Rp {tx.total.toLocaleString()}</p>
-                   <p className="text-[7px] font-black text-orange-500 uppercase tracking-widest">Struk ➔</p>
+                <div className="text-right flex items-center gap-4">
+                   <div className="hidden md:block">
+                      <p className="text-[7px] font-black text-slate-300 uppercase">Cashier</p>
+                      <p className="text-[9px] font-black text-slate-600 uppercase">{tx.cashierName.split(' ')[0]}</p>
+                   </div>
+                   <div className="text-right">
+                      <p className="text-xs font-black text-slate-900 tracking-tight">Rp {tx.total.toLocaleString()}</p>
+                      <p className="text-[7px] font-black text-orange-500 uppercase tracking-widest group-hover:translate-x-1 transition-transform">Struk ➔</p>
+                   </div>
                 </div>
              </button>
            ))}
+           {txs.length === 0 && (
+             <div className="py-20 text-center opacity-20 italic text-[10px] font-black uppercase">Belum ada transaksi hari ini</div>
+           )}
         </div>
+      </div>
+
+      {/* BOTTOM: ANALYTICS CHART (Moved Down) */}
+      <div className="bg-white p-6 md:p-8 rounded-[40px] border border-slate-200 shadow-sm mb-10">
+         <div className="flex justify-between items-center mb-8">
+            <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+               <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+               Arus Kas Cabang (Batching)
+            </h4>
+            <span className="text-[8px] font-black text-slate-300 uppercase italic">Real-time Cloud Sync</span>
+         </div>
+         <div className="h-64 md:h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={salesData}>
+                <defs>
+                  <linearGradient id="colorSales" x1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/><stop offset="95%" stopColor="#f97316" stopOpacity={0}/></linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="name" fontSize={9} axisLine={false} tickLine={false} stroke="#94a3b8" />
+                <YAxis fontSize={9} axisLine={false} tickLine={false} stroke="#94a3b8" tickFormatter={(val) => `Rp${val/1000}k`} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', padding: '12px' }}
+                  labelStyle={{ fontWeight: '900', color: '#1e293b', marginBottom: '4px', fontSize: '10px' }}
+                />
+                <Area type="monotone" dataKey="sales" stroke="#f97316" strokeWidth={4} fillOpacity={1} fill="url(#colorSales)" />
+              </AreaChart>
+            </ResponsiveContainer>
+         </div>
       </div>
 
       {/* RECEIPT MODAL */}
@@ -178,7 +258,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                 <div ref={receiptRef} className="bg-white p-8 md:p-10 w-full shadow-2xl flex flex-col text-slate-900 font-mono text-[10px] md:text-[11px] uppercase border-t-[8px] border-orange-500 relative">
                    <div className="absolute top-0 left-0 w-full h-3 bg-[radial-gradient(circle,transparent:5px,white:5px)] bg-[length:12px_12px] bg-repeat-x -mt-1.5"></div>
                    <div className="text-center mb-10">
-                      <img src="/logo.png" className="w-20 h-20 object-contain mx-auto mb-4 grayscale contrast-125" alt="Logo" />
+                      <div className="w-14 h-14 bg-slate-900 rounded-xl flex items-center justify-center text-white font-black text-2xl mx-auto mb-4 select-none">M</div>
                       <h3 className="text-base font-black tracking-tight leading-none mb-1">MOZZA BOY</h3>
                       <div className="w-full border-b border-dashed border-slate-200 mb-6"></div>
                       <h3 className="text-[10px] font-black text-slate-800">{activeOutlet?.name}</h3>

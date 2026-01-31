@@ -25,16 +25,12 @@ export const Login: React.FC = () => {
       <div className="w-full max-w-[400px] relative z-10">
         <div className="bg-white rounded-[48px] shadow-2xl overflow-hidden border border-slate-100">
           <div className="p-8 pb-4 text-center">
-            <img 
-              src="/logo.png" 
-              className="w-32 h-32 object-contain mx-auto mb-6 drop-shadow-2xl animate-in zoom-in duration-700" 
-              alt="Mozza Boy Logo" 
-            />
+            <div className="w-24 h-24 bg-orange-500 rounded-[32px] flex items-center justify-center text-white font-black text-5xl mx-auto mb-6 shadow-2xl shadow-orange-500/20 transform -rotate-3 animate-in zoom-in duration-700 select-none">M</div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-tight">
               Mozza Boy
             </h1>
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-2">
-              Fast Food Smart System
+              Food OS Smart System
             </p>
           </div>
 
@@ -94,11 +90,11 @@ export const Login: React.FC = () => {
 
         <div className="mt-8 flex flex-col items-center gap-2">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-            Food Operating System By Qinoi
+            Food OS By Qinoi
           </p>
           <div className="flex items-center gap-3">
             <span className="h-px w-8 bg-slate-800"></span>
-            <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">FOS V0.1 dibuat sambi ngopi</span>
+            <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">Food OS V2.5 - Performance Optimized</span>
             <span className="h-px w-8 bg-slate-800"></span>
           </div>
         </div>
