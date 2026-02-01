@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { useApp } from '../store';
 import { UserRole } from '../types';
 
-// Add interfaces for menu items to ensure consistent typing
 interface MenuItem {
   id: string;
   label: string;
@@ -31,17 +30,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
 
   const { permissions } = currentUser;
   const isCashier = currentUser.role === UserRole.CASHIER;
-  const pendingRequestsCount = stockRequests.filter(r => r.outletId === selectedOutletId && r.status === 'PENDING').length;
+  const pendingRequestsCount = stockRequests.filter(r => (selectedOutletId === 'all' || r.outletId === selectedOutletId) && r.status === 'PENDING').length;
 
   const menuGroups: MenuGroup[] = [
     {
       label: 'Operasional',
       items: [
         { id: 'dashboard', label: 'Dashboard', icon: '📊', visible: true },
-        { id: 'pos', label: 'Kasir Jualan', icon: '🛒', visible: permissions.canProcessSales },
+        { id: 'pos', label: 'Kasir Jualan', icon: '🛒', visible: permissions.canProcessSales && selectedOutletId !== 'all' },
         { id: 'attendance', label: 'My Portal', icon: '⏰', visible: true },
-        { id: 'expenses', label: 'Pengeluaran', icon: '💸', visible: true },
-        { id: 'closing', label: 'Tutup Buku', icon: '📔', visible: permissions.canProcessSales },
+        { id: 'expenses', label: 'Pengeluaran', icon: '💸', visible: selectedOutletId !== 'all' },
+        { id: 'closing', label: 'Tutup Buku', icon: '📔', visible: permissions.canProcessSales && selectedOutletId !== 'all' },
       ]
     },
     {
@@ -56,9 +55,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       label: 'Logistik & Stok',
       items: [
         { id: 'inventory', label: 'Stok Barang', icon: '📦', visible: true }, 
-        // For Cashiers, ensure these are explicitly visible if their role allows it (forced here for usability)
-        { id: 'production', label: 'Produksi/Mixing', icon: '🧪', visible: permissions.canManageInventory || isCashier },
-        { id: 'purchases', label: 'Pembelian Stok', icon: '🚛', visible: permissions.canManageInventory || isCashier, badge: pendingRequestsCount > 0 ? pendingRequestsCount : null },
+        { id: 'production', label: 'Produksi/Mixing', icon: '🧪', visible: (permissions.canManageInventory || isCashier) && selectedOutletId !== 'all' },
+        { id: 'purchases', label: 'Pembelian Stok', icon: '🚛', visible: (permissions.canManageInventory || isCashier) && selectedOutletId !== 'all', badge: pendingRequestsCount > 0 ? pendingRequestsCount : null },
         { id: 'transfers', label: 'Mutasi Stok', icon: '🔄', visible: permissions.canManageInventory },
       ]
     },
@@ -142,15 +140,14 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
   const accessibleOutlets = currentUser?.role === UserRole.OWNER ? outlets : outlets.filter(o => currentUser?.assignedOutletIds.includes(o.id));
+  const isGlobalManager = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans select-none">
-      {/* DESKTOP SIDEBAR */}
+    <div className="flex h-screen bg-white overflow-hidden font-sans select-none">
       <div className="hidden md:block w-56 shrink-0 h-full no-print">
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       </div>
 
-      {/* MOBILE DRAWER OVERLAY */}
       {isMenuOpen && (
         <div className="fixed inset-0 z-[100] md:hidden bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setIsMenuOpen(false)}>
            <div className="w-64 h-full animate-in slide-in-from-left duration-300" onClick={e => e.stopPropagation()}>
@@ -160,25 +157,30 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
       )}
 
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        {/* TOP BAR - OPTIMIZED FOR MOBILE */}
-        <header className="h-14 md:h-16 bg-white border-b border-slate-200 px-4 md:px-8 flex items-center justify-between shadow-sm z-40 shrink-0 no-print">
+        <header className="h-16 md:h-20 bg-white border-b border-slate-100 px-4 md:px-8 flex items-center justify-between shadow-sm z-40 shrink-0 no-print">
           <div className="flex items-center gap-3">
-             <button onClick={() => setIsMenuOpen(true)} className="md:hidden w-10 h-10 flex items-center justify-center text-xl bg-slate-50 rounded-xl">☰</button>
-             <div className="hidden md:block w-1.5 h-6 bg-orange-500 rounded-full"></div>
-             <h1 className="text-[10px] md:text-[11px] font-black text-slate-800 uppercase tracking-widest truncate max-w-[200px] md:max-w-none">
-               {activeTab === 'pos' ? `Cashier / ${currentUser?.name}` : activeTab.toUpperCase()}
-             </h1>
+             <button onClick={() => setIsMenuOpen(true)} className="md:hidden w-12 h-12 flex items-center justify-center text-xl bg-slate-50 rounded-2xl">☰</button>
+             <div className="hidden md:block w-1.5 h-8 bg-orange-500 rounded-full"></div>
+             <div className="flex flex-col">
+               <h1 className="text-[12px] md:text-sm font-black text-slate-900 uppercase tracking-tighter leading-none">
+                 {selectedOutletId === 'all' ? 'Network Hub' : accessibleOutlets.find(o=>o.id===selectedOutletId)?.name || 'Outlet'}
+               </h1>
+               <div className="flex items-center gap-1.5 mt-1">
+                 <div className={`w-1.5 h-1.5 rounded-full ${isSaving ? 'bg-orange-400 animate-pulse' : isCloudConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                 <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">{isSaving ? 'Syncing...' : 'Live System'}</span>
+               </div>
+             </div>
           </div>
           
-          <div className="flex items-center gap-2 md:gap-6">
-            <div className={`w-2 h-2 rounded-full ${isSaving ? 'bg-orange-400 animate-pulse' : isCloudConnected ? 'bg-indigo-500' : 'bg-emerald-400'}`}></div>
-            
-            <div className="flex flex-col items-end">
+          <div className="flex items-center gap-4">
+            <div className="bg-slate-50 border-2 border-slate-100 p-1.5 md:p-2 rounded-2xl flex items-center gap-2">
+              <span className="text-base grayscale hidden sm:block">🏢</span>
               <select 
-                className="text-[9px] md:text-[11px] font-black text-orange-600 bg-transparent focus:outline-none cursor-pointer max-w-[100px] md:max-w-none"
+                className="text-[11px] md:text-[13px] font-black text-orange-600 bg-transparent focus:outline-none cursor-pointer max-w-[120px] md:max-w-none"
                 value={selectedOutletId}
                 onChange={(e) => switchOutlet(e.target.value)}
               >
+                {isGlobalManager && <option value="all">🌍 ALL BRANCHES</option>}
                 {accessibleOutlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
             </div>
@@ -189,23 +191,26 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
           {children}
         </div>
 
-        {/* MOBILE BOTTOM NAVIGATION */}
-        <nav className="md:hidden h-16 bg-white border-t border-slate-200 flex items-center justify-around px-2 pb-safe z-50 no-print shrink-0">
-           <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 flex-1 transition-all ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-slate-400'}`}>
-              <span className="text-lg">📊</span>
-              <span className="text-[8px] font-black uppercase tracking-tighter">Stats</span>
+        <nav className="md:hidden h-20 bg-white border-t border-slate-100 flex items-center justify-around px-4 pb-safe z-50 no-print shrink-0 shadow-[0_-10px_30px_rgba(0,0,0,0.03)]">
+           <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-slate-300'}`}>
+              <span className="text-2xl">📊</span>
+              <span className="text-[9px] font-black uppercase tracking-tighter">Stats</span>
            </button>
-           <button onClick={() => setActiveTab('pos')} className={`flex flex-col items-center gap-1 flex-1 transition-all ${activeTab === 'pos' ? 'text-orange-500' : 'text-slate-400'}`}>
-              <span className="text-lg">🛒</span>
-              <span className="text-[8px] font-black uppercase tracking-tighter">Kasir</span>
+           <button 
+             disabled={selectedOutletId === 'all'}
+             onClick={() => setActiveTab('pos')} 
+             className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'pos' ? 'text-orange-500' : 'text-slate-300'} ${selectedOutletId === 'all' ? 'opacity-20' : ''}`}
+           >
+              <span className="text-2xl">🛒</span>
+              <span className="text-[9px] font-black uppercase tracking-tighter">POS</span>
            </button>
-           <button onClick={() => setActiveTab('attendance')} className={`flex flex-col items-center gap-1 flex-1 transition-all ${activeTab === 'attendance' ? 'text-orange-500' : 'text-slate-400'}`}>
-              <span className="text-lg">⏰</span>
-              <span className="text-[8px] font-black uppercase tracking-tighter">Portal</span>
+           <button onClick={() => setActiveTab('attendance')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'attendance' ? 'text-orange-500' : 'text-slate-300'}`}>
+              <span className="text-2xl">⏰</span>
+              <span className="text-[9px] font-black uppercase tracking-tighter">Portal</span>
            </button>
-           <button onClick={() => setIsMenuOpen(true)} className="flex flex-col items-center gap-1 flex-1 text-slate-400">
-              <span className="text-lg">⚙️</span>
-              <span className="text-[8px] font-black uppercase tracking-tighter">Menu</span>
+           <button onClick={() => setIsMenuOpen(true)} className="flex flex-col items-center gap-1.5 flex-1 text-slate-300">
+              <span className="text-2xl">⚙️</span>
+              <span className="text-[9px] font-black uppercase tracking-tighter">Menu</span>
            </button>
         </nav>
       </main>

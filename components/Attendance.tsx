@@ -1,18 +1,30 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../store';
 import { StaffMember } from '../types';
 
 export const Attendance: React.FC = () => {
-  const { currentUser, clockIn, clockOut, attendance, leaveRequests, submitLeave, transactions, updateStaff, outlets, selectedOutletId } = useApp();
+  const { 
+    currentUser, clockIn, clockOut, attendance, leaveRequests, 
+    submitLeave, transactions, updateStaff, outlets, 
+    selectedOutletId, fetchFromCloud 
+  } = useApp();
+  
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'performance' | 'leave' | 'profile'>('clock');
   const [leaveReason, setLeaveReason] = useState('');
   const [leaveDates, setLeaveDates] = useState({ start: '', end: '' });
   const [isLocating, setIsLocating] = useState(false);
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
+  const [showLeaveSuccess, setShowLeaveSuccess] = useState(false);
 
   const [profileForm, setProfileForm] = useState<Partial<StaffMember>>(currentUser || {});
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync data setiap kali komponen My Portal dibuka
+  useEffect(() => {
+    fetchFromCloud();
+  }, []);
 
   if (!currentUser) return null;
 
@@ -20,16 +32,25 @@ export const Attendance: React.FC = () => {
   const todayStr = new Date().toISOString().split('T')[0];
   const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
-  const myAttendanceRecords = useMemo(() => 
-    [...attendance].filter(a => a.staffId === currentUser.id).sort((a,b) => b.date.localeCompare(a.date)),
-    [attendance, currentUser.id]
+  // REAKTIF: Data absensi dan cuti akan langsung kosong jika state global di store berubah (di-wipe)
+  const myAttendanceRecords = useMemo(() => {
+    if (!attendance || attendance.length === 0) return [];
+    return [...attendance]
+      .filter(a => a.staffId === currentUser.id && a.outletId === selectedOutletId)
+      .sort((a,b) => b.date.localeCompare(a.date));
+  }, [attendance, currentUser.id, selectedOutletId]);
+  
+  const myAttendanceToday = useMemo(() => 
+    myAttendanceRecords.find(a => a.date === todayStr),
+    [myAttendanceRecords, todayStr]
   );
   
-  const myAttendanceToday = myAttendanceRecords.find(a => a.date === todayStr);
-  const myLeaveRequests = useMemo(() => 
-    [...leaveRequests].filter(l => l.staffId === currentUser.id).sort((a,b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()),
-    [leaveRequests, currentUser.id]
-  );
+  const myLeaveRequests = useMemo(() => {
+    if (!leaveRequests || leaveRequests.length === 0) return [];
+    return [...leaveRequests]
+      .filter(l => l.staffId === currentUser.id && l.outletId === selectedOutletId)
+      .sort((a,b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
+  }, [leaveRequests, currentUser.id, selectedOutletId]);
 
   const handleClockIn = () => {
     if (!navigator.geolocation) {
@@ -94,17 +115,27 @@ export const Attendance: React.FC = () => {
   const totalLates = myAttendanceRecords.filter(a => a.status === 'LATE').length;
   const perfScore = totalAttends > 0 ? Math.round(((totalAttends - totalLates) / totalAttends) * 100) : 100;
 
-  const handleLeaveSubmit = (e: React.FormEvent) => {
+  const handleLeaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!leaveReason || !leaveDates.start || !leaveDates.end) return alert("Mohon lengkapi data izin!");
-    submitLeave({
-      startDate: new Date(leaveDates.start),
-      endDate: new Date(leaveDates.end),
-      reason: leaveReason
-    });
-    setLeaveReason('');
-    setLeaveDates({ start: '', end: '' });
-    alert("Pengajuan izin berhasil dikirim ke Manager!");
+    
+    setIsSubmittingLeave(true);
+    try {
+      await submitLeave({
+        startDate: new Date(leaveDates.start),
+        endDate: new Date(leaveDates.end),
+        reason: leaveReason
+      });
+      
+      setLeaveReason('');
+      setLeaveDates({ start: '', end: '' });
+      setShowLeaveSuccess(true);
+      setTimeout(() => setShowLeaveSuccess(false), 4000);
+    } catch (err) {
+      alert("Gagal mengirim pengajuan. Cek koneksi internet Anda.");
+    } finally {
+      setIsSubmittingLeave(false);
+    }
   };
 
   const handleSaveProfile = () => {
@@ -118,7 +149,21 @@ export const Attendance: React.FC = () => {
   };
 
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
+    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8 relative">
+      
+      {/* SUCCESS LEAVE NOTIFICATION */}
+      {showLeaveSuccess && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
+           <div className="bg-indigo-600 text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-indigo-400">
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl">📨</div>
+              <div>
+                 <p className="text-[11px] font-black uppercase tracking-widest leading-none">Berhasil Dikirim</p>
+                 <p className="text-[9px] font-bold text-indigo-100 uppercase mt-1">Pengajuan sedang diproses oleh Manager.</p>
+              </div>
+           </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
           <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">My Portal</h2>
@@ -239,7 +284,12 @@ export const Attendance: React.FC = () => {
            <section className="pb-20">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Log Absensi Terakhir</h4>
               <div className="space-y-2">
-                 {myAttendanceRecords.slice(0, 10).map((a, i) => (
+                 {myAttendanceRecords.length === 0 ? (
+                   <div className="py-12 text-center border-2 border-dashed rounded-[32px] opacity-30">
+                      <p className="text-[9px] font-black uppercase">Belum ada riwayat absensi</p>
+                   </div>
+                 ) : (
+                   myAttendanceRecords.slice(0, 10).map((a, i) => (
                     <div key={i} className="bg-white p-4 rounded-2xl border border-slate-100 flex justify-between items-center">
                        <div className="flex gap-3 items-center">
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs ${a.status === 'LATE' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
@@ -255,14 +305,15 @@ export const Attendance: React.FC = () => {
                           {a.status}
                        </span>
                     </div>
-                 ))}
+                   ))
+                 )}
               </div>
            </section>
         </div>
       )}
 
       {activeSubTab === 'leave' && (
-        <div className="space-y-6">
+        <div className="space-y-8 pb-20">
            <div className="bg-white p-6 rounded-[32px] border-2 border-slate-100 shadow-sm">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Ajukan Izin Baru</h4>
               <form onSubmit={handleLeaveSubmit} className="space-y-4">
@@ -277,9 +328,44 @@ export const Attendance: React.FC = () => {
                     </div>
                  </div>
                  <textarea className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold h-20" placeholder="Alasan izin..." value={leaveReason} onChange={e => setLeaveReason(e.target.value)} />
-                 <button className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">Kirim Pengajuan</button>
+                 <button 
+                    disabled={isSubmittingLeave}
+                    className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${isSubmittingLeave ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white shadow-xl'}`}
+                 >
+                    {isSubmittingLeave ? 'MENGIRIM...' : 'Kirim Pengajuan Izin'}
+                 </button>
               </form>
            </div>
+
+           <section>
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 ml-2">Riwayat Izin & Cuti</h4>
+              <div className="space-y-3">
+                 {myLeaveRequests.length === 0 ? (
+                    <div className="py-12 text-center border-2 border-dashed rounded-[32px] opacity-30">
+                       <p className="text-[9px] font-black uppercase">Belum ada riwayat pengajuan</p>
+                    </div>
+                 ) : (
+                    myLeaveRequests.map(leave => (
+                       <div key={leave.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                          <div className="flex justify-between items-start mb-3">
+                             <div>
+                                <p className="text-[11px] font-black text-slate-800 uppercase">{new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}</p>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Diajukan: {new Date(leave.requestedAt).toLocaleDateString()}</p>
+                             </div>
+                             <span className={`px-2 py-1 rounded-lg text-[7px] font-black uppercase tracking-widest shadow-sm ${
+                                leave.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 
+                                leave.status === 'REJECTED' ? 'bg-red-100 text-red-700' : 
+                                'bg-amber-100 text-amber-700 animate-pulse border border-amber-200'
+                             }`}>
+                                {leave.status === 'PENDING' ? 'SEDANG DIPROSES' : leave.status}
+                             </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-medium italic">"{leave.reason}"</p>
+                       </div>
+                    ))
+                 )}
+              </div>
+           </section>
         </div>
       )}
 
@@ -350,7 +436,7 @@ export const Attendance: React.FC = () => {
                           </div>
                           <div>
                              <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Ganti Password</label>
-                             <input type="password" className="w-full p-3 bg-white border rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={profileForm.password || ''} onChange={e => setProfileForm({...profileForm, password: e.target.value})} placeholder="Masukkan password baru" />
+                             <input type="password" title="password" className="w-full p-3 bg-white border rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={profileForm.password || ''} onChange={e => setProfileForm({...profileForm, password: e.target.value})} placeholder="Masukkan password baru" />
                           </div>
                        </div>
                     </section>
@@ -368,7 +454,7 @@ export const Attendance: React.FC = () => {
                           </div>
                           <div className="md:col-span-2">
                              <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Alamat Domisili</label>
-                             <textarea className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs h-16" value={profileForm.address || ''} onChange={e => setProfileForm({...profileForm, address: e.target.value})} />
+                             <textarea title="address" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs h-16" value={profileForm.address || ''} onChange={e => setProfileForm({...profileForm, address: e.target.value})} />
                           </div>
                        </div>
                     </section>

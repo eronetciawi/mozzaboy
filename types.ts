@@ -53,6 +53,7 @@ export interface Attendance {
   id: string;
   staffId: string;
   staffName: string;
+  outletId: string; // Added for branch-specific tracking
   date: string; // YYYY-MM-DD
   clockIn: Date;
   clockOut?: Date;
@@ -66,6 +67,7 @@ export interface LeaveRequest {
   id: string;
   staffId: string;
   staffName: string;
+  outletId: string; // Added for branch-specific tracking
   startDate: Date;
   endDate: Date;
   reason: string;

@@ -26,6 +26,11 @@ export const ClosingManagement: React.FC = () => {
   const startOfToday = new Date(todayDate);
   startOfToday.setHours(0,0,0,0);
 
+  // Penentuan tipe shift berdasarkan jam mulai
+  const shiftStartHour = parseInt((currentUser?.shiftStartTime || '10:00').split(':')[0]);
+  const isShift1 = shiftStartHour < 14;
+  const isShift2 = shiftStartHour >= 14;
+
   const myClosingToday = useMemo(() => {
     return dailyClosings.find(c => 
       c.outletId === selectedOutletId && 
@@ -41,6 +46,19 @@ export const ClosingManagement: React.FC = () => {
     );
   }, [dailyClosings, selectedOutletId, todayStr]);
 
+  // Saldo Awal (Serah Terima dari Shift 1 jika saya Shift 2)
+  const openingBalanceFromPreviousShift = useMemo(() => {
+     if (isShift2) {
+        const prevClosing = allClosingsToday.find(c => {
+           const s = staff.find(st => st.id === c.staffId);
+           const sh = parseInt((s?.shiftStartTime || '10:00').split(':')[0]);
+           return sh < 14;
+        });
+        return prevClosing ? prevClosing.actualCash : 0;
+     }
+     return 0;
+  }, [allClosingsToday, isShift2, staff]);
+
   const shiftTxs = transactions.filter(tx => 
     tx.outletId === selectedOutletId && 
     new Date(tx.timestamp) >= startOfToday && 
@@ -51,26 +69,22 @@ export const ClosingManagement: React.FC = () => {
   const totalSalesCash = shiftTxs.filter(tx => tx.paymentMethod === PaymentMethod.CASH).reduce((acc, tx) => acc + tx.total, 0);
   const totalSalesQRIS = shiftTxs.filter(tx => tx.paymentMethod === PaymentMethod.QRIS).reduce((acc, tx) => acc + tx.total, 0);
   
-  const shiftPurchases = purchases.filter(p => 
-    p.outletId === selectedOutletId && 
-    new Date(p.timestamp) >= startOfToday && 
-    p.staffId === currentUser?.id
-  );
-  const totalPurchases = shiftPurchases.reduce((acc, p) => acc + p.totalPrice, 0);
-
-  const totalOtherExpenses = expenses.filter(ex => 
+  const totalExpenses = expenses.filter(ex => 
     ex.outletId === selectedOutletId && 
     new Date(ex.timestamp) >= startOfToday && 
-    ex.staffId === currentUser?.id &&
-    !ex.id.startsWith('exp-auto-') // Jangan hitung auto-expense belanja dua kali jika dihitung manual
+    ex.staffId === currentUser?.id
   ).reduce((acc, ex) => acc + ex.amount, 0);
 
-  // Total biaya keseluruhan (Belanja + Operasional Lain)
-  const totalExpenses = totalOtherExpenses + totalPurchases;
-
-  const expectedCash = totalSalesCash - totalExpenses;
+  const expectedCash = openingBalanceFromPreviousShift + totalSalesCash - totalExpenses;
   const discrepancy = actualCash - expectedCash;
   const hasDiscrepancy = discrepancy !== 0;
+
+  // Validasi jam tutup untuk Shift 2 (minimal 22:00)
+  const isEarlyClosing = useMemo(() => {
+     if (!isShift2) return false;
+     const currentHour = todayDate.getHours();
+     return currentHour < 22;
+  }, [isShift2, todayDate]);
 
   const handleClosing = () => {
     performClosing(actualCash, notes);
@@ -90,28 +104,6 @@ export const ClosingManagement: React.FC = () => {
     } else {
       setApprovalError('Kredensial Manager salah.');
     }
-  };
-
-  const calculateSalesRecap = (reportDate: Date, staffId: string) => {
-    const start = new Date(reportDate); start.setHours(0,0,0,0);
-    const end = new Date(reportDate); end.setHours(23,59,59,999);
-    const periodTxs = transactions.filter(tx => 
-        tx.outletId === selectedOutletId && 
-        tx.cashierId === staffId &&
-        new Date(tx.timestamp) >= start && 
-        new Date(tx.timestamp) <= end && 
-        tx.status === OrderStatus.CLOSED
-    );
-    
-    const recap: Record<string, { name: string, qty: number, total: number }> = {};
-    periodTxs.forEach(tx => {
-      tx.items.forEach(item => {
-        if (!recap[item.product.id]) recap[item.product.id] = { name: item.product.name, qty: 0, total: 0 };
-        recap[item.product.id].qty += item.quantity;
-        recap[item.product.id].total += (item.product.outletSettings?.[selectedOutletId]?.price || item.product.price) * item.quantity;
-      });
-    });
-    return Object.values(recap).sort((a,b) => b.qty - a.qty);
   };
 
   const calculateDetailedMovement = (reportDate: Date, staffId: string) => {
@@ -167,197 +159,51 @@ export const ClosingManagement: React.FC = () => {
 
   const renderAuditReport = (cls: DailyClosing) => {
     const reportDate = new Date(cls.timestamp);
-    const salesRecap = calculateSalesRecap(reportDate, cls.staffId);
     const movement = calculateDetailedMovement(reportDate, cls.staffId);
-    const start = new Date(reportDate); start.setHours(0,0,0,0);
-    const end = new Date(reportDate); end.setHours(23,59,59,999);
     
-    const shiftExpenses = expenses.filter(e => 
-        e.outletId === selectedOutletId && 
-        e.staffId === cls.staffId &&
-        new Date(e.timestamp) >= start && 
-        new Date(e.timestamp) <= end
-    );
-
     return (
-      <div className="fixed inset-0 z-[300] bg-slate-950/95 backdrop-blur-xl flex items-start justify-center p-0 md:p-6 overflow-y-auto no-print" onClick={() => setSelectedClosingReport(null)}>
-        <div className="bg-white rounded-none md:rounded-lg w-full max-w-5xl my-0 md:my-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom-10" onClick={e => e.stopPropagation()}>
-          
-          <div className="p-6 md:p-8 border-b border-slate-200 flex justify-between items-center bg-white sticky top-0 z-50 md:rounded-t-lg">
-            <div className="flex items-center gap-4">
-              <button onClick={() => setSelectedClosingReport(null)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">✕</button>
-              <div>
-                <h3 className="text-sm md:text-lg font-black text-slate-900 uppercase tracking-tighter">Shift Audit Report</h3>
-                <p className="text-[8px] md:text-[10px] font-black text-orange-600 uppercase tracking-widest">Digital Archive • Mozza Boy POS</p>
-              </div>
-            </div>
-            <button onClick={() => window.print()} className="px-6 py-3 bg-slate-900 text-white rounded-lg text-[9px] font-black uppercase tracking-widest">Cetak Laporan 📑</button>
+      <div className="fixed inset-0 z-[300] bg-slate-950/95 backdrop-blur-xl flex items-start justify-center p-0 md:p-6 overflow-y-auto" onClick={() => setSelectedClosingReport(null)}>
+        <div className="bg-white rounded-none md:rounded-lg w-full max-w-4xl my-0 md:my-10 flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-white sticky top-0 z-50">
+            <h3 className="font-black text-slate-900 uppercase">Laporan Audit Shift</h3>
+            <button onClick={() => setSelectedClosingReport(null)} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">✕</button>
           </div>
-
-          <div className="p-8 md:p-12 space-y-12 pb-24 font-sans text-slate-900">
-             {/* Header Dokumen */}
-             <div className="flex flex-col md:flex-row justify-between items-start gap-8 border-b-2 border-slate-900 pb-10">
-                <div className="space-y-4">
-                   <div className="w-16 h-16 bg-slate-900 text-white rounded flex items-center justify-center text-3xl font-black">M</div>
-                   <div>
-                      <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tight leading-none">Mozza Boy Enterprise</h1>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Official Audit Statement</p>
-                   </div>
-                   <div className="text-[11px] text-slate-600 font-medium uppercase leading-relaxed">
-                      Outlet: {activeOutlet?.name}<br/>
-                      Admin PIC: {cls.staffName}<br/>
-                      System ID: {cls.id.slice(-8).toUpperCase()}
-                   </div>
-                </div>
-                <div className="text-left md:text-right space-y-4">
-                   <div className="bg-slate-50 border border-slate-200 p-4 inline-block">
-                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Generated At</p>
-                      <p className="text-sm font-mono font-black text-slate-900">{reportDate.toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })}</p>
-                   </div>
-                </div>
+          <div className="p-10 space-y-8 font-mono text-[11px]">
+             <div className="text-center space-y-2 mb-10">
+                <h2 className="text-xl font-black uppercase">Mozza Boy Enterprise</h2>
+                <p>{activeOutlet?.name}</p>
+                <div className="border-b border-dashed border-slate-300 w-full"></div>
              </div>
-
-             {/* I. Ringkasan Kas & Biaya */}
-             <section className="space-y-4">
-                <div className="flex items-center gap-4">
-                   <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">I. Financial Summary</h3>
-                   <div className="flex-1 h-px bg-slate-200"></div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 border border-slate-200 divide-x divide-slate-200">
-                   <div className="p-4">
-                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Cash In System</p>
-                      <p className="text-sm font-black font-mono">Rp {cls.totalSalesCash.toLocaleString()}</p>
-                   </div>
-                   <div className="p-4">
-                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Digital (QRIS)</p>
-                      <p className="text-sm font-black font-mono text-blue-600">Rp {cls.totalSalesQRIS.toLocaleString()}</p>
-                   </div>
-                   <div className="p-4">
-                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total Expenses</p>
-                      <p className="text-sm font-black font-mono text-red-600">Rp {cls.totalExpenses.toLocaleString()}</p>
-                   </div>
-                   <div className={`p-4 ${cls.discrepancy === 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Actual Physical</p>
-                      <p className="text-sm font-black font-mono text-slate-900">Rp {cls.actualCash.toLocaleString()}</p>
-                   </div>
-                </div>
-             </section>
-
-             {/* II. Rincian Pengeluaran */}
-             <section className="space-y-4">
-                <div className="flex items-center gap-4">
-                   <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">II. Shift Expenses Detail</h3>
-                   <div className="flex-1 h-px bg-slate-200"></div>
-                </div>
-                <div className="overflow-x-auto border border-slate-200">
-                   <table className="w-full text-left text-[11px] min-w-[500px]">
-                      <thead className="bg-slate-50 border-b border-slate-200 uppercase text-[9px] font-black">
-                         <tr><th className="py-3 px-6 border-r border-slate-200">Category</th><th className="py-3 px-6 border-r border-slate-200">Description / Memo</th><th className="py-3 px-6 text-right">Amount</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                         {shiftExpenses.length === 0 ? (
-                            <tr><td colSpan={3} className="py-10 text-center text-slate-400 font-medium italic uppercase">No expense records found.</td></tr>
-                         ) : (
-                            shiftExpenses.map(exp => (
-                               <tr key={exp.id} className="hover:bg-slate-50/50">
-                                  <td className="py-3 px-6 font-bold uppercase border-r border-slate-100">{expenseTypes.find(t => t.id === exp.typeId)?.name || 'Misc'}</td>
-                                  <td className="py-3 px-6 text-slate-500 italic border-r border-slate-100">{exp.notes || '-'}</td>
-                                  <td className="py-3 px-6 text-right font-black font-mono">Rp {exp.amount.toLocaleString()}</td>
-                               </tr>
-                            ))
-                         )}
-                      </tbody>
-                   </table>
-                </div>
-             </section>
-
-             {/* III. Rekapitulasi Produk Terjual */}
-             <section className="space-y-4">
-                <div className="flex items-center gap-4">
-                   <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">III. Product Sales Recap</h3>
-                   <div className="flex-1 h-px bg-slate-200"></div>
-                </div>
-                <div className="overflow-x-auto border border-slate-200">
-                   <table className="w-full text-left text-[11px] min-w-[500px]">
-                      <thead className="bg-slate-50 border-b border-slate-200 uppercase text-[9px] font-black">
-                         <tr><th className="py-3 px-6 border-r border-slate-200">Menu Item</th><th className="py-3 px-4 text-center border-r border-slate-200">Qty Sold</th><th className="py-3 px-6 text-right">Revenue Share</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                         {salesRecap.map((s, idx) => (
-                           <tr key={s.name} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}>
-                              <td className="py-3 px-6 font-bold uppercase border-r border-slate-100">{s.name}</td>
-                              <td className="py-3 px-4 text-center border-r border-slate-100 font-mono">{s.qty} Units</td>
-                              <td className="py-3 px-6 text-right font-black font-mono">Rp {s.total.toLocaleString()}</td>
-                           </tr>
-                         ))}
-                      </tbody>
-                   </table>
-                </div>
-             </section>
-
-             {/* IV. Audit Pergerakan Inventori */}
-             <section className="space-y-4">
-                <div className="flex items-center gap-4">
-                   <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">IV. Inventory Movement Log</h3>
-                   <div className="flex-1 h-px bg-slate-200"></div>
-                </div>
-                <div className="relative overflow-hidden border border-slate-200">
-                   <div className="overflow-x-auto custom-scrollbar bg-white">
-                      <table className="w-full text-left text-[10px] min-w-[900px] border-collapse">
-                         <thead className="bg-slate-900 text-white uppercase text-[8px] font-black tracking-wider">
-                            <tr>
-                               <th className="py-4 px-6 sticky left-0 z-20 bg-slate-900 border-r border-slate-700 shadow-[2px_0_5px_rgba(0,0,0,0.2)]">Material / SKU</th>
-                               <th className="py-4 px-4 text-center border-r border-slate-700">Initial</th>
-                               <th className="py-4 px-4 text-center border-r border-slate-700 text-green-400">Restock (+)</th>
-                               <th className="py-4 px-4 text-center border-r border-slate-700 text-red-400">Usage (-)</th>
-                               <th className="py-4 px-6 text-right bg-slate-800">Final Audit</th>
-                            </tr>
-                         </thead>
-                         <tbody className="divide-y divide-slate-100">
-                            {movement.length === 0 ? (
-                               <tr><td colSpan={5} className="py-12 text-center text-slate-400 font-medium italic uppercase">No stock movement logged during this shift.</td></tr>
-                            ) : (
-                               movement.map((m, idx) => (
-                                  <tr key={m.name} className={idx % 2 === 1 ? 'bg-slate-50/50 hover:bg-slate-100' : 'bg-white hover:bg-slate-100'}>
-                                     <td className="py-3 px-6 font-black uppercase text-slate-800 sticky left-0 z-10 bg-inherit border-r border-slate-200 shadow-[1px_0_0_rgba(0,0,0,0.05)]">{m.name}</td>
-                                     <td className="py-3 px-4 text-center font-mono text-slate-400">{m.initial.toFixed(2)}</td>
-                                     <td className="py-3 px-4 text-center font-black font-mono text-green-600">{m.plus > 0 ? `+${m.plus.toFixed(2)}` : '-'}</td>
-                                     <td className="py-3 px-4 text-center font-black font-mono text-red-500">{m.minus > 0 ? `-${m.minus.toFixed(2)}` : '-'}</td>
-                                     <td className="py-3 px-6 text-right font-black font-mono text-slate-900 bg-slate-50/30">
-                                        {m.final.toFixed(2)} <span className="text-[7px] text-slate-300 ml-1">{m.unit}</span>
-                                     </td>
-                                  </tr>
-                               ))
-                            )}
-                         </tbody>
-                      </table>
-                   </div>
-                   <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white/10 to-transparent pointer-events-none md:hidden"></div>
-                </div>
-                <p className="text-[8px] text-slate-400 uppercase font-black tracking-widest italic">*Data pergerakan stok telah diverifikasi sistem POS secara real-time.</p>
-             </section>
-
-             {/* Footer Signatures */}
-             <div className="pt-20 border-t border-slate-200 no-break-page">
-                <div className="grid grid-cols-3 gap-12">
-                   <div className="text-center space-y-20">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Admin / PIC Shift</p>
-                      <div className="border-b border-slate-300 w-full"></div>
-                      <p className="text-[11px] font-black uppercase text-slate-900">{cls.staffName}</p>
-                   </div>
-                   <div className="text-center flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 border border-slate-200 p-2 grayscale opacity-30">
-                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=CERT-AUDIT-${cls.id}&color=0f172a`} alt="Audit QR" />
-                      </div>
-                      <p className="text-[7px] font-black text-slate-300 uppercase mt-4">Verified by Mozza Boy ROS</p>
-                   </div>
-                   <div className="text-center space-y-20">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Manager / Authorized</p>
-                      <div className="border-b border-slate-300 w-full"></div>
-                      <p className="text-[10px] font-bold uppercase text-slate-300 italic">Signature & Stamp Here</p>
-                   </div>
-                </div>
+             <div className="space-y-1">
+                <div className="flex justify-between"><span>TANGGAL</span><span>{reportDate.toLocaleDateString()}</span></div>
+                <div className="flex justify-between"><span>KASIR</span><span>{cls.staffName}</span></div>
+                <div className="flex justify-between"><span>WAKTU TUTUP</span><span>{reportDate.toLocaleTimeString()}</span></div>
              </div>
+             <div className="border-b border-dashed border-slate-300 w-full"></div>
+             <div className="space-y-4">
+                <div className="flex justify-between font-black"><span>PENJUALAN TUNAI</span><span>Rp {cls.totalSalesCash.toLocaleString()}</span></div>
+                <div className="flex justify-between font-black"><span>DIGITAL (QRIS)</span><span>Rp {cls.totalSalesQRIS.toLocaleString()}</span></div>
+                <div className="flex justify-between font-black text-red-600"><span>PENGELUARAN (-)</span><span>Rp {cls.totalExpenses.toLocaleString()}</span></div>
+                <div className="border-b border-slate-900 w-full"></div>
+                <div className="flex justify-between text-base font-black"><span>TOTAL FISIK KAS</span><span>Rp {cls.actualCash.toLocaleString()}</span></div>
+                <div className="flex justify-between text-red-500 font-bold"><span>SELISIH (VAR)</span><span>Rp {cls.discrepancy.toLocaleString()}</span></div>
+             </div>
+             <div className="border-b border-dashed border-slate-300 w-full pt-10"></div>
+             <h4 className="font-black uppercase text-center mt-4">Audit Stok Material</h4>
+             <table className="w-full text-left">
+                <thead><tr className="border-b border-slate-300"><th className="py-2">ITEM</th><th className="py-2 text-right">AWAL</th><th className="py-2 text-right">PEMAKAIAN</th><th className="py-2 text-right">AKHIR</th></tr></thead>
+                <tbody>
+                   {movement.map(m => (
+                     <tr key={m.name} className="border-b border-slate-100">
+                        <td className="py-2">{m.name}</td>
+                        <td className="py-2 text-right">{m.initial.toFixed(1)}</td>
+                        <td className="py-2 text-right text-red-500">-{m.minus.toFixed(1)}</td>
+                        <td className="py-2 text-right font-black">{m.final.toFixed(1)}</td>
+                     </tr>
+                   ))}
+                </tbody>
+             </table>
+             <div className="pt-20 text-center italic opacity-30">-- Laporan Audit Digital Mozza Boy POS --</div>
           </div>
         </div>
       </div>
@@ -366,125 +212,143 @@ export const ClosingManagement: React.FC = () => {
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
-      <div className="mb-6 flex justify-between items-end">
-        <div>
-           <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Serah Terima & Tutup Shift</h2>
-           <p className="text-slate-500 font-medium text-[10px] uppercase tracking-widest italic">{activeOutlet?.name}</p>
-        </div>
-        {isManager && (
-          <div className="px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-xl">
-             <p className="text-[8px] font-black text-indigo-400 uppercase">Shift Manager View</p>
-             <p className="text-[10px] font-bold text-indigo-900 uppercase">{allClosingsToday.length} Shift Selesai Hari Ini</p>
-          </div>
-        )}
+      <div className="mb-8">
+         <h2 className="text-2xl md:text-3xl font-black text-slate-800 uppercase tracking-tighter">Serah Terima Kasir</h2>
+         <p className="text-slate-500 font-medium text-[11px] uppercase tracking-widest italic">{activeOutlet?.name}</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* LEFT: CALCULATION & FORM */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           {!myClosingToday ? (
-             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl space-y-8">
-                <div className="flex justify-between items-center border-b pb-6">
+             <div className="bg-white p-8 md:p-12 rounded-[48px] border border-slate-200 shadow-2xl space-y-10">
+                <div className="flex justify-between items-center border-b pb-8">
                    <div>
-                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Formulir Shift: {currentUser?.name}</h3>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Sistem menghitung audit berdasarkan log transaksi personal Anda</p>
+                      <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Status Kas: {currentUser?.name}</h3>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{isShift1 ? 'SHIFT 1 (PAGI)' : 'SHIFT 2 (SORE/END)'}</p>
                    </div>
-                   <span className="text-[10px] font-black text-orange-500 bg-orange-50 px-3 py-1 rounded-full">{new Date().toLocaleDateString()}</span>
+                   <div className="w-16 h-16 bg-slate-50 rounded-3xl flex items-center justify-center text-3xl shadow-inner">📔</div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                    <div className="space-y-4">
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
-                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Tunai Anda</p>
-                         <p className="text-sm font-black text-slate-800">Rp {totalSalesCash.toLocaleString()}</p>
-                      </div>
-                      
-                      {/* BREAKDOWN PENGELUARAN */}
-                      <div className="space-y-2">
-                         <div className="p-4 bg-orange-50/50 rounded-2xl border border-orange-100 flex justify-between items-center">
-                            <p className="text-[8px] font-black text-orange-600 uppercase tracking-widest">Belanja Stok (-)</p>
-                            <p className="text-sm font-black text-orange-600">Rp {totalPurchases.toLocaleString()}</p>
+                      {isShift2 && (
+                         <div className="p-5 bg-indigo-50 rounded-3xl border border-indigo-100 flex justify-between items-center">
+                            <div>
+                               <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest mb-1">Modal Awal (Diterima)</p>
+                               <p className="text-lg font-black text-indigo-800">Rp {openingBalanceFromPreviousShift.toLocaleString()}</p>
+                            </div>
+                            <span className="text-2xl opacity-40">🤝</span>
                          </div>
-                         <div className="p-4 bg-red-50 rounded-2xl border border-red-100 flex justify-between items-center">
-                            <p className="text-[8px] font-black text-red-400 uppercase tracking-widest">Operasional Lain (-)</p>
-                            <p className="text-sm font-black text-red-600">Rp {totalOtherExpenses.toLocaleString()}</p>
+                      )}
+                      <div className="p-5 bg-emerald-50 rounded-3xl border border-emerald-100 flex justify-between items-center">
+                         <div>
+                            <p className="text-[8px] font-black text-emerald-600 uppercase tracking-widest mb-1">Hasil Jualan Tunai</p>
+                            <p className="text-lg font-black text-emerald-800">Rp {totalSalesCash.toLocaleString()}</p>
                          </div>
+                         <span className="text-2xl opacity-30">💵</span>
                       </div>
-
-                      <div className="p-6 bg-slate-900 rounded-2xl text-white shadow-xl">
-                         <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">Setoran Fisik Wajib</p>
-                         <p className="text-2xl font-black text-orange-500">Rp {expectedCash.toLocaleString()}</p>
+                      <div className="p-5 bg-red-50 rounded-3xl border border-red-100 flex justify-between items-center">
+                         <div>
+                            <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-1">Total Pengeluaran (-)</p>
+                            <p className="text-lg font-black text-red-600">Rp {totalExpenses.toLocaleString()}</p>
+                         </div>
+                         <span className="text-2xl opacity-40">💸</span>
+                      </div>
+                      <div className="p-8 bg-slate-900 rounded-[32px] text-white shadow-2xl relative overflow-hidden">
+                         <div className="absolute top-0 right-0 p-4 opacity-10 text-4xl transform rotate-12">🏁</div>
+                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] mb-2">Estimasi Uang Fisik</p>
+                         <p className="text-3xl font-black text-orange-500 tracking-tighter">Rp {expectedCash.toLocaleString()}</p>
                       </div>
                    </div>
 
-                   <div className="space-y-4">
-                      <p className="text-[10px] font-black text-slate-800 uppercase text-center tracking-widest">Input Uang di Laci</p>
-                      <input 
-                        type="number" 
-                        onFocus={e => e.target.select()}
-                        className={`w-full p-6 bg-slate-50 border-4 rounded-2xl text-4xl font-black text-center focus:outline-none transition-all ${hasDiscrepancy && actualCash > 0 ? 'border-red-500 text-red-600' : 'border-slate-100 text-slate-900 focus:border-orange-500'}`}
-                        value={actualCash}
-                        onChange={e => setActualCash(parseInt(e.target.value) || 0)}
-                        placeholder="0"
-                      />
+                   <div className="space-y-6 flex flex-col justify-center">
+                      <div className="space-y-3">
+                         <label className="text-[10px] font-black text-slate-800 uppercase text-center block tracking-widest">Hitung Uang Fisik Di Laci</label>
+                         <div className="relative">
+                            <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-300">Rp</span>
+                            <input 
+                              type="number" 
+                              onFocus={e => e.target.select()}
+                              className={`w-full p-8 pl-16 bg-slate-50 border-4 rounded-[40px] text-4xl font-black text-center focus:outline-none transition-all ${hasDiscrepancy && actualCash > 0 ? 'border-red-500 text-red-600' : 'border-slate-100 text-slate-900 focus:border-orange-500'}`}
+                              value={actualCash}
+                              onChange={e => setActualCash(parseInt(e.target.value) || 0)}
+                              placeholder="0"
+                            />
+                         </div>
+                      </div>
+                      
                       {hasDiscrepancy && actualCash > 0 && (
-                         <div className="p-3 bg-red-600 text-white rounded-2xl text-center animate-pulse text-[9px] font-black uppercase">
-                            Selisih: Rp {discrepancy.toLocaleString()}
+                         <div className="p-4 bg-red-600 text-white rounded-3xl text-center animate-in zoom-in-95 duration-300">
+                            <p className="text-[10px] font-black uppercase tracking-widest mb-1">Peringatan Selisih Kas!</p>
+                            <p className="text-lg font-black font-mono">Rp {discrepancy.toLocaleString()}</p>
                          </div>
                       )}
+                      
                       <textarea 
-                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-[11px] h-20 outline-none focus:border-orange-500"
+                        className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-[28px] font-bold text-sm h-28 outline-none focus:border-orange-500 shadow-inner"
                         value={notes}
                         onChange={e => setNotes(e.target.value)}
-                        placeholder="Catatan serah terima shift..."
+                        placeholder="Catatan serah terima / kendala shift..."
                       />
+                      
                       <button 
                         onClick={() => {
-                           if(hasDiscrepancy && !isManager) setShowApproval(true);
-                           else setShowConfirm(true);
+                           if(isEarlyClosing && !isManager) {
+                              setApprovalError("Dilarang tutup toko sebelum jam 22:00. Butuh otorisasi Manager.");
+                              setShowApproval(true);
+                           } else if(hasDiscrepancy && !isManager) {
+                              setApprovalError("Ada selisih kas. Butuh otorisasi Manager untuk konfirmasi.");
+                              setShowApproval(true);
+                           } else {
+                              setShowConfirm(true);
+                           }
                         }}
-                        className="w-full py-5 bg-orange-500 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all"
+                        className="w-full py-6 bg-orange-500 text-white font-black text-sm uppercase tracking-[0.3em] rounded-[32px] shadow-2xl shadow-orange-500/30 hover:bg-orange-600 active:scale-[0.98] transition-all"
                       >
-                        TUTUP SHIFT SAYA 🏁
+                        {isShift1 ? 'SERAH TERIMA SHIFT ➔' : 'TUTUP TOKO AKHIR HARI 🏁'}
                       </button>
                    </div>
                 </div>
              </div>
           ) : (
-             <div className="bg-white p-12 rounded-3xl border-2 border-green-100 shadow-xl flex flex-col items-center text-center space-y-6 animate-in zoom-in-95">
-                <div className="w-24 h-24 bg-green-50 text-green-600 rounded-full flex items-center justify-center text-5xl shadow-inner">✅</div>
+             <div className="bg-white p-16 rounded-[56px] border border-green-100 shadow-2xl flex flex-col items-center text-center space-y-8 animate-in zoom-in-95">
+                <div className="w-32 h-32 bg-green-50 text-green-600 rounded-full flex items-center justify-center text-6xl shadow-inner">✅</div>
                 <div>
-                   <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Shift Selesai</h4>
-                   <p className="text-slate-400 text-xs font-bold uppercase mt-2 px-10">Laporan shift personal Anda telah tersimpan. Silakan review detail audit di bawah.</p>
+                   <h4 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">Shift Selesai</h4>
+                   <p className="text-slate-400 text-sm font-bold uppercase mt-3 px-12 leading-relaxed tracking-widest">
+                      {isShift1 
+                        ? 'Laci telah diamankan untuk Shift 2. Silakan informasikan saldo fisik kepada kasir berikutnya.' 
+                        : 'Laporan tutup toko telah berhasil dikirim ke Cloud Mozza Boy.'}
+                   </p>
                 </div>
-                <button onClick={() => setSelectedClosingReport(myClosingToday)} className="w-full max-w-xs py-5 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg hover:bg-orange-500 transition-all">REVIEW LOG AUDIT 📑</button>
+                <button onClick={() => setSelectedClosingReport(myClosingToday)} className="px-10 py-5 bg-slate-900 text-white rounded-[28px] font-black text-[11px] uppercase tracking-widest shadow-2xl hover:bg-orange-500 transition-all">LIHAT AUDIT FINAL 📑</button>
              </div>
           )}
         </div>
 
-        {/* RIGHT: SHIFT HISTORY */}
         <div className="space-y-6">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Audit Log Hari Ini</h3>
-           <div className="space-y-3">
+           <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-4">Audit Log Cabang Hari Ini</h3>
+           <div className="space-y-4">
               {allClosingsToday.length === 0 ? (
-                <div className="p-8 text-center bg-slate-100 rounded-2xl border-2 border-dashed border-slate-200 opacity-50">
-                   <p className="text-[9px] font-black uppercase italic">Belum ada shift ditutup</p>
+                <div className="p-12 text-center bg-white rounded-[40px] border-2 border-dashed border-slate-200 opacity-50 flex flex-col items-center">
+                   <span className="text-4xl mb-4">💤</span>
+                   <p className="text-[10px] font-black uppercase italic tracking-widest">Belum ada kru yang tutup shift</p>
                 </div>
               ) : (
                 allClosingsToday.map(cls => (
-                   <div key={cls.id} onClick={() => setSelectedClosingReport(cls)} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group cursor-pointer hover:border-indigo-500 transition-all">
-                      <div className="flex items-center gap-3">
-                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${cls.discrepancy === 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                   <div key={cls.id} onClick={() => setSelectedClosingReport(cls)} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center justify-between group cursor-pointer hover:border-indigo-500 transition-all">
+                      <div className="flex items-center gap-4">
+                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-inner ${cls.discrepancy === 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                             {cls.discrepancy === 0 ? '👤' : '⚠️'}
                          </div>
                          <div>
-                            <h5 className="text-[11px] font-black text-slate-800 uppercase leading-tight">{cls.staffName}</h5>
-                            <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">{new Date(cls.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                            <h5 className="text-[12px] font-black text-slate-800 uppercase leading-none">{cls.staffName}</h5>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase mt-1.5">{new Date(cls.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
                          </div>
                       </div>
                       <div className="text-right">
-                         <p className="text-[10px] font-black text-slate-900 font-mono">Rp {cls.actualCash.toLocaleString()}</p>
-                         <p className={`text-[7px] font-black uppercase ${cls.discrepancy === 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                         <p className="text-xs font-black text-slate-900 font-mono">Rp {cls.actualCash.toLocaleString()}</p>
+                         <p className={`text-[8px] font-black uppercase mt-1 ${cls.discrepancy === 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                             {cls.discrepancy === 0 ? 'BALANCE ✓' : `MISS: ${cls.discrepancy.toLocaleString()}`}
                          </p>
                       </div>
@@ -495,18 +359,18 @@ export const ClosingManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* MODALS */}
+      {/* MODAL APPROVAL MANAGER */}
       {showApproval && (
         <div className="fixed inset-0 z-[220] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-6">
-           <div className="bg-white rounded-3xl w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
-              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-6">🔒</div>
-              <h3 className="text-lg font-black text-slate-800 uppercase mb-6 tracking-tighter">Otorisasi Shift<br/><span className="text-red-600 text-xs">(Selisih Uang Laci)</span></h3>
+           <div className="bg-white rounded-[48px] w-full max-w-sm p-12 text-center shadow-2xl animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-8 shadow-inner">🔒</div>
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-4 tracking-tighter">Otorisasi Manager</h3>
+              <p className="text-red-600 text-[9px] font-black uppercase mb-8 leading-tight">{approvalError}</p>
               <div className="space-y-4">
-                 <input type="text" placeholder="Username Manager" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold outline-none focus:border-indigo-500" value={approvalUsername} onChange={e => setApprovalUsername(e.target.value)} />
-                 <input type="password" placeholder="Password" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold outline-none focus:border-indigo-500" value={approvalPassword} onChange={e => setApprovalPassword(e.target.value)} />
-                 {approvalError && <p className="text-[8px] font-black text-red-600 uppercase">{approvalError}</p>}
-                 <button onClick={handleManagerOverride} className="w-full py-4 bg-orange-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg">OVERRIDE SHIFT 🛠️</button>
-                 <button onClick={() => { setShowApproval(false); setApprovalError(''); }} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase">Batal</button>
+                 <input type="text" placeholder="Username Manager" className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-indigo-500" value={approvalUsername} onChange={e => setApprovalUsername(e.target.value)} />
+                 <input type="password" placeholder="Password Manager" className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-indigo-500" value={approvalPassword} onChange={e => setApprovalPassword(e.target.value)} />
+                 <button onClick={handleManagerOverride} className="w-full py-5 bg-orange-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 transition-all">OVERRIDE & TUTUP 🛠️</button>
+                 <button onClick={() => { setShowApproval(false); setApprovalUsername(''); setApprovalPassword(''); setApprovalError(''); }} className="w-full py-3 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
               </div>
            </div>
         </div>
@@ -514,12 +378,16 @@ export const ClosingManagement: React.FC = () => {
 
       {showConfirm && (
         <div className="fixed inset-0 z-[210] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-6">
-          <div className="bg-white rounded-3xl w-full max-w-sm p-12 text-center shadow-2xl">
-            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Selesai Berugas?</h3>
-            <p className="text-slate-500 text-sm mt-6 mb-10 leading-relaxed uppercase font-bold">Pastikan uang serah terima laci telah dihitung dengan benar.</p>
+          <div className="bg-white rounded-[48px] w-full max-w-sm p-12 text-center shadow-2xl animate-in zoom-in-95">
+            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Konfirmasi {isShift1 ? 'Serah Terima' : 'Tutup Toko'}?</h3>
+            <p className="text-slate-500 text-sm mt-6 mb-10 leading-relaxed uppercase font-bold tracking-widest">
+               {isShift1 
+                 ? 'Uang fisik di laci akan diserahkan kepada kasir Shift 2.' 
+                 : 'Pastikan seluruh pintu outlet sudah terkunci dan semua transaksi hari ini sudah diinput.'}
+            </p>
             <div className="flex flex-col gap-3">
-              <button onClick={handleClosing} className="w-full py-5 bg-orange-500 text-white rounded-2xl font-black text-xs uppercase shadow-xl shadow-orange-500/20">YA, TUTUP SHIFT 🏁</button>
-              <button onClick={() => setShowConfirm(false)} className="w-full py-4 text-slate-400 font-black uppercase text-xs">BATAL</button>
+              <button onClick={handleClosing} className="w-full py-6 bg-orange-500 text-white rounded-[28px] font-black text-xs uppercase tracking-[0.3em] shadow-2xl">YA, PROSES TUTUP 🏁</button>
+              <button onClick={() => setShowConfirm(false)} className="w-full py-4 text-slate-400 font-black uppercase text-[10px] tracking-widest">KEMBALI</button>
             </div>
           </div>
         </div>

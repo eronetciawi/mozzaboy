@@ -331,17 +331,17 @@ export const Maintenance: React.FC = () => {
            <div className="bg-white p-10 rounded-[56px] border-2 border-slate-100 shadow-sm flex flex-col relative overflow-hidden">
               <div className="absolute top-0 right-0 p-8 opacity-10 text-6xl">🧹</div>
               <h3 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter mb-2 leading-none">Safe-Wipe Log <br/>Data Cabang</h3>
-              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-10">Mereset log transaksi operasional (Penjualan, Biaya, Belanja, Produksi) agar cabang dimulai dari NOL. <span className="text-emerald-600 font-black">MASTER DATA (MENU, RESEP, STOK) TETAP AMAN.</span></p>
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-10">Mereset seluruh log operasional cabang: <span className="text-rose-600 font-black">ABSENSI, CUTI/IZIN, PENJUALAN, BIAYA, BELANJA, PRODUKSI, MUTASI STOK.</span> Agar cabang dimulai dari kondisi bersih total. <span className="text-emerald-600 font-black">MASTER DATA (MENU & STOK) TETAP AMAN.</span></p>
               
               <div className="bg-slate-50 p-8 rounded-[40px] border-2 border-slate-100 mb-8">
-                 <select className="w-full p-5 bg-white border-2 border-slate-100 rounded-[24px] font-black text-sm outline-none shadow-sm" value={targetOutletId} onChange={e => setTargetOutletId(e.target.value)}>
+                 <select className="w-full p-5 bg-white border-2 border-slate-100 rounded-[24px] font-black text-sm outline-none shadow-sm text-slate-900" value={targetOutletId} onChange={e => setTargetOutletId(e.target.value)}>
                     <option value="">-- Pilih Cabang --</option>
                     {outlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                  </select>
               </div>
 
               <button disabled={!targetOutletId} onClick={() => setShowOutletResetConfirm(true)} className={`w-full py-6 rounded-[28px] font-black text-[10px] md:text-[12px] uppercase tracking-[0.3em] transition-all shadow-2xl ${!targetOutletId ? 'bg-slate-100 text-slate-300' : 'bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20'}`}>
-                 HAPUS LOG {selectedOutlet?.name || ''} 🧨
+                 HAPUS SEMUA LOG {selectedOutlet?.name || ''} 🧨
               </button>
            </div>
 
@@ -407,7 +407,9 @@ export const Maintenance: React.FC = () => {
             <p className="text-slate-500 text-[9px] md:text-[10px] mt-8 mb-12 leading-relaxed uppercase font-black tracking-widest">
                Anda akan menghapus riwayat operasional di cabang <br/><span className="text-orange-600">{selectedOutlet?.name}</span>. 
                <br/><br/>
-               <span className="text-emerald-600">Daftar Menu, Bahan Baku, Resep, dan Member TETAP AMAN.</span>
+               <span className="text-rose-600 font-black">BERSIHKAN: Absensi, Izin, Penjualan, Biaya, Belanja, Produksi, Mutasi Stok.</span>
+               <br/><br/>
+               <span className="text-indigo-600">Daftar Menu, Bahan Baku, Resep, dan Member TETAP AMAN.</span>
             </p>
             <div className="flex flex-col gap-4">
               <button onClick={() => { 

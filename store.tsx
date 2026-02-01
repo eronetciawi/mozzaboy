@@ -13,6 +13,9 @@ import { PRODUCTS, CATEGORIES, INVENTORY_ITEMS, OUTLETS, INITIAL_STAFF } from '.
 const DEFAULT_SUPABASE_URL = 'https://qpawptimafvxhppeuqel.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwYXdwdGltYWZ2eGhwcGV1cWVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3OTkxMDAsImV4cCI6MjA4NTM3NTEwMH0.DJPEQFZAdDIw8W167w8BmyAX2g8KAkKKnQI9Y06oxtw';
 
+const STORAGE_USER_KEY = 'mozzaboy_session_user';
+const STORAGE_OUTLET_KEY = 'mozzaboy_active_outlet';
+
 export const getPermissionsByRole = (role: UserRole): Permissions => {
   switch (role) {
     case UserRole.OWNER:
@@ -170,6 +173,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isFirstLoad, setIsFirstLoad] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [lastWipeTimestamp, setLastWipeTimestamp] = useState<number>(0);
+  const [wipedOutletId, setWipedOutletId] = useState<string | null>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -193,9 +198,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [simulations, setSimulations] = useState<MenuSimulation[]>([]);
   const [loyaltyConfig, setLoyaltyConfig] = useState<LoyaltyConfig>({ isEnabled: true, earningAmountPerPoint: 1000, redemptionValuePerPoint: 100, minRedeemPoints: 50 });
 
-  const [currentUser, setCurrentUser] = useState<StaffMember | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [selectedOutletId, setSelectedOutletId] = useState<string>('out1');
+  const [currentUser, setCurrentUser] = useState<StaffMember | null>(() => {
+    const savedUser = localStorage.getItem(STORAGE_USER_KEY);
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem(STORAGE_USER_KEY) !== null;
+  });
+  
+  const [selectedOutletId, setSelectedOutletId] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_OUTLET_KEY) || 'out1';
+  });
+
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [connectedPrinter, setConnectedPrinter] = useState<any>(null);
@@ -214,14 +228,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isFirstLoad) setIsInitialLoading(true);
     
     try {
-      const [
-        { data: prod }, { data: cat }, { data: inv }, { data: out }, 
-        { data: stf }, { data: att }, { data: leave }, { data: cust }, 
-        { data: tx }, { data: exp }, { data: ext }, { data: cls }, 
-        { data: str }, { data: stq }, { data: prd }, { data: pur },
-        { data: tier }, { data: bulk }, { data: sim }, { data: loyal },
-        { data: recipes }
-      ] = await Promise.all([
+      const results = await Promise.allSettled([
         supabase.from('products').select('*'),
         supabase.from('categories').select('*'),
         supabase.from('inventory').select('*'),
@@ -236,7 +243,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('daily_closings').select('*'),
         supabase.from('stock_transfers').select('*'),
         supabase.from('stock_requests').select('*'),
-        supabase.from('production_records').select('*'),
+        supabase.from('production_records').select('*').order('timestamp', { ascending: false }),
         supabase.from('purchases').select('*'),
         supabase.from('membership_tiers').select('*'),
         supabase.from('bulk_discounts').select('*'),
@@ -245,27 +252,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('wip_recipes').select('*')
       ]);
 
-      if (prod) setProducts(prod);
-      if (cat) setCategories(cat);
-      if (inv) setInventory(inv);
-      if (out) setOutlets(out.length > 0 ? out : OUTLETS);
-      if (stf) setStaff(stf.length > 0 ? stf : INITIAL_STAFF);
-      if (att) setAttendance(hydrateDates(att));
-      if (leave) setLeaveRequests(hydrateDates(leave));
-      if (cust) setCustomers(hydrateDates(cust));
-      if (tx) setTransactions(hydrateDates(tx));
-      if (exp) setExpenses(hydrateDates(exp));
-      if (ext) setExpenseTypes(ext);
-      if (cls) setDailyClosings(hydrateDates(cls));
-      if (str) setStockTransfers(hydrateDates(str));
-      if (stq) setStockRequests(hydrateDates(stq));
-      if (prd) setProductionRecords(hydrateDates(prd));
-      if (pur) setPurchases(hydrateDates(pur));
-      if (tier) setMembershipTiers(tier);
-      if (bulk) setBulkDiscounts(bulk);
-      if (sim) setSimulations(hydrateDates(sim));
-      if (loyal) setLoyaltyConfig(loyal);
-      if (recipes) setWipRecipes(recipes); else setWipRecipes([]);
+      const data = results.map(r => r.status === 'fulfilled' ? r.value.data : null);
+
+      // FILTER PENCEGAH DATA ZOMBIE SETELAH WIPE
+      const filterWiped = (arr: any[]) => {
+        if (!wipedOutletId || Date.now() - lastWipeTimestamp > 5000) return arr;
+        return (arr || []).filter(item => item.outletId !== wipedOutletId);
+      };
+
+      const filterWipedTransfers = (arr: any[]) => {
+        if (!wipedOutletId || Date.now() - lastWipeTimestamp > 5000) return arr;
+        return (arr || []).filter(item => item.fromOutletId !== wipedOutletId && item.toOutletId !== wipedOutletId);
+      };
+
+      if (data[0]) setProducts(data[0]);
+      if (data[1]) setCategories(data[1]);
+      if (data[2]) setInventory(data[2]);
+      if (data[3]) setOutlets(data[3].length > 0 ? data[3] : OUTLETS);
+      if (data[4]) setStaff(data[4].length > 0 ? data[4] : INITIAL_STAFF);
+      
+      // Aplikasi filter pencegah zombie untuk log operasional
+      if (data[5]) setAttendance(hydrateDates(filterWiped(data[5])));
+      if (data[6]) setLeaveRequests(hydrateDates(filterWiped(data[6])));
+      if (data[7]) setCustomers(hydrateDates(data[7]));
+      if (data[8]) setTransactions(filterWiped(data[8]));
+      if (data[9]) setExpenses(hydrateDates(filterWiped(data[9])));
+      if (data[10]) setExpenseTypes(data[10]);
+      if (data[11]) setDailyClosings(hydrateDates(filterWiped(data[11])));
+      if (data[12]) setStockTransfers(hydrateDates(filterWipedTransfers(data[12])));
+      if (data[13]) setStockRequests(hydrateDates(filterWiped(data[13])));
+      if (data[14]) setProductionRecords(hydrateDates(filterWiped(data[14]))); else setProductionRecords([]);
+      if (data[15]) setPurchases(hydrateDates(filterWiped(data[15])));
+      if (data[16]) setMembershipTiers(data[16]);
+      if (data[17]) setBulkDiscounts(data[17]);
+      if (data[18]) setSimulations(hydrateDates(data[18]));
+      if (data[19]) setLoyaltyConfig(data[19]);
+      if (data[20]) setWipRecipes(data[20]); else setWipRecipes([]);
     } catch (e) {
       console.error("Fetch Cloud Error:", e);
     } finally {
@@ -278,49 +300,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (supabase) fetchFromCloud();
   }, [supabase]);
 
-  const jsonToCSV = (data: any[]): string => {
-    if (data.length === 0) return "";
-    const headers = Object.keys(data[0]);
-    const csvRows = [headers.join(',')];
-    for (const row of data) {
-      const values = headers.map(header => {
-        const val = row[header];
-        if (val === null || val === undefined) return "";
-        if (typeof val === 'object') return `"${JSON.stringify(val).replace(/"/g, '""')}"`;
-        return `"${val.toString().replace(/"/g, '""')}"`;
-      });
-      csvRows.push(values.join(','));
-    }
-    return csvRows.join('\n');
-  };
-
-  const csvToJSON = (csv: string): any[] => {
-    const lines = csv.split(/\r?\n/).filter(l => l.trim() !== "");
-    if (lines.length < 2) return [];
-    const headers = lines[0].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/^"|"$/g, '').trim());
-    return lines.slice(1).map(line => {
-      const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
-      const obj: any = {};
-      headers.forEach((h, i) => {
-        let val: any = values[i];
-        if (val === undefined || val === "") {
-          obj[h] = null;
-        } else if (val.startsWith('{') || val.startsWith('[')) {
-          try { obj[h] = JSON.parse(val); } catch(e) { obj[h] = val; }
-        } else if (val.toLowerCase() === 'true') {
-          obj[h] = true;
-        } else if (val.toLowerCase() === 'false') {
-          obj[h] = false;
-        } else if (!isNaN(val) && val.trim() !== "") {
-          obj[h] = Number(val);
-        } else {
-          obj[h] = val;
-        }
-      });
-      return obj;
-    });
-  };
-
   const actions: AppActions = {
     fetchFromCloud,
     login: async (u, p) => {
@@ -328,16 +307,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const { data: cloudUser } = await supabase.from('staff').select('*').eq('username', u).eq('password', p).maybeSingle();
       if (cloudUser) {
         if (cloudUser.status === 'INACTIVE') return { success: false, message: "Akun dinonaktifkan oleh Owner." };
+        
+        // Logika Sequential Shift Login
+        const todayStr = new Date().toDateString();
+        const outletId = cloudUser.assignedOutletIds[0] || 'out1';
+        
+        // Cek apakah user ini sudah tutup shift hari ini
+        const hasClosedToday = dailyClosings.some(c => c.staffId === cloudUser.id && c.outletId === outletId && new Date(c.timestamp).toDateString() === todayStr);
+        if (hasClosedToday && cloudUser.role === UserRole.CASHIER) {
+           return { success: false, message: "Anda sudah melakukan tutup shift hari ini dan tidak bisa login kembali." };
+        }
+
+        // Cek jika ini Shift 2 (Mulai >= 14:00)
+        const shiftStartHour = parseInt((cloudUser.shiftStartTime || '00:00').split(':')[0]);
+        if (shiftStartHour >= 14 && cloudUser.role === UserRole.CASHIER) {
+           // Shift 2 hanya bisa login jika Shift 1 sudah tutup buku
+           const shift1Closed = dailyClosings.some(c => c.outletId === outletId && new Date(c.timestamp).toDateString() === todayStr);
+           if (!shift1Closed) {
+              return { success: false, message: "Akses Ditolak. Kasir Shift 1 belum melakukan tutup buku / serah terima laci." };
+           }
+        }
+
         setIsAuthenticated(true);
         setCurrentUser(cloudUser);
         setLoginTime(new Date());
-        setSelectedOutletId(cloudUser.assignedOutletIds[0] || 'out1');
+        localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(cloudUser));
+        setSelectedOutletId(outletId);
+        localStorage.setItem(STORAGE_OUTLET_KEY, outletId);
         return { success: true };
       }
       return { success: false, message: "Username atau Password salah." };
     },
-    logout: () => { setIsAuthenticated(false); setCurrentUser(null); },
-    switchOutlet: setSelectedOutletId,
+    logout: () => { 
+      setIsAuthenticated(false); 
+      setCurrentUser(null); 
+      localStorage.removeItem(STORAGE_USER_KEY);
+      localStorage.removeItem(STORAGE_OUTLET_KEY);
+    },
+    switchOutlet: (id) => {
+      setSelectedOutletId(id);
+      localStorage.setItem(STORAGE_OUTLET_KEY, id);
+    },
     addToCart: (p) => setCart(prev => {
       const ex = prev.find(i => i.product.id === p.id);
       if (ex) return prev.map(i => i.product.id === p.id ? { ...i, quantity: i.quantity + 1 } : i);
@@ -347,43 +357,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateCartQuantity: (pid, d) => setCart(prev => prev.map(i => i.product.id === pid ? { ...i, quantity: Math.max(0, i.quantity + d) } : i).filter(i => i.quantity > 0)),
     clearCart: () => setCart([]),
     checkout: async (method, redeem = 0, memberDisc = 0, bulkDisc = 0) => {
-      if (!supabase) return;
+      if (!supabase || selectedOutletId === 'all') return;
       setIsSaving(true);
-      let subtotal = 0; let totalCost = 0;
-      const calcCost = (p: Product): number => {
-        let c = 0;
-        if (p.isCombo && p.comboItems) {
-          p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) c += calcCost(inner) * ci.quantity; });
-        } else {
-          p.bom.forEach(b => {
-            const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
-            c += (b.quantity * (item?.costPerUnit || 0));
-          });
-        }
-        return c;
-      };
-      cart.forEach(i => {
-        const pr = i.product.outletSettings?.[selectedOutletId]?.price || i.product.price;
-        subtotal += pr * i.quantity;
-        totalCost += calcCost(i.product) * i.quantity;
-      });
-      const ptVal = redeem * loyaltyConfig.redemptionValuePerPoint;
-      const total = Math.max(0, subtotal - memberDisc - bulkDisc - ptVal);
-      const earned = Math.floor(total / loyaltyConfig.earningAmountPerPoint);
-      const tx: Transaction = {
-        id: `TX-${Date.now()}`, outletId: selectedOutletId, customerId: selectedCustomerId || undefined, 
-        items: [...cart], subtotal, tax: 0, total, totalCost, paymentMethod: method, 
-        status: OrderStatus.CLOSED, timestamp: new Date(), cashierId: currentUser?.id || 'sys', cashierName: currentUser?.name || 'System',
-        pointsEarned: earned, pointsRedeemed: redeem, pointDiscountValue: ptVal, membershipDiscount: memberDisc, bulkDiscount: bulkDisc
-      };
       try {
+        let subtotal = 0; let totalCost = 0;
+        const calcCost = (p: Product): number => {
+          let c = 0;
+          if (p.isCombo && p.comboItems) {
+            p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) c += calcCost(inner) * ci.quantity; });
+          } else {
+            (p.bom || []).forEach(b => {
+              const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
+              c += (b.quantity * (item?.costPerUnit || 0));
+            });
+          }
+          return c;
+        };
+        cart.forEach(i => {
+          const pr = i.product.outletSettings?.[selectedOutletId]?.price || i.product.price;
+          subtotal += pr * i.quantity;
+          totalCost += calcCost(i.product) * i.quantity;
+        });
+        const ptVal = redeem * loyaltyConfig.redemptionValuePerPoint;
+        const total = Math.max(0, subtotal - memberDisc - bulkDisc - ptVal);
+        const earned = Math.floor(total / loyaltyConfig.earningAmountPerPoint);
+        const tx: Transaction = {
+          id: `TX-${Date.now()}`, outletId: selectedOutletId, customerId: selectedCustomerId || undefined, 
+          items: [...cart], subtotal, tax: 0, total, totalCost, paymentMethod: method, 
+          status: OrderStatus.CLOSED, timestamp: new Date(), cashierId: currentUser?.id || 'sys', cashierName: currentUser?.name || 'System',
+          pointsEarned: earned, pointsRedeemed: redeem, pointDiscountValue: ptVal, membershipDiscount: memberDisc, bulkDiscount: bulkDisc
+        };
         await supabase.from('transactions').insert(tx);
         const updates: InventoryItem[] = [];
         const deduct = (p: Product, mult: number) => {
            if (p.isCombo && p.comboItems) {
              p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) deduct(inner, mult * ci.quantity); });
            } else {
-             p.bom.forEach(b => {
+             (p.bom || []).forEach(b => {
                 const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
                 if (item) updates.push({ ...item, quantity: item.quantity - (b.quantity * mult) });
              });
@@ -399,7 +409,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await fetchFromCloud();
       } finally { setIsSaving(false); }
     },
-    // voidTransaction implementation (moved here to avoid duplication)
     voidTransaction: async (id) => {
       await supabase!.from('transactions').update({ status: OrderStatus.VOIDED }).eq('id', id);
       await fetchFromCloud();
@@ -411,7 +420,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateStaff: async (s) => { await supabase!.from('staff').update(s).eq('id', s.id); await fetchFromCloud(); },
     deleteStaff: async (id) => { await supabase!.from('staff').delete().eq('id', id); await fetchFromCloud(); },
     clockIn: async (lat, lng, notes) => {
-      const att: Attendance = { id: `att-${Date.now()}`, staffId: currentUser!.id, staffName: currentUser!.name, date: new Date().toISOString().split('T')[0], clockIn: new Date(), status: 'PRESENT', latitude: lat, longitude: lng, notes };
+      if (selectedOutletId === 'all') return { success: false, message: "Pilih cabang spesifik untuk absen." };
+      const att: Attendance = { id: `att-${Date.now()}`, staffId: currentUser!.id, staffName: currentUser!.name, outletId: selectedOutletId, date: new Date().toISOString().split('T')[0], clockIn: new Date(), status: 'PRESENT', latitude: lat, longitude: lng, notes };
       await supabase!.from('attendance').insert(att);
       await fetchFromCloud();
       return { success: true };
@@ -422,17 +432,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await fetchFromCloud();
     },
     submitLeave: async (l) => {
-      await supabase!.from('leave_requests').insert({ ...l, id: `lv-${Date.now()}`, staffId: currentUser!.id, staffName: currentUser!.name, status: 'PENDING', requestedAt: new Date() });
+      await supabase!.from('leave_requests').insert({ ...l, id: `lv-${Date.now()}`, staffId: currentUser!.id, staffName: currentUser!.name, outletId: selectedOutletId, status: 'PENDING', requestedAt: new Date() });
       await fetchFromCloud();
     },
     updateLeaveStatus: async (id, s) => { await supabase!.from('leave_requests').update({ status: s }).eq('id', id); await fetchFromCloud(); },
     addInventoryItem: async (i, outletIds = []) => { 
       const targets = outletIds.length > 0 ? outletIds : [selectedOutletId];
-      const payloads = targets.map(oid => ({
-         ...i,
-         id: `inv-${oid}-${Date.now()}`,
-         outletId: oid
-      }));
+      const payloads = targets.map(oid => ({ ...i, id: `inv-${oid}-${Date.now()}`, outletId: oid }));
       await supabase!.from('inventory').insert(payloads); 
       await fetchFromCloud(); 
     },
@@ -469,89 +475,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addPurchase: async (p, rid) => {
       const item = inventory.find(i => i.id === p.inventoryItemId);
       if (!item) return;
-      const purchaseQty = p.quantity;
-      const purchasePricePerUnit = p.unitPrice / purchaseQty;
-      const currentQty = item.quantity > 0 ? item.quantity : 0;
-      const currentCost = item.costPerUnit || purchasePricePerUnit;
-      const newTotalQty = currentQty + purchaseQty;
-      const newAverageCost = ((currentQty * currentCost) + (purchaseQty * purchasePricePerUnit)) / newTotalQty;
-      
-      const purchaseId = `pur-${Date.now()}`;
-      
-      // 1. Catat Transaksi Pembelian Stok
-      await supabase!.from('purchases').insert({ 
-        id: purchaseId, 
-        outletId: selectedOutletId, 
-        inventoryItemId: p.inventoryItemId, 
-        itemName: item.name, 
-        quantity: purchaseQty, 
-        unitPrice: purchasePricePerUnit, 
-        totalPrice: p.unitPrice, 
-        staffId: currentUser!.id, 
-        staffName: currentUser!.name, 
-        timestamp: new Date(), 
-        requestId: rid 
-      });
-
-      // 2. OTOMASI: Catat sebagai Pengeluaran Laci (Expense)
-      // Mencari ID Kategori 'Belanja Stok', 'Pembelian', atau fallback ke yang pertama
-      const belanjaStokType = expenseTypes.find(t => 
-        t.name.toLowerCase().includes('belanja') || 
-        t.name.toLowerCase().includes('pembelian')
-      ) || expenseTypes[0];
-
-      await supabase!.from('expenses').insert({
-        id: `exp-auto-${Date.now()}`,
-        outletId: selectedOutletId,
-        typeId: belanjaStokType?.id || 'et-default',
-        amount: p.unitPrice,
-        notes: `Auto: Belanja ${item.name} (${purchaseQty} ${item.unit})`,
-        staffId: currentUser!.id,
-        staffName: currentUser!.name,
-        timestamp: new Date()
-      });
-
-      // 3. Update Stok Fisik & HPP Average
-      await supabase!.from('inventory').update({ quantity: newTotalQty, costPerUnit: Math.round(newAverageCost) }).eq('id', p.inventoryItemId);
-      
+      await supabase!.from('purchases').insert({ id: `pur-${Date.now()}`, outletId: selectedOutletId, inventoryItemId: p.inventoryItemId, itemName: item.name, quantity: p.quantity, unitPrice: p.unitPrice / p.quantity, totalPrice: p.unitPrice, staffId: currentUser!.id, staffName: currentUser!.name, timestamp: new Date(), requestId: rid });
+      await supabase!.from('inventory').update({ quantity: item.quantity + p.quantity }).eq('id', p.inventoryItemId);
       if (rid) await supabase!.from('stock_requests').update({ status: RequestStatus.FULFILLED }).eq('id', rid);
-      
       await fetchFromCloud();
     },
     processProduction: async (d) => {
-      setIsSaving(true);
-      try {
-        let totalMaterialCost = 0;
-        const materialUpdates: InventoryItem[] = [];
-        for (const c of d.components) {
-          const comp = inventory.find(i => i.id === c.inventoryItemId);
-          if (comp) {
-            totalMaterialCost += (comp.costPerUnit * c.quantity);
-            materialUpdates.push({ ...comp, quantity: comp.quantity - c.quantity });
-          }
-        }
-        const resultItem = inventory.find(i => i.id === d.resultItemId);
-        if (!resultItem) return;
-        const producedQty = d.resultQuantity;
-        const producedCostPerUnit = totalMaterialCost / producedQty;
-        const currentWIPQty = resultItem.quantity > 0 ? resultItem.quantity : 0;
-        const currentWIPCost = resultItem.costPerUnit || producedCostPerUnit;
-        const newTotalWIPQty = currentWIPQty + producedQty;
-        const newAverageWIPCost = ((currentWIPQty * currentWIPCost) + (producedQty * producedCostPerUnit)) / newTotalWIPQty;
-        await supabase!.from('production_records').insert({ ...d, id: `prod-${Date.now()}`, outletId: selectedOutletId, timestamp: new Date(), staffId: currentUser!.id, staffName: currentUser!.name });
-        if (materialUpdates.length > 0) await supabase!.from('inventory').upsert(materialUpdates);
-        await supabase!.from('inventory').update({ quantity: newTotalWIPQty, costPerUnit: Math.round(newAverageWIPCost) }).eq('id', d.resultItemId);
-        await fetchFromCloud();
-      } finally { setIsSaving(false); }
+      const item = inventory.find(i => i.id === d.resultItemId);
+      await supabase!.from('production_records').insert({ ...d, id: `prod-${Date.now()}`, outletId: selectedOutletId, timestamp: new Date(), staffId: currentUser!.id, staffName: currentUser!.name });
+      await supabase!.from('inventory').update({ quantity: (item?.quantity || 0) + d.resultQuantity }).eq('id', d.resultItemId);
+      await fetchFromCloud();
     },
-    addWIPRecipe: async (recipe) => {
-      setIsSaving(true);
-      try { await supabase!.from('wip_recipes').insert({ ...recipe, id: `wipr-${Date.now()}` }); await fetchFromCloud(); } finally { setIsSaving(false); }
-    },
-    updateWIPRecipe: async (recipe) => {
-      setIsSaving(true);
-      try { await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id); await fetchFromCloud(); } finally { setIsSaving(false); }
-    },
+    addWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').insert({ ...recipe, id: `wipr-${Date.now()}` }); await fetchFromCloud(); },
+    updateWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id); await fetchFromCloud(); },
     deleteWIPRecipe: async (id) => { await supabase!.from('wip_recipes').delete().eq('id', id); await fetchFromCloud(); },
     addCustomer: async (c) => { await supabase!.from('customers').insert({ ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date(), registeredByStaffId: currentUser!.id, registeredByStaffName: currentUser!.name, registeredAtOutletId: selectedOutletId, registeredAtOutletName: outlets.find(o=>o.id===selectedOutletId)?.name }); await fetchFromCloud(); },
     updateCustomer: async (c) => { await supabase!.from('customers').update(c).eq('id', c.id); await fetchFromCloud(); },
@@ -580,20 +516,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     resetOutletData: async (oid) => { 
        if (!supabase) return;
        setIsSaving(true);
+       
+       // 1. TAHAP PURGE LOKAL TOTAL (AGAR UI LANGSUNG KOSONG DI HP KARYAWAN)
+       setAttendance(prev => prev.filter(a => a.outletId !== oid));
+       setLeaveRequests(prev => prev.filter(l => l.outletId !== oid));
+       setTransactions(prev => prev.filter(t => t.outletId !== oid));
+       setExpenses(prev => prev.filter(e => e.outletId !== oid));
+       setDailyClosings(prev => prev.filter(c => c.outletId !== oid));
+       setPurchases(prev => prev.filter(p => p.outletId !== oid));
+       setProductionRecords(prev => prev.filter(r => r.outletId !== oid));
+       setStockRequests(prev => prev.filter(r => r.outletId !== oid));
+       setStockTransfers(prev => prev.filter(t => t.fromOutletId !== oid && t.toOutletId !== oid));
+
+       // Sinyal pengunci untuk fetchFromCloud
+       setWipedOutletId(oid);
+       setLastWipeTimestamp(Date.now());
+
        try {
-         // HANYA MENGHAPUS LOG OPERASIONAL (TRANSAKSI), BUKAN MASTER DATA
+         // 2. TAHAP HARD-DELETE CLOUD (DATABASE)
+         // Melakukan penghapusan permanen di Supabase
          await Promise.all([
-           supabase.from('transactions').delete().eq('outletId', oid),
-           supabase.from('expenses').delete().eq('outletId', oid),
-           supabase.from('daily_closings').delete().eq('outletId', oid),
-           supabase.from('purchases').delete().eq('outletId', oid),
-           supabase.from('production_records').delete().eq('outletId', oid),
-           supabase.from('stock_requests').delete().eq('outletId', oid)
+           supabase.from('transactions').delete().match({ outletId: oid }),
+           supabase.from('expenses').delete().match({ outletId: oid }),
+           supabase.from('daily_closings').delete().match({ outletId: oid }),
+           supabase.from('purchases').delete().match({ outletId: oid }),
+           supabase.from('production_records').delete().match({ outletId: oid }),
+           supabase.from('stock_requests').delete().match({ outletId: oid }),
+           supabase.from('attendance').delete().match({ outletId: oid }),
+           supabase.from('leave_requests').delete().match({ outletId: oid }),
+           supabase.from('stock_transfers').delete().or(`fromOutletId.eq.${oid},toOutletId.eq.${oid}`)
          ]);
-         await fetchFromCloud();
-       } catch (e) {
-         console.error("Outlet Reset Error:", e);
-       } finally { setIsSaving(false); }
+
+         // Berikan jeda 1 detik agar DB benar-benar bersih, baru fetch ulang
+         setTimeout(async () => {
+           await fetchFromCloud();
+         }, 1000);
+
+       } finally { 
+         setIsSaving(false); 
+       }
     },
     cloneOutletSetup: async (fromId, toId) => {
       if (!supabase) return;
@@ -632,14 +593,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const data = JSON.parse(json);
         const tables = ['categories', 'products', 'inventory', 'staff', 'outlets', 'membership_tiers', 'bulk_discounts', 'wip_recipes', 'loyalty_config'];
-        
         for (const table of tables) {
           if (data[table] && Array.isArray(data[table])) {
-            if (table === 'staff') {
-              await supabase.from(table).delete().neq('id', currentUser?.id || '0');
-            } else {
-              await supabase.from(table).delete().neq('id', 'keep_all'); 
-            }
+            if (table === 'staff') await supabase.from(table).delete().neq('id', currentUser?.id || '0');
+            else await supabase.from(table).delete().neq('id', 'keep_all'); 
             await supabase.from(table).insert(data[table]);
           } else if (data[table] && typeof data[table] === 'object' && table === 'loyalty_config') {
             await supabase.from(table).upsert({ ...data[table], id: 'global' });
@@ -647,12 +604,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         await fetchFromCloud();
         return true;
-      } catch (e) {
-        console.error("Import Error:", e);
-        return false;
-      } finally {
-        setIsSaving(false);
-      }
+      } catch (e) { console.error("Import Error:", e); return false; } finally { setIsSaving(false); }
     },
     exportTableToCSV: (table) => {
       let data: any[] = [];
@@ -664,6 +616,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       else if (table === 'wip_recipes') data = wipRecipes;
       else if (table === 'expenses') data = expenses;
       else if (table === 'purchases') data = purchases;
+      const jsonToCSV = (arr: any[]): string => {
+        if (!arr || arr.length === 0) return "";
+        const headers = Object.keys(arr[0]);
+        const csvRows = [headers.join(',')];
+        for (const row of arr) {
+          const values = headers.map(header => {
+            const val = row[header];
+            if (val === null || val === undefined) return "";
+            if (typeof val === 'object') return `"${JSON.stringify(val).replace(/"/g, '""')}"`;
+            return `"${val.toString().replace(/"/g, '""')}"`;
+          });
+          csvRows.join('\n');
+        }
+        return csvRows.join('\n');
+      };
       const csv = jsonToCSV(data);
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
@@ -675,22 +642,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!supabase) return false;
       setIsSaving(true);
       try {
+        const csvToJSON = (raw: string): any[] => {
+          const lines = raw.split(/\r?\n/).filter(l => l.trim() !== "");
+          if (lines.length < 2) return [];
+          const headers = lines[0].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/^"|"$/g, '').trim());
+          return lines.slice(1).map(line => {
+            const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+            const obj: any = {};
+            headers.forEach((h, i) => {
+              let val: any = values[i];
+              if (val === undefined || val === "") obj[h] = null;
+              else if (val.startsWith('{') || val.startsWith('[')) { try { obj[h] = JSON.parse(val); } catch(e) { obj[h] = val; } }
+              else if (val.toLowerCase() === 'true') obj[h] = true;
+              else if (val.toLowerCase() === 'false') obj[h] = false;
+              else if (!isNaN(val) && val.trim() !== "") obj[h] = Number(val);
+              else obj[h] = val;
+            });
+            return obj;
+          });
+        };
         const json = csvToJSON(csv);
         if (!json || json.length === 0) return false;
-        
-        // Broad wipe strategy (be careful with these)
-        if (table === 'staff') {
-           const { error: delErr } = await supabase.from(table).delete().neq('id', currentUser?.id || '0');
-           if (delErr) throw delErr;
-        } else if (table === 'expenses' || table === 'purchases') {
-           // Allow additive import or selective clear for logs
-           await supabase.from(table).delete().neq('id', 'safe');
-        } else {
-           const { error: delErr } = await supabase.from(table).delete().neq('id', 'wipe_placeholder_safe');
-           if (delErr) throw delErr;
-        }
-
-        // Strict mapping for numbers and dates
+        if (table === 'staff') { await supabase.from(table).delete().neq('id', currentUser?.id || '0'); }
+        else if (table === 'expenses' || table === 'purchases') await supabase.from(table).delete().neq('id', 'safe');
+        else { await supabase.from(table).delete().neq('id', 'wipe_placeholder_safe'); }
         const sanitized = json.map(row => {
           const r = { ...row };
           if (r.price !== undefined) r.price = Number(r.price) || 0;
@@ -701,39 +676,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (r.costPerUnit !== undefined) r.costPerUnit = Number(r.costPerUnit) || 0;
           if (r.minStock !== undefined) r.minStock = Number(r.minStock) || 0;
           if (r.resultQuantity !== undefined) r.resultQuantity = Number(r.resultQuantity) || 0;
-          
-          // Re-hydrate dates if necessary
           if (r.timestamp && typeof r.timestamp === 'string') r.timestamp = new Date(r.timestamp);
           return r;
         });
-
-        const { error: insErr } = await supabase.from(table).insert(sanitized);
-        if (insErr) throw insErr;
+        await supabase.from(table).insert(sanitized);
         await fetchFromCloud();
         return true;
-      } catch (e) {
-        console.error(`CSV Import Error [${table}]:`, e);
-        return false;
-      } finally {
-        setIsSaving(false);
-      }
+      } finally { setIsSaving(false); }
     },
     resetGlobalData: async () => { 
        if (!supabase) return;
        setIsSaving(true);
        try {
-         const tables = [
-           'transactions', 'expenses', 'daily_closings', 'purchases', 
-           'stock_transfers', 'stock_requests', 'production_records', 
-           'attendance', 'leave_requests', 'customers', 'simulations',
-           'products', 'inventory', 'categories', 'wip_recipes', 
-           'membership_tiers', 'bulk_discounts'
-         ];
+         const tables = ['transactions', 'expenses', 'daily_closings', 'purchases', 'stock_transfers', 'stock_requests', 'production_records', 'attendance', 'leave_requests', 'customers', 'simulations', 'products', 'inventory', 'categories', 'wip_recipes', 'membership_tiers', 'bulk_discounts'];
          for (const table of tables) { await supabase.from(table).delete().neq('id', '0'); }
          await supabase.from('staff').delete().neq('role', UserRole.OWNER);
          await fetchFromCloud();
-       } catch (e) {
-         console.error("Global Reset Error:", e);
        } finally { setIsSaving(false); }
     },
     updateSupabaseConfig: (c) => { console.log("Config updated", c); },
@@ -742,11 +700,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   return (
     <AppContext.Provider value={{ 
-      products, categories, inventory, stockTransfers, stockRequests, productionRecords, wipRecipes,
-      transactions, filteredTransactions: transactions.filter(tx => tx.outletId === selectedOutletId), 
-      outlets, currentUser, isAuthenticated, loginTime, cart, staff, attendance, 
-      leaveRequests, selectedOutletId, customers, selectedCustomerId, expenses, 
-      expenseTypes, dailyClosings, purchases, connectedPrinter, membershipTiers, 
+      products: products || [], 
+      categories: categories || [], 
+      inventory: inventory || [], 
+      stockTransfers: stockTransfers || [], 
+      stockRequests: stockRequests || [], 
+      productionRecords: productionRecords || [], 
+      wipRecipes: wipRecipes || [],
+      transactions: transactions || [], 
+      filteredTransactions: selectedOutletId === 'all' 
+        ? (transactions || [])
+        : (transactions || []).filter(tx => tx.outletId === selectedOutletId), 
+      outlets: outlets || [],
+      currentUser, isAuthenticated, loginTime, 
+      cart: cart || [], 
+      staff: staff || [], 
+      attendance: attendance || [], 
+      leaveRequests: leaveRequests || [], 
+      selectedOutletId, 
+      customers: customers || [], 
+      selectedCustomerId, 
+      expenses: expenses || [], 
+      expenseTypes: expenseTypes || [], 
+      dailyClosings: dailyClosings || [], 
+      purchases: purchases || [], 
+      connectedPrinter, membershipTiers, 
       bulkDiscounts, simulations, loyaltyConfig, isSaving, isCloudConnected, 
       isInitialLoading, supabaseConfig, ...actions 
     }}>
@@ -758,7 +736,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ) : children}
       {isSaving && !isInitialLoading && (
         <div className="fixed bottom-4 right-4 z-[999] bg-slate-900/90 text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl border border-white/10 animate-in fade-in slide-in-from-bottom-2">
-           <div className="w-2 h-2 bg-orange-500 rounded-full animate-ping"></div>
+           <div className="w-2 h-2 bg-orange-50 rounded-full animate-ping"></div>
            <span className="text-[8px] font-black uppercase tracking-widest">Sinkronisasi Cloud...</span>
         </div>
       )}
