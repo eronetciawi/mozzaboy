@@ -138,8 +138,8 @@ interface AppActions {
   resetGlobalData: () => Promise<void>;
   updateSupabaseConfig: (config: SupabaseConfig) => void;
   syncToCloud: () => void;
-  exportTableToCSV: (table: 'products' | 'inventory' | 'categories' | 'outlets' | 'staff' | 'wip_recipes') => void;
-  importCSVToTable: (table: 'products' | 'inventory' | 'categories' | 'outlets' | 'staff' | 'wip_recipes', csv: string) => Promise<boolean>;
+  exportTableToCSV: (table: 'products' | 'inventory' | 'categories' | 'outlets' | 'staff' | 'wip_recipes' | 'expenses' | 'purchases') => void;
+  importCSVToTable: (table: 'products' | 'inventory' | 'categories' | 'outlets' | 'staff' | 'wip_recipes' | 'expenses' | 'purchases', csv: string) => Promise<boolean>;
 }
 
 const AppContext = createContext<(AppState & AppActions) | undefined>(undefined);
@@ -399,6 +399,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await fetchFromCloud();
       } finally { setIsSaving(false); }
     },
+    // voidTransaction implementation (moved here to avoid duplication)
     voidTransaction: async (id) => {
       await supabase!.from('transactions').update({ status: OrderStatus.VOIDED }).eq('id', id);
       await fetchFromCloud();
@@ -474,9 +475,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const currentCost = item.costPerUnit || purchasePricePerUnit;
       const newTotalQty = currentQty + purchaseQty;
       const newAverageCost = ((currentQty * currentCost) + (purchaseQty * purchasePricePerUnit)) / newTotalQty;
-      await supabase!.from('purchases').insert({ id: `pur-${Date.now()}`, outletId: selectedOutletId, inventoryItemId: p.inventoryItemId, itemName: item.name, quantity: purchaseQty, unitPrice: purchasePricePerUnit, totalPrice: p.unitPrice, staffId: currentUser!.id, staffName: currentUser!.name, timestamp: new Date(), requestId: rid });
+      
+      const purchaseId = `pur-${Date.now()}`;
+      
+      // 1. Catat Transaksi Pembelian Stok
+      await supabase!.from('purchases').insert({ 
+        id: purchaseId, 
+        outletId: selectedOutletId, 
+        inventoryItemId: p.inventoryItemId, 
+        itemName: item.name, 
+        quantity: purchaseQty, 
+        unitPrice: purchasePricePerUnit, 
+        totalPrice: p.unitPrice, 
+        staffId: currentUser!.id, 
+        staffName: currentUser!.name, 
+        timestamp: new Date(), 
+        requestId: rid 
+      });
+
+      // 2. OTOMASI: Catat sebagai Pengeluaran Laci (Expense)
+      // Mencari ID Kategori 'Belanja Stok', 'Pembelian', atau fallback ke yang pertama
+      const belanjaStokType = expenseTypes.find(t => 
+        t.name.toLowerCase().includes('belanja') || 
+        t.name.toLowerCase().includes('pembelian')
+      ) || expenseTypes[0];
+
+      await supabase!.from('expenses').insert({
+        id: `exp-auto-${Date.now()}`,
+        outletId: selectedOutletId,
+        typeId: belanjaStokType?.id || 'et-default',
+        amount: p.unitPrice,
+        notes: `Auto: Belanja ${item.name} (${purchaseQty} ${item.unit})`,
+        staffId: currentUser!.id,
+        staffName: currentUser!.name,
+        timestamp: new Date()
+      });
+
+      // 3. Update Stok Fisik & HPP Average
       await supabase!.from('inventory').update({ quantity: newTotalQty, costPerUnit: Math.round(newAverageCost) }).eq('id', p.inventoryItemId);
+      
       if (rid) await supabase!.from('stock_requests').update({ status: RequestStatus.FULFILLED }).eq('id', rid);
+      
       await fetchFromCloud();
     },
     processProduction: async (d) => {
@@ -538,7 +577,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     saveSimulation: async (s) => { await supabase!.from('simulations').upsert(s); await fetchFromCloud(); },
     deleteSimulation: async (id) => { await supabase!.from('simulations').delete().eq('id', id); await fetchFromCloud(); },
     updateLoyaltyConfig: async (c) => { await supabase!.from('loyalty_config').upsert({ ...c, id: 'global' }); await fetchFromCloud(); },
-    resetOutletData: async (oid) => { await supabase!.from('transactions').delete().eq('outletId', oid); await fetchFromCloud(); },
+    resetOutletData: async (oid) => { 
+       if (!supabase) return;
+       setIsSaving(true);
+       try {
+         // HANYA MENGHAPUS LOG OPERASIONAL (TRANSAKSI), BUKAN MASTER DATA
+         await Promise.all([
+           supabase.from('transactions').delete().eq('outletId', oid),
+           supabase.from('expenses').delete().eq('outletId', oid),
+           supabase.from('daily_closings').delete().eq('outletId', oid),
+           supabase.from('purchases').delete().eq('outletId', oid),
+           supabase.from('production_records').delete().eq('outletId', oid),
+           supabase.from('stock_requests').delete().eq('outletId', oid)
+         ]);
+         await fetchFromCloud();
+       } catch (e) {
+         console.error("Outlet Reset Error:", e);
+       } finally { setIsSaving(false); }
+    },
     cloneOutletSetup: async (fromId, toId) => {
       if (!supabase) return;
       setIsSaving(true);
@@ -606,6 +662,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       else if (table === 'outlets') data = outlets;
       else if (table === 'staff') data = staff;
       else if (table === 'wip_recipes') data = wipRecipes;
+      else if (table === 'expenses') data = expenses;
+      else if (table === 'purchases') data = purchases;
       const csv = jsonToCSV(data);
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
@@ -619,24 +677,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const json = csvToJSON(csv);
         if (!json || json.length === 0) return false;
-        // Broad wipe strategy
+        
+        // Broad wipe strategy (be careful with these)
         if (table === 'staff') {
            const { error: delErr } = await supabase.from(table).delete().neq('id', currentUser?.id || '0');
            if (delErr) throw delErr;
+        } else if (table === 'expenses' || table === 'purchases') {
+           // Allow additive import or selective clear for logs
+           await supabase.from(table).delete().neq('id', 'safe');
         } else {
            const { error: delErr } = await supabase.from(table).delete().neq('id', 'wipe_placeholder_safe');
            if (delErr) throw delErr;
         }
-        // Strict mapping for CSV-originated numbers
+
+        // Strict mapping for numbers and dates
         const sanitized = json.map(row => {
           const r = { ...row };
           if (r.price !== undefined) r.price = Number(r.price) || 0;
           if (r.quantity !== undefined) r.quantity = Number(r.quantity) || 0;
+          if (r.amount !== undefined) r.amount = Number(r.amount) || 0;
+          if (r.totalPrice !== undefined) r.totalPrice = Number(r.totalPrice) || 0;
+          if (r.unitPrice !== undefined) r.unitPrice = Number(r.unitPrice) || 0;
           if (r.costPerUnit !== undefined) r.costPerUnit = Number(r.costPerUnit) || 0;
           if (r.minStock !== undefined) r.minStock = Number(r.minStock) || 0;
           if (r.resultQuantity !== undefined) r.resultQuantity = Number(r.resultQuantity) || 0;
+          
+          // Re-hydrate dates if necessary
+          if (r.timestamp && typeof r.timestamp === 'string') r.timestamp = new Date(r.timestamp);
           return r;
         });
+
         const { error: insErr } = await supabase.from(table).insert(sanitized);
         if (insErr) throw insErr;
         await fetchFromCloud();

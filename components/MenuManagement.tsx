@@ -265,7 +265,7 @@ export const MenuManagement: React.FC = () => {
                                     </button>
                                  </div>
                                  <div className="w-24 text-center">
-                                    <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block">Qty</label>
+                                    <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block">Unit</label>
                                     <input type="number" className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-center outline-none shadow-inner text-slate-900" value={item.quantity} onChange={e => setCurrentComboItems(prev => prev.map(c => c.id === item.id ? {...c, quantity: parseInt(e.target.value) || 1} : c))} />
                                  </div>
                                  <button onClick={() => setCurrentComboItems(prev => prev.filter(c => c.id !== item.id))} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl">✕</button>
@@ -275,25 +275,43 @@ export const MenuManagement: React.FC = () => {
                         </div>
                       ) : (
                         <div className="space-y-4">
-                           {currentBOM.map((bom) => (
-                              <div key={bom.id} className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 flex flex-col md:flex-row gap-4 items-start md:items-end shadow-sm">
-                                 <div className="flex-1 w-full space-y-2">
-                                    <label className="text-[8px] font-black text-slate-400 uppercase">Material Bahan Baku</label>
-                                    <button 
-                                      onClick={() => setPickerModal({ rowId: bom.id, type: 'material' })}
-                                      className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-left text-slate-900 outline-none flex justify-between items-center"
-                                    >
-                                       <span>{inventory.find(i => i.id === bom.inventoryItemId)?.name || '-- Cari Bahan Baku --'}</span>
-                                       <span className="opacity-30">🔍</span>
-                                    </button>
-                                 </div>
-                                 <div className="w-full md:w-32">
-                                    <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block text-center">Takaran</label>
-                                    <input type="number" step="any" className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-center outline-none shadow-inner text-slate-900" value={bom.quantity} onChange={e => setCurrentBOM(prev => prev.map(b => b.id === bom.id ? {...b, quantity: parseFloat(e.target.value) || 0} : b))} />
-                                 </div>
-                                 <button onClick={() => setCurrentBOM(prev => prev.filter(b => b.id !== bom.id))} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm">✕</button>
-                              </div>
-                           ))}
+                           {currentBOM.map((bom) => {
+                              const invItem = inventory.find(i => i.id === bom.inventoryItemId);
+                              return (
+                                <div key={bom.id} className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 flex flex-col md:flex-row gap-4 items-start md:items-end shadow-sm">
+                                   <div className="flex-1 w-full space-y-2">
+                                      <label className="text-[8px] font-black text-slate-400 uppercase">Material Bahan Baku</label>
+                                      <button 
+                                        onClick={() => setPickerModal({ rowId: bom.id, type: 'material' })}
+                                        className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-left text-slate-900 outline-none flex justify-between items-center"
+                                      >
+                                         <span>{invItem?.name || '-- Cari Bahan Baku --'}</span>
+                                         <span className="opacity-30">🔍</span>
+                                      </button>
+                                   </div>
+                                   <div className="w-full md:w-40">
+                                      <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block text-center">
+                                        Takaran {invItem ? `(${invItem.unit})` : ''}
+                                      </label>
+                                      <div className="relative">
+                                        <input 
+                                          type="number" 
+                                          step="any" 
+                                          className="w-full p-3 bg-white border-2 rounded-2xl font-black text-xs text-center outline-none shadow-inner text-slate-900 pr-10" 
+                                          value={bom.quantity} 
+                                          onChange={e => setCurrentBOM(prev => prev.map(b => b.id === bom.id ? {...b, quantity: parseFloat(e.target.value) || 0} : b))} 
+                                        />
+                                        {invItem && (
+                                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-slate-300 uppercase select-none">
+                                            {invItem.unit}
+                                          </span>
+                                        )}
+                                      </div>
+                                   </div>
+                                   <button onClick={() => setCurrentBOM(prev => prev.filter(b => b.id !== bom.id))} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm">✕</button>
+                                </div>
+                              );
+                           })}
                            <button onClick={() => setPickerModal({ rowId: 'new', type: 'material' })} className="w-full py-5 border-2 border-dashed border-slate-200 rounded-3xl text-[10px] font-black uppercase text-slate-400 hover:border-indigo-500 transition-all">+ TAMBAH BARIS BAHAN BAKU</button>
                         </div>
                       )}

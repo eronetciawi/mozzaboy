@@ -26,7 +26,6 @@ export const Inventory: React.FC = () => {
 
   const movementLogs = useMemo(() => {
     const logs: any[] = [];
-    // Data logs tetap difilter berdasarkan apa yang bisa dilihat kasir jika kasir yang melihat
     const filteredInv = inventory.filter(i => i.outletId === selectedOutletId && (isOwnerOrManager || i.isCashierOperated));
     const invNames = new Set(filteredInv.map(i => i.name));
 
@@ -46,7 +45,6 @@ export const Inventory: React.FC = () => {
     return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [purchases, stockTransfers, selectedOutletId, inventory, isOwnerOrManager]);
 
-  // FILTER UTAMA: Jika Kasir, hanya tampilkan item dengan isCashierOperated: true
   const filteredData = inventory.filter(i => {
     const belongsToOutlet = i.outletId === selectedOutletId;
     const matchesTab = i.type === activeTab;
@@ -62,7 +60,16 @@ export const Inventory: React.FC = () => {
     if (newItem.name && selectedBranches.length > 0) { 
       addInventoryItem({ ...newItem, type: activeTab }, selectedBranches); 
       setShowAddModal(false); 
-      setNewItem({ name: '', unit: 'gr', quantity: 0, minStock: 0, costPerUnit: 0, type: activeTab, isCashierOperated: false, canCashierPurchase: false });
+      setNewItem({ 
+        name: '', 
+        unit: 'gr', 
+        quantity: 0, 
+        minStock: 0, 
+        costPerUnit: 0, 
+        type: activeTab, 
+        isCashierOperated: false, 
+        canCashierPurchase: false 
+      });
       setSelectedBranches([]);
     } 
   };

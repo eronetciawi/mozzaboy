@@ -51,11 +51,22 @@ export const ClosingManagement: React.FC = () => {
   const totalSalesCash = shiftTxs.filter(tx => tx.paymentMethod === PaymentMethod.CASH).reduce((acc, tx) => acc + tx.total, 0);
   const totalSalesQRIS = shiftTxs.filter(tx => tx.paymentMethod === PaymentMethod.QRIS).reduce((acc, tx) => acc + tx.total, 0);
   
-  const totalExpenses = expenses.filter(ex => 
+  const shiftPurchases = purchases.filter(p => 
+    p.outletId === selectedOutletId && 
+    new Date(p.timestamp) >= startOfToday && 
+    p.staffId === currentUser?.id
+  );
+  const totalPurchases = shiftPurchases.reduce((acc, p) => acc + p.totalPrice, 0);
+
+  const totalOtherExpenses = expenses.filter(ex => 
     ex.outletId === selectedOutletId && 
     new Date(ex.timestamp) >= startOfToday && 
-    ex.staffId === currentUser?.id
+    ex.staffId === currentUser?.id &&
+    !ex.id.startsWith('exp-auto-') // Jangan hitung auto-expense belanja dua kali jika dihitung manual
   ).reduce((acc, ex) => acc + ex.amount, 0);
+
+  // Total biaya keseluruhan (Belanja + Operasional Lain)
+  const totalExpenses = totalOtherExpenses + totalPurchases;
 
   const expectedCash = totalSalesCash - totalExpenses;
   const discrepancy = actualCash - expectedCash;
@@ -284,7 +295,7 @@ export const ClosingManagement: React.FC = () => {
                 </div>
              </section>
 
-             {/* IV. Audit Pergerakan Inventori - FIXED STICKY & SCROLL PROFESSIONAL */}
+             {/* IV. Audit Pergerakan Inventori */}
              <section className="space-y-4">
                 <div className="flex items-center gap-4">
                    <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">IV. Inventory Movement Log</h3>
@@ -387,10 +398,19 @@ export const ClosingManagement: React.FC = () => {
                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Tunai Anda</p>
                          <p className="text-sm font-black text-slate-800">Rp {totalSalesCash.toLocaleString()}</p>
                       </div>
-                      <div className="p-4 bg-red-50 rounded-2xl border border-red-100 flex justify-between items-center">
-                         <p className="text-[8px] font-black text-red-400 uppercase tracking-widest">Biaya Anda (-)</p>
-                         <p className="text-sm font-black text-red-600">Rp {totalExpenses.toLocaleString()}</p>
+                      
+                      {/* BREAKDOWN PENGELUARAN */}
+                      <div className="space-y-2">
+                         <div className="p-4 bg-orange-50/50 rounded-2xl border border-orange-100 flex justify-between items-center">
+                            <p className="text-[8px] font-black text-orange-600 uppercase tracking-widest">Belanja Stok (-)</p>
+                            <p className="text-sm font-black text-orange-600">Rp {totalPurchases.toLocaleString()}</p>
+                         </div>
+                         <div className="p-4 bg-red-50 rounded-2xl border border-red-100 flex justify-between items-center">
+                            <p className="text-[8px] font-black text-red-400 uppercase tracking-widest">Operasional Lain (-)</p>
+                            <p className="text-sm font-black text-red-600">Rp {totalOtherExpenses.toLocaleString()}</p>
+                         </div>
                       </div>
+
                       <div className="p-6 bg-slate-900 rounded-2xl text-white shadow-xl">
                          <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">Setoran Fisik Wajib</p>
                          <p className="text-2xl font-black text-orange-500">Rp {expectedCash.toLocaleString()}</p>

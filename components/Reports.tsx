@@ -48,9 +48,10 @@ export const Reports: React.FC = () => {
     const txs = transactions.filter(t => t.outletId === selectedOutletId && new Date(t.timestamp) >= start && new Date(t.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
     const exps = expenses.filter(e => e.outletId === selectedOutletId && new Date(e.timestamp) >= start && new Date(e.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
     const logs = dailyClosings.filter(l => l.outletId === selectedOutletId && new Date(l.timestamp) >= start && new Date(l.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
+    const purs = purchases.filter(p => p.outletId === selectedOutletId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
     
-    return { txs, exps, logs, start, end };
-  }, [transactions, expenses, dailyClosings, selectedOutletId, timeFilter, selectedMonth, selectedYear, specificDate]);
+    return { txs, exps, logs, purs, start, end };
+  }, [transactions, expenses, dailyClosings, purchases, selectedOutletId, timeFilter, selectedMonth, selectedYear, specificDate]);
 
   // --- ANALYTICS CALCULATORS ---
   const salesIntelligence = useMemo(() => {
@@ -161,7 +162,7 @@ export const Reports: React.FC = () => {
     const start = new Date(reportDate); start.setHours(0,0,0,0);
     const end = new Date(reportDate); end.setHours(23,59,59,999);
     
-    const periodTxs = transactions.filter(tx => tx.outletId === selectedOutletId && new Date(tx.timestamp) >= start && new Date(tx.timestamp) <= end && tx.status === OrderStatus.CLOSED);
+    const periodTxs = transactions.filter(tx => tx.outletId === selectedOutletId && tx.cashierId === cls.staffId && new Date(tx.timestamp) >= start && new Date(tx.timestamp) <= end && tx.status === OrderStatus.CLOSED);
     const periodPurchases = purchases.filter(p => p.outletId === selectedOutletId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
     const periodTransfers = stockTransfers.filter(t => (t.fromOutletId === selectedOutletId || t.toOutletId === selectedOutletId) && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
     const periodProduction = productionRecords.filter(p => p.outletId === selectedOutletId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
@@ -205,7 +206,7 @@ export const Reports: React.FC = () => {
     const reportDate = new Date(cls.timestamp);
     const start = new Date(reportDate); start.setHours(0,0,0,0);
     const end = new Date(reportDate); end.setHours(23,59,59,999);
-    return expenses.filter(e => e.outletId === selectedOutletId && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
+    return expenses.filter(e => e.outletId === selectedOutletId && e.staffId === cls.staffId && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
   };
 
   const COLORS = ['#f97316', '#4f46e5', '#10b981', '#ef4444', '#f59e0b'];
@@ -286,8 +287,15 @@ export const Reports: React.FC = () => {
                     </div>
                     <div className="space-y-1">
                        <FinanceRow label="Total Pendapatan (Sales)" value={filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((acc,b)=>acc+b.total,0)} isBold />
-                       <FinanceRow label="HPP Material Terjual (COGS)" value={filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((acc,b)=>acc+(b.totalCost || 0),0)} isNegative />
-                       <FinanceRow label="Total Biaya Operasional" value={filteredSet.exps.reduce((acc,b)=>acc+b.amount,0)} isNegative />
+                       
+                       <div className="py-2"></div>
+                       <FinanceRow label="Pengeluaran Tunai Laci" value={filteredSet.exps.reduce((acc,b)=>acc+b.amount,0)} isNegative />
+                       <FinanceRow label="   • Biaya Belanja Bahan (Auto)" value={filteredSet.purs.reduce((acc,b)=>acc+b.totalPrice,0)} isNegative indent />
+                       <FinanceRow label="   • Biaya Operasional Lainnya" value={filteredSet.exps.filter(e => !e.id.startsWith('exp-auto-')).reduce((acc,b)=>acc+b.amount,0)} isNegative indent />
+                       
+                       <div className="py-2"></div>
+                       <FinanceRow label="HPP Teoretis Produk Terjual (COGS)" value={filteredSet.txs.filter(t => t.status === OrderStatus.CLOSED).reduce((acc,b)=>acc+(b.totalCost || 0),0)} isNegative />
+                       
                        <div className="py-8"></div>
                        <div className="p-10 bg-slate-900 rounded-[40px] text-white flex justify-between items-center shadow-2xl relative overflow-hidden">
                           <div>
@@ -330,7 +338,13 @@ export const Reports: React.FC = () => {
                        <div className="h-64">
                           <ResponsiveContainer width="100%" height="100%">
                              <AreaChart data={salesIntelligence.hourly}>
-                                <defs><linearGradient id="colorSal" x1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f97316" stopOpacity={0.2}/><stop offset="95%" stopColor="#f97316" stopOpacity={0}/></linearGradient></defs>
+                                <defs>
+                                  {/* Fixed duplicate x2 attribute and potentially wrong coordinates for vertical gradient */}
+                                  <linearGradient id="colorSal" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.2}/>
+                                    <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                                  </linearGradient>
+                                </defs>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="hour" fontSize={8} axisLine={false} tickLine={false} />
                                 <YAxis fontSize={8} axisLine={false} tickLine={false} tickFormatter={v => `Rp${v/1000}k`} />
@@ -620,7 +634,7 @@ export const Reports: React.FC = () => {
                            <p className="text-sm font-black text-blue-600">Rp {viewingLog.totalSalesQRIS.toLocaleString()}</p>
                         </div>
                         <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl">
-                           <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Pengeluaran</p>
+                           <p className="text-[7px] font-black text-slate-400 uppercase mb-2">Total Biaya/Belanja</p>
                            <p className="text-sm font-black text-red-600">Rp {viewingLog.totalExpenses.toLocaleString()}</p>
                         </div>
                         <div className={`p-5 border-2 rounded-3xl ${viewingLog.discrepancy === 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>

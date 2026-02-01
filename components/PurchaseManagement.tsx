@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../store';
-import { RequestStatus, UserRole } from '../types';
+import { RequestStatus, UserRole, InventoryItemType } from '../types';
 
 export const PurchaseManagement: React.FC = () => {
   const { purchases, inventory, addPurchase, selectedOutletId, outlets, currentUser } = useApp();
@@ -28,12 +28,15 @@ export const PurchaseManagement: React.FC = () => {
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   
   const filteredInventoryItems = useMemo(() => {
-    let base = inventory.filter(i => i.outletId === selectedOutletId);
-    // FILTER SPESIFIK: Jika kasir, hanya barang yang canCashierPurchase === true
-    if (isCashier) {
-       base = base.filter(i => i.canCashierPurchase === true);
-    }
-    return base.filter(i => i.name.toLowerCase().includes(itemPickerQuery.toLowerCase()));
+    return inventory
+      .filter(i => i.outletId === selectedOutletId)
+      // 1. Secara umum, Belanja hanya untuk Bahan Mentah (RAW). 
+      // Bahan olahan (WIP) tidak dibeli tapi diproduksi di modul Mixing.
+      .filter(i => i.type === InventoryItemType.RAW)
+      // 2. Proteksi Hak Akses: Jika Kasir, WAJIB memiliki flag canCashierPurchase
+      .filter(i => !isCashier || i.canCashierPurchase === true)
+      // 3. Filter berdasarkan pencarian teks
+      .filter(i => i.name.toLowerCase().includes(itemPickerQuery.toLowerCase()));
   }, [inventory, selectedOutletId, isCashier, itemPickerQuery]);
 
   const selectedItem = inventory.find(i => i.id === formData.inventoryItemId);
@@ -125,7 +128,7 @@ export const PurchaseManagement: React.FC = () => {
          {filteredPurchases.length === 0 && <p className="py-20 text-center opacity-20 italic font-black uppercase text-xs">Belum ada data belanja</p>}
       </div>
 
-      {/* MODAL BELANJA (RE-DESIGNED FOR MOBILE & USABILITY) */}
+      {/* MODAL BELANJA */}
       {showModal && (
         <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6 overflow-y-auto no-scrollbar">
           <div className="bg-white rounded-none md:rounded-[48px] w-full max-w-2xl h-full md:h-auto flex flex-col shadow-2xl animate-in slide-in-from-bottom-10 overflow-hidden">
@@ -145,7 +148,7 @@ export const PurchaseManagement: React.FC = () => {
                         onClick={() => setShowItemPicker(true)}
                         className="w-full p-6 bg-slate-50 border-4 border-dashed border-slate-200 rounded-[32px] text-slate-400 font-black text-sm uppercase hover:border-orange-500 hover:text-orange-500 transition-all"
                      >
-                        + Cari & Pilih Barang {isCashier && <span className="block text-[8px] mt-1 text-slate-300">(Hanya barang yang diizinkan Manager)</span>}
+                        + Cari & Pilih Barang {isCashier && <span className="block text-[8px] mt-1 text-slate-300">(Daftar khusus belanja Kasir)</span>}
                      </button>
                    ) : (
                      <div className="p-6 bg-orange-50 border-2 border-orange-200 rounded-[32px] flex justify-between items-center shadow-sm">
@@ -224,20 +227,24 @@ export const PurchaseManagement: React.FC = () => {
         </div>
       )}
 
-      {/* FULL SCREEN ITEM PICKER FOR BELANJA */}
+      {/* FULL SCREEN ITEM PICKER FOR BELANJA (STRICT FILTER) */}
       {showItemPicker && (
          <div className="fixed inset-0 z-[300] bg-slate-900/95 backdrop-blur-2xl p-6 flex flex-col">
             <div className="flex justify-between items-center mb-6 text-white">
                <div>
-                  <h3 className="font-black uppercase tracking-tighter text-lg">Pilih Material Belanja</h3>
-                  {isCashier && <p className="text-[8px] font-bold text-orange-400 uppercase tracking-widest">Restricted List: Izin Manager Diperlukan</p>}
+                  <h3 className="font-black uppercase tracking-tighter text-lg">Pilih Bahan Baku Belanja</h3>
+                  {isCashier ? (
+                    <p className="text-[8px] font-bold text-orange-400 uppercase tracking-widest">Daftar terbatas: Hanya barang berizin Manager</p>
+                  ) : (
+                    <p className="text-[8px] font-bold text-indigo-400 uppercase tracking-widest">Database Bahan Mentah (RAW Only)</p>
+                  )}
                </div>
                <button onClick={() => setShowItemPicker(false)} className="text-2xl">✕</button>
             </div>
             <input 
                autoFocus
                type="text" 
-               placeholder="Cetik nama bahan..." 
+               placeholder="Ketik nama bahan mentah..." 
                className="w-full p-5 bg-white rounded-2xl font-black text-xl mb-6 outline-none border-4 border-orange-500 shadow-2xl text-slate-900"
                value={itemPickerQuery}
                onChange={e => setItemPickerQuery(e.target.value)}
@@ -256,16 +263,21 @@ export const PurchaseManagement: React.FC = () => {
                      <div className="flex justify-between items-center">
                         <div>
                            <p className="text-white font-black uppercase text-sm group-hover:text-white">{item.name}</p>
-                           <p className="text-white/40 text-[9px] font-bold uppercase mt-1 group-hover:text-white/60">Stok Saat Ini: {item.quantity} {item.unit}</p>
+                           <p className="text-white/40 text-[9px] font-bold uppercase mt-1 group-hover:text-white/60">Stok Gudang: {item.quantity} {item.unit}</p>
                         </div>
-                        <span className="text-orange-500 opacity-40 group-hover:opacity-100">🚚+</span>
+                        <span className="text-orange-500 opacity-40 group-hover:opacity-100">Pilih ➔</span>
                      </div>
                   </button>
                ))}
                {filteredInventoryItems.length === 0 && (
                   <div className="text-center py-20 px-10">
-                     <p className="text-white/30 uppercase font-black italic mb-2">Item tidak ditemukan atau akses terbatas</p>
-                     {isCashier && <p className="text-[8px] text-slate-500 font-bold uppercase">Hanya Manager yang dapat memberikan izin belanja barang ke Kasir.</p>}
+                     <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl opacity-20">🚫</div>
+                     <p className="text-white/30 uppercase font-black italic mb-2">Item tidak ditemukan</p>
+                     {isCashier && (
+                       <p className="text-[8px] text-slate-500 font-bold uppercase leading-relaxed">
+                          Hanya bahan baku tipe 'Mentah' yang telah diberi izin belanja oleh Manager <br/> yang dapat muncul di sini.
+                       </p>
+                     )}
                   </div>
                )}
             </div>

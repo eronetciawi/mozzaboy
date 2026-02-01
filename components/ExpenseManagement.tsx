@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../store';
-import { Expense, ExpenseType } from '../types';
+import { Expense, ExpenseType, UserRole } from '../types';
 
 export const ExpenseManagement: React.FC = () => {
   const { 
@@ -24,6 +24,7 @@ export const ExpenseManagement: React.FC = () => {
   const [newExpense, setNewExpense] = useState({ typeId: '', amount: 0, notes: '' });
 
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
+  const isAdmin = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
   const canManageTypes = currentUser?.permissions.canManageSettings;
 
   const outletExpenses = expenses.filter(e => e.outletId === selectedOutletId);
@@ -36,6 +37,7 @@ export const ExpenseManagement: React.FC = () => {
   };
 
   const handleOpenEdit = (exp: Expense) => {
+    if (!isAdmin) return; // Guard
     setEditingExpense(exp);
     setNewExpense({ typeId: exp.typeId, amount: exp.amount, notes: exp.notes });
     setShowAddModal(true);
@@ -76,10 +78,9 @@ export const ExpenseManagement: React.FC = () => {
 
   const handleConfirmDeleteType = async () => {
     if (typeToDelete) {
-      // Check if type is used in any expense
       const isUsed = expenses.some(e => e.typeId === typeToDelete.id);
       if (isUsed) {
-        alert(`Kategori "${typeToDelete.name}" tidak dapat dihapus karena sudah memiliki riwayat catatan biaya. Silakan hapus atau pindahkan catatan biaya terkait terlebih dahulu.`);
+        alert(`Kategori "${typeToDelete.name}" tidak dapat dihapus karena sudah memiliki riwayat catatan biaya.`);
       } else {
         await deleteExpenseType(typeToDelete.id);
       }
@@ -121,41 +122,79 @@ export const ExpenseManagement: React.FC = () => {
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2">Riwayat Pengeluaran</h3>
+        <div className="flex justify-between items-center ml-2 mb-2">
+           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Riwayat Pengeluaran</h3>
+           {!isAdmin && <span className="text-[7px] font-black text-slate-300 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded">Mode Kasir: Riwayat Terkunci</span>}
+        </div>
+        
         {outletExpenses.length === 0 ? (
           <div className="py-20 text-center bg-white rounded-[32px] border-2 border-dashed border-slate-200">
              <p className="text-[10px] text-slate-300 font-bold italic uppercase tracking-widest">Belum ada catatan biaya</p>
           </div>
         ) : (
-          [...outletExpenses].reverse().map(exp => (
-            <div key={exp.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all relative overflow-hidden">
-              <div className="flex items-center gap-4 min-0">
-                <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-lg shrink-0 border border-slate-100">
-                   📦
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-black text-slate-900 uppercase truncate">
-                       {expenseTypes.find(t => t.id === exp.typeId)?.name || 'Biaya Lain'}
-                    </span>
-                    <span className="text-[7px] font-bold text-slate-400 uppercase">{new Date(exp.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+          [...outletExpenses].reverse().map(exp => {
+            const isAuto = exp.id.startsWith('exp-auto-');
+            const rawCategory = expenseTypes.find(t => t.id === exp.typeId)?.name || 'Lain-lain';
+            
+            let displayTitle = rawCategory;
+            let displaySub = exp.notes || 'Tanpa catatan';
+            let icon = "📦";
+
+            if (isAuto) {
+               icon = "🚚";
+               const match = exp.notes.match(/Belanja (.*?) \(/);
+               if (match && match[1]) {
+                  displayTitle = match[1];
+                  displaySub = `Belanja Stok (Otomatis)`;
+               } else {
+                  displayTitle = "BELANJA STOK";
+               }
+            }
+
+            return (
+              <div key={exp.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all relative overflow-hidden">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 border border-slate-100 ${isAuto ? 'bg-orange-50 text-orange-600' : 'bg-slate-50'}`}>
+                     {icon}
                   </div>
-                  <p className="text-[10px] text-slate-500 font-medium italic truncate">"{exp.notes || 'Tanpa catatan'}"</p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[9px] font-black uppercase truncate ${isAuto ? 'text-orange-600' : 'text-slate-900'}`}>
+                         {displayTitle}
+                      </span>
+                      <span className="text-[7px] font-bold text-slate-400 uppercase">{new Date(exp.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-medium italic truncate">"{displaySub}"</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-4">
+                   <div className="text-right shrink-0">
+                      <p className="text-xs font-black text-red-600">Rp {exp.amount.toLocaleString()}</p>
+                      <p className="text-[7px] font-black text-slate-300 uppercase tracking-tighter">{exp.staffName.split(' ')[0]}</p>
+                   </div>
+                   
+                   {/* KEAMANAN: Hanya Admin (Manager/Owner) yang bisa melihat tombol aksi */}
+                   {isAdmin && (
+                     <div className="flex gap-1">
+                        {/* Tombol Edit: Disembunyikan jika data belanja otomatis (isAuto) */}
+                        {!isAuto && (
+                          <button onClick={() => handleOpenEdit(exp)} className="w-8 h-8 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center text-xs hover:bg-blue-500 hover:text-white transition-all">✏️</button>
+                        )}
+                        <button onClick={() => setExpenseToDelete(exp)} className="w-8 h-8 bg-red-50 text-red-500 rounded-lg flex items-center justify-center text-xs hover:bg-red-500 hover:text-white transition-all">🗑️</button>
+                     </div>
+                   )}
+                   
+                   {/* Feedback untuk Kasir: Menunjukkan data terkunci */}
+                   {!isAdmin && (
+                      <div className="w-8 h-8 flex items-center justify-center text-slate-200">
+                         <span className="text-sm">🔒</span>
+                      </div>
+                   )}
                 </div>
               </div>
-              
-              <div className="flex items-center gap-4">
-                 <div className="text-right shrink-0">
-                    <p className="text-xs font-black text-red-600">Rp {exp.amount.toLocaleString()}</p>
-                    <p className="text-[7px] font-black text-slate-300 uppercase tracking-tighter">{exp.staffName.split(' ')[0]}</p>
-                 </div>
-                 <div className="flex gap-1">
-                    <button onClick={() => handleOpenEdit(exp)} className="w-8 h-8 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center text-xs hover:bg-blue-500 hover:text-white transition-all">✏️</button>
-                    <button onClick={() => setExpenseToDelete(exp)} className="w-8 h-8 bg-red-50 text-red-500 rounded-lg flex items-center justify-center text-xs hover:bg-red-500 hover:text-white transition-all">🗑️</button>
-                 </div>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -204,7 +243,7 @@ export const ExpenseManagement: React.FC = () => {
               </div>
               <button 
                 onClick={handleSaveExpense} 
-                className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-orange-500 transition-all active:scale-95"
+                className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-orange-600 transition-all active:scale-95"
               >
                 {editingExpense ? 'UPDATE DATA BIAYA 💾' : 'SIMPAN PENGELUARAN 💾'}
               </button>
@@ -214,7 +253,7 @@ export const ExpenseManagement: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL MANAJEMEN JENIS BIAYA (REFINED) */}
+      {/* MODAL MANAJEMEN JENIS BIAYA */}
       {showTypeModal && (
         <div className="fixed inset-0 z-[210] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-4">
            <div className="bg-white rounded-[48px] w-full max-w-md flex flex-col shadow-2xl animate-in zoom-in-95">
@@ -227,7 +266,6 @@ export const ExpenseManagement: React.FC = () => {
               </div>
 
               <div className="p-8 space-y-6">
-                 {/* Tambah Kategori Baru */}
                  <div className="flex gap-2">
                     <input 
                       type="text" 
@@ -239,62 +277,36 @@ export const ExpenseManagement: React.FC = () => {
                     <button onClick={handleAddType} className="px-6 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-orange-500/20 active:scale-95 transition-all">Tambah</button>
                  </div>
 
-                 {/* Daftar Kategori */}
                  <div className="max-h-64 overflow-y-auto custom-scrollbar pr-2 space-y-2">
-                    {expenseTypes.length === 0 ? (
-                       <p className="text-center py-10 text-[10px] font-black text-slate-300 uppercase italic">Belum ada kategori</p>
-                    ) : (
-                       expenseTypes.map(type => (
-                         <div key={type.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center group">
-                            {editingTypeId === type.id ? (
-                               <div className="flex gap-2 w-full">
-                                  <input 
-                                    autoFocus
-                                    className="flex-1 p-2 bg-white border border-orange-500 rounded-xl text-xs font-black uppercase outline-none"
-                                    value={editingTypeName}
-                                    onChange={e => setEditingTypeName(e.target.value)}
-                                  />
-                                  <button onClick={handleSaveEditType} className="w-8 h-8 bg-green-500 text-white rounded-xl flex items-center justify-center">✓</button>
-                                  <button onClick={() => setEditingTypeId(null)} className="w-8 h-8 bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center text-xs">✕</button>
+                    {expenseTypes.map(type => (
+                       <div key={type.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center group">
+                          {editingTypeId === type.id ? (
+                             <div className="flex gap-2 w-full">
+                                <input 
+                                  autoFocus
+                                  className="flex-1 p-2 bg-white border border-orange-500 rounded-xl text-xs font-black uppercase outline-none"
+                                  value={editingTypeName}
+                                  onChange={e => setEditingTypeName(e.target.value)}
+                                />
+                                <button onClick={handleSaveEditType} className="w-8 h-8 bg-green-500 text-white rounded-xl flex items-center justify-center">✓</button>
+                                <button onClick={() => setEditingTypeId(null)} className="w-8 h-8 bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center text-xs">✕</button>
+                             </div>
+                          ) : (
+                             <>
+                               <span className="text-[11px] font-black text-slate-700 uppercase">{type.name}</span>
+                               <div className="flex gap-1">
+                                  <button onClick={() => handleStartEditType(type)} className="w-8 h-8 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center text-[10px]">✏️</button>
+                                  <button onClick={() => setTypeToDelete(type)} className="w-8 h-8 bg-red-50 text-red-400 rounded-xl flex items-center justify-center text-[10px]">🗑️</button>
                                </div>
-                            ) : (
-                               <>
-                                 <span className="text-[11px] font-black text-slate-700 uppercase">{type.name}</span>
-                                 <div className="flex gap-1">
-                                    <button 
-                                      onClick={() => handleStartEditType(type)} 
-                                      className="w-8 h-8 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center text-[10px] transition-all"
-                                    >✏️</button>
-                                    <button 
-                                      onClick={() => setTypeToDelete(type)} 
-                                      className="w-8 h-8 bg-red-50 text-red-400 rounded-xl flex items-center justify-center text-[10px] transition-all"
-                                    >🗑️</button>
-                                 </div>
-                               </>
-                            )}
-                         </div>
-                       ))
-                    )}
+                             </>
+                          )}
+                       </div>
+                    ))}
                  </div>
               </div>
 
               <div className="p-8 border-t border-slate-50 bg-slate-50/50 rounded-b-[48px]">
                  <button onClick={() => setShowTypeModal(false)} className="w-full py-4 text-slate-400 font-black uppercase text-[10px] tracking-widest">Selesai</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* MODAL KONFIRMASI HAPUS JENIS BIAYA (NEW) */}
-      {typeToDelete && (
-        <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-6">
-           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
-              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-6">🗑️</div>
-              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Kategori?</h3>
-              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">Kategori <span className="text-red-600 font-black">"{typeToDelete.name}"</span> akan dihapus dari sistem. Pastikan tidak ada data yang bergantung padanya.</p>
-              <div className="flex flex-col gap-3">
-                 <button onClick={handleConfirmDeleteType} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all">IYA, HAPUS PERMANEN</button>
-                 <button onClick={() => setTypeToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batalkan</button>
               </div>
            </div>
         </div>
