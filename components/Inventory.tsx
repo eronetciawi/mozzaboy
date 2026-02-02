@@ -189,15 +189,106 @@ export const Inventory: React.FC = () => {
         )}
       </div>
 
+      {/* MODAL TAMBAH ITEM BARU */}
+      {showAddModal && isOwnerOrManager && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
+          <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-xl p-8 md:p-12 shadow-2xl overflow-y-auto max-h-[92vh] border-t md:border border-white/20 animate-in slide-in-from-bottom-10">
+             <div className="flex justify-between items-center mb-8">
+                <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">Daftarkan Item Baru</h3>
+                <button onClick={() => setShowAddModal(false)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors">✕</button>
+             </div>
+             
+             <div className="space-y-6">
+                <div>
+                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Material / Bahan</label>
+                   <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-900 focus:border-orange-500 outline-none" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} placeholder="Contoh: Mozzarella Block" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                   <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Satuan</label>
+                      <select className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-900" value={newItem.unit} onChange={e => setNewItem({...newItem, unit: e.target.value})}>
+                         <option value="kg">KILOGRAM (KG)</option>
+                         <option value="gr">GRAM (GR)</option>
+                         <option value="pcs">PCS / BIJI</option>
+                         <option value="btl">BOTOL</option>
+                         <option value="box">BOX / KARDUS</option>
+                         <option value="ml">MILILITER (ML)</option>
+                         <option value="lt">LITER (LT)</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1 text-red-500">Stok Awal</label>
+                      <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-900 focus:border-orange-500 outline-none" value={newItem.quantity} onChange={e => setNewItem({...newItem, quantity: parseFloat(e.target.value) || 0})} />
+                   </div>
+                </div>
+
+                <div className="p-6 bg-slate-900 rounded-[32px] text-white">
+                   <p className="text-[9px] font-black text-orange-500 uppercase tracking-[0.2em] mb-4">Akses Cabang:</p>
+                   <div className="flex flex-wrap gap-2">
+                      {outlets.map(o => (
+                         <button 
+                          key={o.id} 
+                          onClick={() => {
+                            const current = selectedBranches;
+                            const next = current.includes(o.id) ? current.filter(id => id !== o.id) : [...current, o.id];
+                            setSelectedBranches(next);
+                          }}
+                          className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase border-2 transition-all ${selectedBranches.includes(o.id) ? 'bg-orange-500 border-orange-500 text-white' : 'bg-transparent border-white/10 text-white/40'}`}>
+                           {o.name}
+                         </button>
+                      ))}
+                   </div>
+                </div>
+
+                <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 space-y-4">
+                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Konfigurasi Hak Akses Kasir</p>
+                   <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                         <span className="text-lg">👁️</span>
+                         <div>
+                            <p className="text-[10px] font-black text-slate-700 uppercase">Akses Lihat Kasir</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Kasir dapat melihat stok item ini</p>
+                         </div>
+                      </div>
+                      <button onClick={() => setNewItem({...newItem, isCashierOperated: !newItem.isCashierOperated})} className={`w-12 h-6 rounded-full relative transition-all ${newItem.isCashierOperated ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${newItem.isCashierOperated ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                   </div>
+                   <div className="flex items-center justify-between border-t border-slate-200/50 pt-4">
+                      <div className="flex items-center gap-3">
+                         <span className="text-lg">🛒</span>
+                         <div>
+                            <p className="text-[10px] font-black text-slate-700 uppercase">Izin Belanja Kasir</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Kasir dapat input belanja item ini</p>
+                         </div>
+                      </div>
+                      <button onClick={() => setNewItem({...newItem, canCashierPurchase: !newItem.canCashierPurchase})} className={`w-12 h-6 rounded-full relative transition-all ${newItem.canCashierPurchase ? 'bg-orange-500' : 'bg-slate-300'}`}>
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${newItem.canCashierPurchase ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                   </div>
+                </div>
+
+                <button onClick={handleAddItem} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">SIMPAN ITEM KE DATABASE 🚀</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT STOK */}
       {editingItem && isOwnerOrManager && (
         <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
-          <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-lg p-8 md:p-12 shadow-2xl overflow-y-auto max-h-[90vh]">
-             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 mb-8 text-center">Update Data Stok</h3>
+          <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-lg p-8 md:p-12 shadow-2xl overflow-y-auto max-h-[92vh] animate-in slide-in-from-bottom-10">
+             <div className="flex justify-between items-center mb-8">
+                <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">Update Data Stok</h3>
+                <button onClick={() => setEditingItem(null)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors">✕</button>
+             </div>
+             
              <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                    <div>
                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Stok Fisik</label>
-                     <input type="number" onFocus={e => e.target.select()} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-slate-900" value={editingItem.quantity ?? 0} onChange={e => setEditingItem({...editingItem, quantity: parseFloat(e.target.value) || 0})} />
+                     <input type="number" onFocus={e => e.target.select()} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-slate-900 focus:border-orange-500 outline-none" value={editingItem.quantity ?? 0} onChange={e => setEditingItem({...editingItem, quantity: parseFloat(e.target.value) || 0})} />
                    </div>
                    <div>
                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1 text-red-500">Limit Aman</label>
@@ -206,14 +297,69 @@ export const Inventory: React.FC = () => {
                 </div>
                 <div>
                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">HPP Unit (Rp)</label>
-                   <input type="number" onFocus={e => e.target.select()} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-indigo-600 outline-none" value={editingItem.costPerUnit ?? 0} onChange={e => setEditingItem({...editingItem, costPerUnit: parseInt(e.target.value) || 0})} />
+                   <input type="number" onFocus={e => e.target.select()} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-indigo-600 outline-none focus:border-indigo-500" value={editingItem.costPerUnit ?? 0} onChange={e => setEditingItem({...editingItem, costPerUnit: parseInt(e.target.value) || 0})} />
                 </div>
+
+                <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 space-y-4">
+                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Konfigurasi Hak Akses Kasir</p>
+                   <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                         <span className="text-lg">👁️</span>
+                         <div>
+                            <p className="text-[10px] font-black text-slate-700 uppercase">Akses Lihat Kasir</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Kasir dapat melihat stok item ini</p>
+                         </div>
+                      </div>
+                      <button 
+                        onClick={() => setEditingItem({...editingItem, isCashierOperated: !editingItem.isCashierOperated})}
+                        className={`w-12 h-6 rounded-full relative transition-all ${editingItem.isCashierOperated ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${editingItem.isCashierOperated ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                   </div>
+                   <div className="flex items-center justify-between border-t border-slate-200/50 pt-4">
+                      <div className="flex items-center gap-3">
+                         <span className="text-lg">🛒</span>
+                         <div>
+                            <p className="text-[10px] font-black text-slate-700 uppercase">Izin Belanja Kasir</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Kasir dapat input belanja item ini</p>
+                         </div>
+                      </div>
+                      <button 
+                        onClick={() => setEditingItem({...editingItem, canCashierPurchase: !editingItem.canCashierPurchase})}
+                        className={`w-12 h-6 rounded-full relative transition-all ${editingItem.canCashierPurchase ? 'bg-orange-500' : 'bg-slate-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${editingItem.canCashierPurchase ? 'right-1' : 'left-1'}`}></div>
+                      </button>
+                   </div>
+                </div>
+
                 <div className="flex gap-3 pt-4">
-                  <button onClick={() => setEditingItem(null)} className="flex-1 py-4 text-slate-400 font-black text-[10px] uppercase">Batal</button>
-                  <button onClick={() => { updateInventoryItem(editingItem); setEditingItem(null); }} className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl">Simpan Data 💾</button>
+                  <button onClick={() => setEditingItem(null)} className="flex-1 py-4 text-slate-400 font-black text-[10px] uppercase tracking-widest">Batal</button>
+                  <button onClick={() => { updateInventoryItem(editingItem); setEditingItem(null); }} className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl hover:bg-orange-600 transition-all tracking-widest">Simpan Data 💾</button>
                 </div>
              </div>
           </div>
+        </div>
+      )}
+
+      {/* MODAL KONFIRMASI HAPUS */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-6">
+           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[32px] flex items-center justify-center text-4xl mx-auto mb-6 shadow-inner">🗑️</div>
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Item?</h3>
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">Item <span className="text-red-600 font-black">"{itemToDelete.name}"</span> akan dihapus permanen dari gudang cabang ini.</p>
+              <div className="flex flex-col gap-3">
+                 <button 
+                    onClick={() => { deleteInventoryItem(itemToDelete.id); setItemToDelete(null); }} 
+                    className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700"
+                 >
+                    IYA, HAPUS PERMANEN
+                 </button>
+                 <button onClick={() => setItemToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
+              </div>
+           </div>
         </div>
       )}
     </div>
