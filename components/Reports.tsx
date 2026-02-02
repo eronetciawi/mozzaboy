@@ -283,7 +283,7 @@ export const Reports: React.FC = () => {
                            <BarChart data={salesIntelligence.topProducts} layout="vertical">
                               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                               <XAxis type="number" hide />
-                              <YAxis dataKey="name" type="category" width={100} fontSize={9} fontWeights={900} />
+                              <YAxis dataKey="name" type="category" width={100} fontSize={9} fontWeight={900} />
                               <Tooltip cursor={{fill: '#f8fafc'}} formatter={(v: number) => `Rp ${v.toLocaleString()}`} />
                               <Bar dataKey="net" fill="#6366f1" radius={[0, 10, 10, 0]} barSize={20} />
                            </BarChart>
