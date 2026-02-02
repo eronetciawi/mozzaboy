@@ -3,7 +3,11 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../store';
 import { StaffMember } from '../types';
 
-export const Attendance: React.FC = () => {
+interface AttendanceProps {
+  setActiveTab?: (tab: string) => void;
+}
+
+export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
   const { 
     currentUser, clockIn, clockOut, attendance, leaveRequests, 
     submitLeave, transactions, updateStaff, outlets, 
@@ -16,12 +20,12 @@ export const Attendance: React.FC = () => {
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
   const [showLeaveSuccess, setShowLeaveSuccess] = useState(false);
+  const [showCheckInToast, setShowCheckInToast] = useState(false);
 
   const [profileForm, setProfileForm] = useState<Partial<StaffMember>>(currentUser || {});
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync data setiap kali komponen My Portal dibuka
   useEffect(() => {
     fetchFromCloud();
   }, []);
@@ -32,7 +36,6 @@ export const Attendance: React.FC = () => {
   const todayStr = new Date().toISOString().split('T')[0];
   const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
-  // REAKTIF: Data absensi dan cuti akan langsung kosong jika state global di store berubah (di-wipe)
   const myAttendanceRecords = useMemo(() => {
     if (!attendance || attendance.length === 0) return [];
     return [...attendance]
@@ -62,8 +65,15 @@ export const Attendance: React.FC = () => {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const result = await clockIn(pos.coords.latitude, pos.coords.longitude);
-        if (result && !result.success) {
-           alert(result.message);
+        if (result && result.success) {
+           setShowCheckInToast(true);
+           // Redirect ke Dashboard setelah 1.5 detik agar user melihat feedback sukses
+           setTimeout(() => {
+              setShowCheckInToast(false);
+              if (setActiveTab) setActiveTab('dashboard');
+           }, 1500);
+        } else {
+           alert(result?.message || "Gagal absen. Coba lagi.");
         }
         setIsLocating(false);
       },
@@ -73,6 +83,25 @@ export const Attendance: React.FC = () => {
       },
       { enableHighAccuracy: true }
     );
+  };
+
+  const handleClockOut = async () => {
+     // --- VALIDASI JAM PULANG ---
+     const now = new Date();
+     const [eHour, eMin] = (currentUser.shiftEndTime || '18:00').split(':').map(Number);
+     const shiftEnd = new Date(now);
+     shiftEnd.setHours(eHour, eMin, 0, 0);
+
+     // Jika mencoba pulang sebelum waktu berakhir (Hanya berlaku untuk Kasir)
+     if (now < shiftEnd && currentUser.role === 'KASIR') {
+        alert(`Dilarang Pulang Lebih Awal! Shift Anda baru berakhir pukul ${currentUser.shiftEndTime}.`);
+        return;
+     }
+
+     if (confirm("Apakah Anda yakin ingin Check-Out pulang sekarang?")) {
+        await clockOut();
+        alert("Check-Out Berhasil. Selamat Beristirahat!");
+     }
   };
 
   const targetSales = currentUser.dailySalesTarget || 0;
@@ -151,7 +180,6 @@ export const Attendance: React.FC = () => {
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8 relative">
       
-      {/* SUCCESS LEAVE NOTIFICATION */}
       {showLeaveSuccess && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-indigo-600 text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-indigo-400">
@@ -159,6 +187,18 @@ export const Attendance: React.FC = () => {
               <div>
                  <p className="text-[11px] font-black uppercase tracking-widest leading-none">Berhasil Dikirim</p>
                  <p className="text-[9px] font-bold text-indigo-100 uppercase mt-1">Pengajuan sedang diproses oleh Manager.</p>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {showCheckInToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
+           <div className="bg-emerald-600 text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-emerald-400">
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl">🚀</div>
+              <div>
+                 <p className="text-[11px] font-black uppercase tracking-widest leading-none">Check-In Berhasil</p>
+                 <p className="text-[9px] font-bold text-emerald-100 uppercase mt-1">Selamat bertugas! Semangat jualannya.</p>
               </div>
            </div>
         </div>
@@ -195,7 +235,7 @@ export const Attendance: React.FC = () => {
                 <button 
                   disabled={isLocating}
                   onClick={handleClockIn} 
-                  className={`w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all ${isLocating ? 'bg-slate-100 text-slate-400' : 'bg-orange-500 text-white shadow-orange-500/20 active:scale-95'}`}
+                  className={`w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all ${isLocating ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-70' : 'bg-orange-500 text-white shadow-orange-500/20 active:scale-95'}`}
                 >
                   {isLocating ? 'MENDAPATKAN LOKASI...' : 'CHECK-IN MASUK 🚀'}
                 </button>
@@ -215,7 +255,7 @@ export const Attendance: React.FC = () => {
                       </div>
                    </div>
                    {!myAttendanceToday.clockOut && (
-                     <button onClick={() => clockOut()} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest active:scale-95 transition-all">CHECK-OUT PULANG 👋</button>
+                     <button onClick={handleClockOut} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest active:scale-95 transition-all">CHECK-OUT PULANG 👋</button>
                    )}
                 </div>
               )}
@@ -392,7 +432,6 @@ export const Attendance: React.FC = () => {
                     <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">{currentUser.role}</p>
                  </div>
                  
-                 {/* SCHEDULE INFO TILE */}
                  <div className="mt-6 bg-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4 opacity-10 text-4xl">🗓️</div>
                     <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-4">Informasi Jadwal</p>

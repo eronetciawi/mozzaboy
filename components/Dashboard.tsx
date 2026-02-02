@@ -67,17 +67,27 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
     return { trafficData, topProducts };
   }, [isGlobalView, transactions, filteredTransactions]);
 
-  // DATA: Presence (Owner) or Personal (Staff)
+  // DATA: Presence (Owner) or Personal (Staff) - FIXED FOR ACCURACY
   const presenceInfo = useMemo(() => {
     if (isExecutive) {
       return staff
         .filter(s => isGlobalView || s.assignedOutletIds.includes(selectedOutletId))
         .map(s => {
-          const record = attendance.find(a => a.staffId === s.id && a.date === todayStr);
+          // Cari record absen spesifik untuk outlet yang sedang dipilih
+          const record = attendance.find(a => 
+             a.staffId === s.id && 
+             a.date === todayStr && 
+             (isGlobalView || a.outletId === selectedOutletId)
+          );
           return { name: s.name, status: record ? (record.clockOut ? 'PULANG' : 'AKTIF') : 'OFF' };
         }).sort((a,b) => a.status === 'AKTIF' ? -1 : 1);
     }
-    return attendance.find(a => a.staffId === currentUser?.id && a.date === todayStr);
+    // Personal View for Staff
+    return attendance.find(a => 
+       a.staffId === currentUser?.id && 
+       a.date === todayStr && 
+       a.outletId === selectedOutletId
+    );
   }, [isExecutive, isGlobalView, staff, attendance, selectedOutletId, currentUser, todayStr]);
 
   // DATA: Motivation Engine
@@ -158,7 +168,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         <div className="mb-6 bg-white border border-orange-100 rounded-[32px] p-5 shadow-sm relative overflow-hidden">
            <div className="flex flex-col md:flex-row justify-between items-center gap-4 relative z-10">
               <div className="flex items-center gap-4 w-full md:w-auto">
-                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-black shadow-lg shrink-0 ${mission.percent >= 100 ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-orange-500 text-white shadow-orange-200'}`}>{mission.percent}%</div>
+                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-black shadow-lg shrink-0 ${mission.percent >= 100 ? 'bg-emerald-50 text-white shadow-emerald-200' : 'bg-orange-50 text-white shadow-orange-200'}`}>{mission.percent}%</div>
                  <div>
                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Misi Sales Hari Ini</p>
                     <h4 className="text-sm font-black text-slate-800 uppercase">Rp {mission.sales.toLocaleString()} / <span className="text-slate-400">Rp {mission.target.toLocaleString()}</span></h4>

@@ -254,7 +254,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const data = results.map(r => r.status === 'fulfilled' ? r.value.data : null);
 
-      // FILTER PENCEGAH DATA ZOMBIE SETELAH WIPE
       const filterWiped = (arr: any[]) => {
         if (!wipedOutletId || Date.now() - lastWipeTimestamp > 5000) return arr;
         return (arr || []).filter(item => item.outletId !== wipedOutletId);
@@ -271,7 +270,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data[3]) setOutlets(data[3].length > 0 ? data[3] : OUTLETS);
       if (data[4]) setStaff(data[4].length > 0 ? data[4] : INITIAL_STAFF);
       
-      // Aplikasi filter pencegah zombie untuk log operasional
       if (data[5]) setAttendance(hydrateDates(filterWiped(data[5])));
       if (data[6]) setLeaveRequests(hydrateDates(filterWiped(data[6])));
       if (data[7]) setCustomers(hydrateDates(data[7]));
@@ -308,20 +306,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (cloudUser) {
         if (cloudUser.status === 'INACTIVE') return { success: false, message: "Akun dinonaktifkan oleh Owner." };
         
-        // Logika Sequential Shift Login
+        // --- VALIDASI WAKTU SHIFT LOGIN (Ubah ke 30 Menit) ---
+        if (cloudUser.role === UserRole.CASHIER) {
+           const now = new Date();
+           const [sHour, sMin] = (cloudUser.shiftStartTime || '00:00').split(':').map(Number);
+           const shiftStart = new Date(now);
+           shiftStart.setHours(sHour, sMin, 0, 0);
+
+           const diffMin = (shiftStart.getTime() - now.getTime()) / (1000 * 60);
+
+           // Jika login lebih awal dari 30 menit sebelum shift dimulai
+           if (diffMin > 30) {
+              return { 
+                success: false, 
+                message: `Belum waktunya shift Anda. Shift mulai jam ${cloudUser.shiftStartTime}. Anda hanya bisa login 30 menit sebelum shift dimulai.` 
+              };
+           }
+        }
+
         const todayStr = new Date().toDateString();
         const outletId = cloudUser.assignedOutletIds[0] || 'out1';
         
-        // Cek apakah user ini sudah tutup shift hari ini
         const hasClosedToday = dailyClosings.some(c => c.staffId === cloudUser.id && c.outletId === outletId && new Date(c.timestamp).toDateString() === todayStr);
         if (hasClosedToday && cloudUser.role === UserRole.CASHIER) {
            return { success: false, message: "Anda sudah melakukan tutup shift hari ini dan tidak bisa login kembali." };
         }
 
-        // Cek jika ini Shift 2 (Mulai >= 14:00)
         const shiftStartHour = parseInt((cloudUser.shiftStartTime || '00:00').split(':')[0]);
         if (shiftStartHour >= 14 && cloudUser.role === UserRole.CASHIER) {
-           // Shift 2 hanya bisa login jika Shift 1 sudah tutup buku
            const shift1Closed = dailyClosings.some(c => c.outletId === outletId && new Date(c.timestamp).toDateString() === todayStr);
            if (!shift1Closed) {
               return { success: false, message: "Akses Ditolak. Kasir Shift 1 belum melakukan tutup buku / serah terima laci." };
@@ -517,7 +529,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        if (!supabase) return;
        setIsSaving(true);
        
-       // 1. TAHAP PURGE LOKAL TOTAL (AGAR UI LANGSUNG KOSONG DI HP KARYAWAN)
        setAttendance(prev => prev.filter(a => a.outletId !== oid));
        setLeaveRequests(prev => prev.filter(l => l.outletId !== oid));
        setTransactions(prev => prev.filter(t => t.outletId !== oid));
@@ -528,13 +539,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        setStockRequests(prev => prev.filter(r => r.outletId !== oid));
        setStockTransfers(prev => prev.filter(t => t.fromOutletId !== oid && t.toOutletId !== oid));
 
-       // Sinyal pengunci untuk fetchFromCloud
        setWipedOutletId(oid);
        setLastWipeTimestamp(Date.now());
 
        try {
-         // 2. TAHAP HARD-DELETE CLOUD (DATABASE)
-         // Melakukan penghapusan permanen di Supabase
          await Promise.all([
            supabase.from('transactions').delete().match({ outletId: oid }),
            supabase.from('expenses').delete().match({ outletId: oid }),
@@ -547,7 +555,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
            supabase.from('stock_transfers').delete().or(`fromOutletId.eq.${oid},toOutletId.eq.${oid}`)
          ]);
 
-         // Berikan jeda 1 detik agar DB benar-benar bersih, baru fetch ulang
          setTimeout(async () => {
            await fetchFromCloud();
          }, 1000);
@@ -627,7 +634,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (typeof val === 'object') return `"${JSON.stringify(val).replace(/"/g, '""')}"`;
             return `"${val.toString().replace(/"/g, '""')}"`;
           });
-          csvRows.join('\n');
+          csvRows.push(values.join(','));
         }
         return csvRows.join('\n');
       };

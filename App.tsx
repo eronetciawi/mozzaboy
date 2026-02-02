@@ -35,7 +35,7 @@ const MainApp: React.FC = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard setActiveTab={setActiveTab} />;
       case 'pos': return <POS setActiveTab={setActiveTab} />;
-      case 'attendance': return <Attendance />;
+      case 'attendance': return <Attendance setActiveTab={setActiveTab} />;
       case 'crm': return <CRM />;
       case 'loyalty': return <LoyaltyManagement />;
       case 'printer': return <PrinterSettings />;
