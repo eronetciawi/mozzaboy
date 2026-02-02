@@ -319,8 +319,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     checkout: async (method, redeem = 0, memberDisc = 0, bulkDisc = 0) => {
       if (!supabase || selectedOutletId === 'all') return;
       setIsSaving(true);
+      
       try {
-        let subtotal = 0; let totalCost = 0;
+        let subtotal = 0; 
+        let totalCost = 0;
+        
         cart.forEach(i => {
            const price = i.product.outletSettings?.[selectedOutletId]?.price || i.product.price;
            subtotal += price * i.quantity;
@@ -330,6 +333,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
            }, 0);
            totalCost += itemCost * i.quantity;
         });
+
         const ptVal = redeem * loyaltyConfig.redemptionValuePerPoint;
         const total = Math.max(0, subtotal - memberDisc - bulkDisc - ptVal);
         
@@ -346,34 +350,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           pointDiscountValue: ptVal, membershipDiscount: memberDisc, bulkDiscount: bulkDisc
         };
         
-        // INSTANT LOCAL UPDATE (OPTIMISTIC)
-        const localTx = hydrateDates(txPayload);
-        setTransactions(prev => [localTx, ...prev]);
-
-        await supabase.from('transactions').insert(txPayload);
-
-        const updates: any[] = [];
-        const deduct = (p: Product, mult: number) => {
+        // 1. HITUNG PENGURANGAN STOK (AGGREGATED)
+        const deductionsMap = new Map<string, number>();
+        
+        const processDeduction = (p: Product, mult: number) => {
            if (p.isCombo && p.comboItems) {
-              p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) deduct(inner, mult * ci.quantity); });
+              p.comboItems.forEach(ci => { 
+                const inner = products.find(ip => ip.id === ci.productId); 
+                if (inner) processDeduction(inner, mult * ci.quantity); 
+              });
            } else {
               (p.bom || []).forEach(b => {
                  const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
-                 if (item) updates.push({ id: item.id, quantity: item.quantity - (b.quantity * mult) });
+                 if (item) {
+                   const currentDeduction = deductionsMap.get(item.id) || 0;
+                   deductionsMap.set(item.id, currentDeduction + (b.quantity * mult));
+                 }
               });
            }
         };
-        cart.forEach(i => deduct(i.product, i.quantity));
-        if (updates.length > 0) {
-           await supabase.from('inventory').upsert(updates);
+
+        cart.forEach(i => processDeduction(i.product, i.quantity));
+
+        // 2. OPTIMISTIC UPDATE: Langsung update state lokal agar UI berubah seketika
+        const localTx = hydrateDates(txPayload);
+        setTransactions(prev => [localTx, ...prev]);
+        
+        if (deductionsMap.size > 0) {
            setInventory(prev => prev.map(inv => {
-              const up = updates.find(u => u.id === inv.id);
-              return up ? { ...inv, quantity: up.quantity } : inv;
+              const toDeduct = deductionsMap.get(inv.id);
+              return toDeduct ? { ...inv, quantity: inv.quantity - toDeduct } : inv;
            }));
         }
-        
-        setCart([]); setSelectedCustomerId(null);
-      } finally { setIsSaving(false); }
+
+        setCart([]); 
+        setSelectedCustomerId(null);
+
+        // 3. SINKRONISASI KE CLOUD (BACKGROUND)
+        // Jalankan insert transaksi
+        await supabase.from('transactions').insert(txPayload);
+
+        // Jalankan update inventory di database
+        if (deductionsMap.size > 0) {
+           const updates = Array.from(deductionsMap.entries()).map(([id, amount]) => {
+              const currentInv = inventory.find(i => i.id === id);
+              return { id, quantity: (currentInv?.quantity || 0) - amount };
+           });
+           await supabase.from('inventory').upsert(updates);
+        }
+
+      } catch (err) {
+        console.error("Checkout Error:", err);
+        // Jika gagal total, opsional: panggil fetchFromCloud untuk reset state ke data asli server
+        await fetchFromCloud();
+      } finally { 
+        setIsSaving(false); 
+      }
     },
     clockIn: async (lat, lng, notes) => {
       if (!supabase || !currentUser) return { success: false, message: "Sesi expired." };
