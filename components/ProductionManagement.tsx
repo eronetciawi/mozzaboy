@@ -225,10 +225,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
          {view === 'list' && (
            <div className="px-4 md:px-6 pb-3">
               <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full md:w-fit border shadow-inner">
-                 {/* 
-                    FIX: Changed comparison from setActiveSubTab (state setter) to activeSubTab (state value). 
-                    The comparison was previously checking if the function itself equalled 'recipes'.
-                 */}
                  <button onClick={() => setActiveSubTab('recipes')} className={`flex-1 md:flex-none px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'recipes' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>Master Resep</button>
                  <button onClick={() => setActiveSubTab('logs')} className={`flex-1 md:flex-none px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${activeSubTab === 'logs' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>
                    Riwayat
@@ -353,7 +349,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                                          <p className="text-[8px] font-bold text-slate-400 uppercase">{item?.unit}</p>
                                       </div>
                                       <input type="number" step="any" className="w-24 p-2 bg-slate-50 border rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-200" value={comp.quantity} onChange={e => setComponents(prev => prev.map(c => c.id === comp.id ? {...c, quantity: parseFloat(e.target.value) || 0} : c))} />
-                                      <button onClick={() => setComponents(prev => prev.filter(c => i.id !== comp.id))} className="text-red-400 opacity-20 group-hover:opacity-100 hover:text-red-600 transition-all">✕</button>
+                                      <button onClick={() => setComponents(prev => prev.filter(c => c.id !== comp.id))} className="text-red-400 opacity-20 group-hover:opacity-100 hover:text-red-600 transition-all">✕</button>
                                    </div>
                                 );
                              })}
