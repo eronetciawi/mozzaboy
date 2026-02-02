@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../store';
-import { StaffMember } from '../types';
+import { StaffMember, UserRole, OrderStatus } from '../types';
 
 interface AttendanceProps {
   setActiveTab?: (tab: string) => void;
@@ -10,516 +10,450 @@ interface AttendanceProps {
 export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
   const { 
     currentUser, clockIn, clockOut, attendance, leaveRequests, 
-    submitLeave, transactions, updateStaff, outlets, 
-    selectedOutletId, fetchFromCloud 
+    submitLeave, transactions, updateStaff, fetchFromCloud, outlets
   } = useApp();
   
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'performance' | 'leave' | 'profile'>('clock');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState<Partial<StaffMember>>(currentUser || {});
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | null }>({ message: '', type: null });
+
   const [leaveReason, setLeaveReason] = useState('');
   const [leaveDates, setLeaveDates] = useState({ start: '', end: '' });
-  const [isLocating, setIsLocating] = useState(false);
   const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
-  const [showLeaveSuccess, setShowLeaveSuccess] = useState(false);
-  const [showCheckInToast, setShowCheckInToast] = useState(false);
 
-  const [profileForm, setProfileForm] = useState<Partial<StaffMember>>(currentUser || {});
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchFromCloud();
   }, []);
 
+  useEffect(() => {
+    if (currentUser) {
+      setProfileForm(currentUser);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (toast.type) {
+      const timer = setTimeout(() => setToast({ message: '', type: null }), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
   if (!currentUser) return null;
 
-  const activeOutlet = outlets.find(o => o.id === selectedOutletId);
-  const todayStr = new Date().toISOString().split('T')[0];
-  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  // --- UTILS ---
+  const calculateDuration = (inTime: Date, outTime?: Date) => {
+    if (!outTime) return "Sedang Bertugas";
+    const diff = new Date(outTime).getTime() - new Date(inTime).getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}j ${minutes}m`;
+  };
+
+  const formatTime = (date?: Date) => {
+    if (!date) return '--:--';
+    return new Date(date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const todayStr = new Date().toLocaleDateString('en-CA'); 
 
   const myAttendanceRecords = useMemo(() => {
-    if (!attendance || attendance.length === 0) return [];
     return [...attendance]
-      .filter(a => a.staffId === currentUser.id && a.outletId === selectedOutletId)
-      .sort((a,b) => b.date.localeCompare(a.date));
-  }, [attendance, currentUser.id, selectedOutletId]);
+      .filter(a => a.staffId === currentUser.id)
+      .sort((a,b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
+  }, [attendance, currentUser.id]);
   
-  const myAttendanceToday = useMemo(() => 
-    myAttendanceRecords.find(a => a.date === todayStr),
-    [myAttendanceRecords, todayStr]
+  const myActiveAttendance = useMemo(() => 
+    myAttendanceRecords.find(a => !a.clockOut),
+    [myAttendanceRecords]
   );
-  
-  const myLeaveRequests = useMemo(() => {
-    if (!leaveRequests || leaveRequests.length === 0) return [];
-    return [...leaveRequests]
-      .filter(l => l.staffId === currentUser.id && l.outletId === selectedOutletId)
-      .sort((a,b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
-  }, [leaveRequests, currentUser.id, selectedOutletId]);
 
-  const handleClockIn = () => {
-    if (!navigator.geolocation) {
-      alert("Browser Anda tidak mendukung Geolocation.");
+  const hasFinishedToday = useMemo(() => {
+    return myAttendanceRecords.some(a => a.date === todayStr && a.clockOut);
+  }, [myAttendanceRecords, todayStr]);
+
+  const myStats = useMemo(() => {
+    const myTotalTransactions = transactions.filter(t => t.cashierId === currentUser.id && t.status === OrderStatus.CLOSED);
+    const todaySales = myTotalTransactions
+      .filter(t => new Date(t.timestamp).toISOString().split('T')[0] === todayStr)
+      .reduce((acc, t) => acc + t.total, 0);
+    
+    const target = currentUser.dailySalesTarget || 1500000;
+    const progress = Math.min(100, Math.round((todaySales / target) * 100));
+    const totalAttend = myAttendanceRecords.length;
+    const lateCount = myAttendanceRecords.filter(a => a.status === 'LATE').length;
+    const discipline = totalAttend > 0 ? Math.round(((totalAttend - lateCount) / totalAttend) * 100) : 100;
+
+    return { todaySales, target, progress, discipline, totalAttend };
+  }, [transactions, currentUser, myAttendanceRecords, todayStr]);
+
+  // --- HANDLERS ---
+  const handleClockIn = async () => {
+    const res = await clockIn();
+    if (res.success) {
+      setToast({ message: "Absen Masuk Berhasil! Selamat bertugas.", type: 'success' });
+      setTimeout(() => setActiveTab?.('dashboard'), 2000);
+    } else {
+      setToast({ message: res.message || "Gagal Absen.", type: 'error' });
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    setIsSavingProfile(true);
+    try {
+      await updateStaff(profileForm as StaffMember);
+      setToast({ message: "Profil diperbarui! Data tersinkron ke Cloud. ✨", type: 'success' });
+    } catch (err) {
+      setToast({ message: "Gagal update profil. Cek koneksi Anda.", type: 'error' });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleLeaveSubmit = async () => {
+    if(!leaveDates.start || !leaveDates.end || !leaveReason) {
+      setToast({ message: "Lengkapi form pengajuan!", type: 'error' });
       return;
     }
-
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const result = await clockIn(pos.coords.latitude, pos.coords.longitude);
-        if (result && result.success) {
-           setShowCheckInToast(true);
-           // Redirect ke Dashboard setelah 1.5 detik agar user melihat feedback sukses
-           setTimeout(() => {
-              setShowCheckInToast(false);
-              if (setActiveTab) setActiveTab('dashboard');
-           }, 1500);
-        } else {
-           alert(result?.message || "Gagal absen. Coba lagi.");
-        }
-        setIsLocating(false);
-      },
-      (err) => {
-        alert("Gagal mendapatkan lokasi. Pastikan izin lokasi diaktifkan.");
-        setIsLocating(false);
-      },
-      { enableHighAccuracy: true }
-    );
-  };
-
-  const handleClockOut = async () => {
-     // --- VALIDASI JAM PULANG ---
-     const now = new Date();
-     const [eHour, eMin] = (currentUser.shiftEndTime || '18:00').split(':').map(Number);
-     const shiftEnd = new Date(now);
-     shiftEnd.setHours(eHour, eMin, 0, 0);
-
-     // Jika mencoba pulang sebelum waktu berakhir (Hanya berlaku untuk Kasir)
-     if (now < shiftEnd && currentUser.role === 'KASIR') {
-        alert(`Dilarang Pulang Lebih Awal! Shift Anda baru berakhir pukul ${currentUser.shiftEndTime}.`);
-        return;
-     }
-
-     if (confirm("Apakah Anda yakin ingin Check-Out pulang sekarang?")) {
-        await clockOut();
-        alert("Check-Out Berhasil. Selamat Beristirahat!");
-     }
-  };
-
-  const targetSales = currentUser.dailySalesTarget || 0;
-  const bonusPerTarget = currentUser.targetBonusAmount || 0;
-
-  const myTransactions = useMemo(() => 
-    transactions.filter(tx => tx.cashierId === currentUser.id && tx.status === 'CLOSED'),
-    [transactions, currentUser.id]
-  );
-
-  const salesByDate = useMemo(() => {
-    const map: Record<string, number> = {};
-    myTransactions.forEach(tx => {
-      const dateKey = new Date(tx.timestamp).toISOString().split('T')[0];
-      map[dateKey] = (map[dateKey] || 0) + tx.total;
-    });
-    return map;
-  }, [myTransactions]);
-
-  const mySalesToday = salesByDate[todayStr] || 0;
-  const progressPercent = targetSales > 0 ? Math.min(100, Math.round((mySalesToday / targetSales) * 100)) : 0;
-  const isTargetAchievedToday = targetSales > 0 && mySalesToday >= targetSales;
-  const remainingToTarget = Math.max(0, targetSales - mySalesToday);
-
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-  
-  const totalBonusMonth = useMemo(() => {
-    let total = 0;
-    Object.keys(salesByDate).forEach(date => {
-      const d = new Date(date);
-      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
-         if (targetSales > 0 && salesByDate[date] >= targetSales) total += bonusPerTarget;
-      }
-    });
-    return total;
-  }, [salesByDate, targetSales, bonusPerTarget, currentMonth, currentYear]);
-
-  const totalAttends = myAttendanceRecords.length;
-  const totalLates = myAttendanceRecords.filter(a => a.status === 'LATE').length;
-  const perfScore = totalAttends > 0 ? Math.round(((totalAttends - totalLates) / totalAttends) * 100) : 100;
-
-  const handleLeaveSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!leaveReason || !leaveDates.start || !leaveDates.end) return alert("Mohon lengkapi data izin!");
-    
     setIsSubmittingLeave(true);
     try {
-      await submitLeave({
-        startDate: new Date(leaveDates.start),
-        endDate: new Date(leaveDates.end),
-        reason: leaveReason
-      });
-      
-      setLeaveReason('');
-      setLeaveDates({ start: '', end: '' });
-      setShowLeaveSuccess(true);
-      setTimeout(() => setShowLeaveSuccess(false), 4000);
-    } catch (err) {
-      alert("Gagal mengirim pengajuan. Cek koneksi internet Anda.");
+      await submitLeave({ startDate: new Date(leaveDates.start), endDate: new Date(leaveDates.end), reason: leaveReason });
+      setToast({ message: "Pengajuan cuti terkirim! 💌", type: 'success' });
+      setLeaveDates({ start: '', end: '' }); setLeaveReason('');
     } finally {
       setIsSubmittingLeave(false);
     }
   };
 
-  const handleSaveProfile = () => {
-    if (!profileForm.name?.trim()) return alert("Nama lengkap tidak boleh kosong.");
-    setIsSavingProfile(true);
-    setTimeout(() => {
-      updateStaff({ ...currentUser, ...profileForm } as StaffMember);
-      setIsSavingProfile(false);
-      alert("Profil Anda berhasil diperbarui!");
-    }, 800);
-  };
+  const ProfileInput = ({ label, icon, value, onChange, placeholder, type = "text", disabled = false }: any) => (
+    <div className="space-y-1.5">
+      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>
+      <div className="relative group">
+        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm grayscale group-focus-within:grayscale-0 transition-all">{icon}</span>
+        <input 
+          type={type}
+          disabled={disabled}
+          placeholder={placeholder}
+          className={`w-full pl-11 pr-4 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-[11px] outline-none transition-all ${disabled ? 'opacity-50 grayscale bg-slate-100' : 'focus:border-orange-500 focus:bg-white text-slate-900'}`}
+          value={value || ''}
+          onChange={e => onChange(e.target.value)}
+        />
+      </div>
+    </div>
+  );
 
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8 relative">
-      
-      {showLeaveSuccess && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
-           <div className="bg-indigo-600 text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-indigo-400">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl">📨</div>
-              <div>
-                 <p className="text-[11px] font-black uppercase tracking-widest leading-none">Berhasil Dikirim</p>
-                 <p className="text-[9px] font-bold text-indigo-100 uppercase mt-1">Pengajuan sedang diproses oleh Manager.</p>
+    <div className="h-full flex flex-col bg-slate-50/50 overflow-hidden font-sans relative">
+      {/* TOAST SYSTEM */}
+      {toast.type && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500 w-full max-w-sm px-4">
+           <div className={`px-6 py-4 rounded-[28px] shadow-2xl flex items-center gap-4 border-2 ${
+             toast.type === 'success' ? 'bg-emerald-600 border-emerald-400 text-white' : 
+             toast.type === 'error' ? 'bg-rose-600 border-rose-400 text-white' : 
+             'bg-indigo-600 border-indigo-400 text-white'
+           }`}>
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl shrink-0 shadow-inner">
+                {toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : 'ℹ️'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">Crew Digital ID</p>
+                <p className="text-[11px] font-bold opacity-95 uppercase leading-tight">{toast.message}</p>
               </div>
            </div>
         </div>
       )}
 
-      {showCheckInToast && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
-           <div className="bg-emerald-600 text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-emerald-400">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl">🚀</div>
-              <div>
-                 <p className="text-[11px] font-black uppercase tracking-widest leading-none">Check-In Berhasil</p>
-                 <p className="text-[9px] font-bold text-emerald-100 uppercase mt-1">Selamat bertugas! Semangat jualannya.</p>
-              </div>
-           </div>
-        </div>
-      )}
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+      {/* TOP HEADER & SUB-NAV */}
+      <div className="bg-white border-b border-slate-200 px-4 md:px-8 py-4 shrink-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 z-30">
         <div>
-          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">My Portal</h2>
-          <p className="text-slate-500 font-medium text-[10px] uppercase tracking-widest">Employee Self-Service</p>
+          <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter leading-none">My Portal</h2>
+          <p className="text-[8px] font-black text-orange-500 uppercase tracking-[0.3em] mt-1.5">{currentUser.role} • Crew ID #{currentUser.id.slice(-6).toUpperCase()}</p>
         </div>
-        <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto no-scrollbar max-w-full w-full md:w-auto">
-           <button onClick={() => setActiveSubTab('clock')} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeSubTab === 'clock' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'text-slate-400'}`}>Clock</button>
-           <button onClick={() => setActiveSubTab('performance')} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeSubTab === 'performance' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>Performa</button>
-           <button onClick={() => setActiveSubTab('leave')} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeSubTab === 'leave' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>Cuti</button>
-           <button onClick={() => setActiveSubTab('profile')} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeSubTab === 'profile' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>Profil</button>
+        <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 w-full md:w-auto overflow-x-auto no-scrollbar">
+           {(['clock', 'performance', 'leave', 'profile'] as const).map(tab => (
+             <button key={tab} onClick={() => setActiveSubTab(tab)} className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeSubTab === tab ? 'bg-white text-orange-600 shadow-md border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}>
+               {tab === 'clock' ? 'Absensi' : tab === 'performance' ? 'Performa' : tab === 'leave' ? 'Izin/Cuti' : 'Data Profil'}
+             </button>
+           ))}
         </div>
       </div>
 
-      {activeSubTab === 'clock' && (
-        <div className="flex flex-col gap-6">
-           <div className="bg-white p-8 rounded-[32px] border-2 border-slate-100 shadow-xl flex flex-col items-center text-center relative overflow-hidden">
-              <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-slate-50 px-3 py-1 rounded-full border">
-                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                 <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Geofencing Secured</p>
-              </div>
-              
-              <div className="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center text-3xl mb-4">⏰</div>
-              <h3 className="text-lg font-black text-slate-800 uppercase mb-1">Shift Kerja</h3>
-              <div className="bg-slate-900 text-white px-4 py-1.5 rounded-full text-[10px] font-black mb-4 uppercase tracking-widest">
-                 {currentUser.shiftStartTime || '09:00'} - {currentUser.shiftEndTime || '18:00'}
-              </div>
-              
-              {!myAttendanceToday ? (
-                <button 
-                  disabled={isLocating}
-                  onClick={handleClockIn} 
-                  className={`w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all ${isLocating ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-70' : 'bg-orange-500 text-white shadow-orange-500/20 active:scale-95'}`}
-                >
-                  {isLocating ? 'MENDAPATKAN LOKASI...' : 'CHECK-IN MASUK 🚀'}
-                </button>
-              ) : (
-                <div className="w-full space-y-4">
-                   <div className="grid grid-cols-2 gap-3">
-                      <div className="p-4 bg-green-50 rounded-2xl border border-green-100">
-                         <p className="text-[8px] font-black text-green-600 uppercase mb-1">Masuk</p>
-                         <p className="text-sm font-black text-slate-800">{new Date(myAttendanceToday.clockIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-                         {myAttendanceToday.latitude && (
-                           <p className="text-[6px] font-mono text-slate-400 mt-2">LOC: {myAttendanceToday.latitude.toFixed(4)}, {myAttendanceToday.longitude?.toFixed(4)}</p>
-                         )}
-                      </div>
-                      <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                         <p className="text-[8px] font-black text-blue-600 uppercase mb-1">Pulang</p>
-                         <p className="text-sm font-black text-slate-800">{myAttendanceToday.clockOut ? new Date(myAttendanceToday.clockOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}</p>
-                      </div>
-                   </div>
-                   {!myAttendanceToday.clockOut && (
-                     <button onClick={handleClockOut} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest active:scale-95 transition-all">CHECK-OUT PULANG 👋</button>
-                   )}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8">
+        {/* VIEW: CLOCK IN/OUT */}
+        {activeSubTab === 'clock' && (
+          <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
+             <div className={`p-10 rounded-[48px] shadow-2xl text-center relative overflow-hidden transition-all duration-500 ${hasFinishedToday ? 'bg-emerald-900' : 'bg-slate-900'}`}>
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
+                <h3 className="text-sm font-black text-white/40 uppercase tracking-[0.3em] mb-8">Shift Controller</h3>
+                <div className="inline-flex items-center gap-3 bg-white/5 px-6 py-2 rounded-full mb-8 border border-white/10">
+                   <span className={`w-2.5 h-2.5 rounded-full ${hasFinishedToday ? 'bg-emerald-400' : 'bg-orange-500 animate-pulse'}`}></span>
+                   <span className="text-[11px] font-black text-white uppercase tracking-widest">{currentUser.shiftStartTime} - {currentUser.shiftEndTime}</span>
                 </div>
-              )}
-              
-              <p className="mt-6 text-[9px] text-slate-400 uppercase font-bold italic">Sesuai SOP Mozza Boy: Absensi hanya valid jika Anda berada di area outlet {activeOutlet?.name}.</p>
-           </div>
 
-           <div className={`p-8 rounded-[40px] shadow-2xl relative overflow-hidden transition-all duration-500 ${isTargetAchievedToday ? 'bg-gradient-to-br from-green-600 to-emerald-800' : 'bg-slate-900'}`}>
-              <div className="absolute top-0 right-0 p-6 opacity-20 text-5xl">
-                {isTargetAchievedToday ? '🏆' : '💰'}
-              </div>
-              <div className="relative z-10 flex flex-col h-full">
-                 <div className="flex justify-between items-start mb-6">
-                    <div>
-                       <p className={`text-[10px] font-black uppercase tracking-[0.2em] mb-1 ${isTargetAchievedToday ? 'text-green-200' : 'text-orange-500'}`}>
-                         Insentif Penjualan Hari Ini
-                       </p>
-                       <h3 className="text-3xl font-black text-white tracking-tighter">Rp {mySalesToday.toLocaleString()}</h3>
-                    </div>
-                 </div>
-
-                 <div className="space-y-4 mb-6">
-                    <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-400">
-                       <span className={isTargetAchievedToday ? 'text-green-300' : ''}>Target: Rp {targetSales.toLocaleString()}</span>
-                       <span className="text-white">{progressPercent}%</span>
-                    </div>
-                    <div className="h-3 w-full bg-white/10 rounded-full overflow-hidden shadow-inner">
-                       <div className={`h-full transition-all duration-1000 ${isTargetAchievedToday ? 'bg-green-400' : 'bg-orange-500'}`} style={{ width: `${progressPercent}%` }}></div>
-                    </div>
-                 </div>
-
-                 <div className={`p-5 rounded-3xl border-2 transition-all ${isTargetAchievedToday ? 'bg-white/10 border-white/20' : 'bg-white/5 border-dashed border-white/10'}`}>
-                    {isTargetAchievedToday ? (
-                       <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-lg">✨</div>
-                          <div>
-                             <p className="text-xs font-black text-white uppercase">Selamat! Target Tercapai</p>
-                             <p className="text-[11px] font-bold text-green-300">Bonus Rp {bonusPerTarget.toLocaleString()} telah masuk!</p>
-                          </div>
-                       </div>
-                    ) : (
-                       <div className="flex flex-col gap-1">
-                          <p className="text-[9px] font-bold text-slate-500 italic">
-                             "Cari <span className="text-white font-black">Rp {remainingToTarget.toLocaleString()}</span> lagi untuk klaim bonusmu hari ini."
-                          </p>
-                       </div>
-                    )}
-                 </div>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {activeSubTab === 'performance' && (
-        <div className="space-y-6">
-           <div className="grid grid-cols-2 gap-4">
-              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm text-center">
-                 <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Skor Disiplin</p>
-                 <h4 className="text-2xl font-black text-slate-800">{perfScore}%</h4>
-              </div>
-              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm text-center">
-                 <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Bonus Bulan Ini</p>
-                 <h4 className="text-lg font-black text-green-600">Rp {totalBonusMonth.toLocaleString()}</h4>
-              </div>
-           </div>
-           <section className="pb-20">
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Log Absensi Terakhir</h4>
-              <div className="space-y-2">
-                 {myAttendanceRecords.length === 0 ? (
-                   <div className="py-12 text-center border-2 border-dashed rounded-[32px] opacity-30">
-                      <p className="text-[9px] font-black uppercase">Belum ada riwayat absensi</p>
+                {hasFinishedToday ? (
+                   <div className="animate-in zoom-in duration-500 py-4">
+                      <div className="w-20 h-20 bg-emerald-500/20 rounded-[32px] flex items-center justify-center mx-auto mb-6 border border-emerald-400/20 shadow-inner"><span className="text-4xl">✅</span></div>
+                      <h4 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Tugas Selesai</h4>
+                      <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-[0.2em]">Data shift telah diarsipkan ✓</p>
                    </div>
-                 ) : (
-                   myAttendanceRecords.slice(0, 10).map((a, i) => (
-                    <div key={i} className="bg-white p-4 rounded-2xl border border-slate-100 flex justify-between items-center">
-                       <div className="flex gap-3 items-center">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs ${a.status === 'LATE' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
-                             {a.status === 'LATE' ? '⏳' : '✅'}
-                          </div>
-                          <div>
-                             <p className="text-[9px] font-black text-slate-800 uppercase">{new Date(a.date).toLocaleDateString()}</p>
-                             <p className="text-[8px] text-slate-400 font-bold uppercase">{new Date(a.clockIn).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
-                             {a.latitude && <p className="text-[6px] text-indigo-400 font-mono">GPS TRACKED ✓</p>}
-                          </div>
-                       </div>
-                       <span className={`text-[7px] font-black uppercase px-2 py-1 rounded-md ${a.status === 'LATE' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                          {a.status}
-                       </span>
-                    </div>
-                   ))
-                 )}
-              </div>
-           </section>
-        </div>
-      )}
+                ) : (
+                  <>
+                    {!myActiveAttendance ? (
+                      <button onClick={handleClockIn} className="w-full max-w-sm mx-auto flex items-center justify-center gap-4 py-7 bg-orange-600 text-white rounded-[32px] font-black text-xs uppercase tracking-[0.4em] shadow-2xl hover:bg-orange-500 transition-all active:scale-95 border-b-4 border-orange-800">ABSEN MASUK ➔</button>
+                    ) : (
+                      <div className="py-4">
+                         <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-white/10">
+                            <span className="text-2xl">⏳</span>
+                         </div>
+                         <h4 className="text-xl font-black text-white uppercase tracking-tighter mb-2">Shift Aktif</h4>
+                         <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-8">Dimulai pukul {formatTime(myActiveAttendance.clockIn)} WIB</p>
+                         <button onClick={() => setActiveTab?.('closing')} className="w-full max-w-sm mx-auto py-5 bg-white text-slate-900 rounded-[28px] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl active:scale-95">AKHIRI SHIFT VIA TUTUP BUKU</button>
+                      </div>
+                    )}
+                  </>
+                )}
+             </div>
 
-      {activeSubTab === 'leave' && (
-        <div className="space-y-8 pb-20">
-           <div className="bg-white p-6 rounded-[32px] border-2 border-slate-100 shadow-sm">
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Ajukan Izin Baru</h4>
-              <form onSubmit={handleLeaveSubmit} className="space-y-4">
-                 <div className="grid grid-cols-2 gap-3">
-                    <div>
-                       <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Mulai</label>
-                       <input type="date" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black" value={leaveDates.start} onChange={e => setLeaveDates({...leaveDates, start: e.target.value})} />
+             <div className="space-y-4">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] px-4">Riwayat Kehadiran Terakhir</p>
+                <div className="bg-white border border-slate-200 rounded-[32px] overflow-hidden shadow-sm">
+                   <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b">
+                         <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                            <th className="px-8 py-5">Hari / Tanggal</th>
+                            <th className="px-4 py-5">In</th>
+                            <th className="px-4 py-5">Out</th>
+                            <th className="px-8 py-5 text-right">Durasi</th>
+                         </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                         {myAttendanceRecords.slice(0, 10).map((a, i) => (
+                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                               <td className="px-8 py-4">
+                                  <p className="text-[11px] font-black text-slate-800 uppercase">{new Date(a.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'short'})}</p>
+                                  <span className={`text-[8px] font-black px-2 py-0.5 rounded-full mt-1.5 inline-block ${a.status === 'LATE' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>{a.status}</span>
+                               </td>
+                               <td className="px-4 py-4 text-[11px] font-mono font-bold text-slate-700">{formatTime(a.clockIn)}</td>
+                               <td className="px-4 py-4 text-[11px] font-mono font-bold text-slate-400">{formatTime(a.clockOut)}</td>
+                               <td className="px-8 py-4 text-right text-[11px] font-black text-slate-900 tracking-tight">{calculateDuration(a.clockIn, a.clockOut)}</td>
+                            </tr>
+                         ))}
+                      </tbody>
+                   </table>
+                   {myAttendanceRecords.length === 0 && <div className="py-20 text-center opacity-20 text-[10px] font-black uppercase italic tracking-[0.3em]">Belum Ada Data Kehadiran</div>}
+                </div>
+             </div>
+          </div>
+        )}
+
+        {/* VIEW: PERFORMANCE */}
+        {activeSubTab === 'performance' && (
+           <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-bottom-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="bg-white p-8 md:p-10 rounded-[48px] border shadow-sm relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-8 text-6xl opacity-5 group-hover:scale-110 transition-transform">🎯</div>
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase mb-8 tracking-[0.2em]">Revenue Achievement</h4>
+                    <h3 className="text-4xl font-black text-slate-900 tracking-tighter">Rp {myStats.todaySales.toLocaleString()}</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-3">Target Hari Ini: Rp {myStats.target.toLocaleString()}</p>
+                    <div className="mt-10 h-4 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
+                       <div className="h-full bg-orange-500 transition-all duration-1000 shadow-lg" style={{ width: `${myStats.progress}%` }}></div>
                     </div>
-                    <div>
-                       <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Sampai</label>
-                       <input type="date" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black" value={leaveDates.end} onChange={e => setLeaveDates({...leaveDates, end: e.target.value})} />
+                    <p className="text-right text-[9px] font-black text-orange-600 uppercase mt-3 tracking-widest">{myStats.progress}% Achieved</p>
+                 </div>
+                 <div className="bg-slate-900 p-8 md:p-10 rounded-[48px] text-white shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-[-20%] left-[-10%] w-40 h-40 bg-orange-500/10 rounded-full blur-3xl"></div>
+                    <h4 className="text-[10px] font-black text-slate-500 uppercase mb-8 tracking-[0.2em]">Discipline Score</h4>
+                    <div className="flex items-center gap-8 relative z-10">
+                       <div className="text-5xl font-black text-orange-500 tracking-tighter">{myStats.discipline}%</div>
+                       <p className="text-[10px] text-slate-400 leading-relaxed uppercase font-bold tracking-widest">Dihitung berdasarkan ketepatan waktu absen dari {myStats.totalAttend} shift terakhir.</p>
                     </div>
                  </div>
-                 <textarea className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold h-20" placeholder="Alasan izin..." value={leaveReason} onChange={e => setLeaveReason(e.target.value)} />
-                 <button 
-                    disabled={isSubmittingLeave}
-                    className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${isSubmittingLeave ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white shadow-xl'}`}
-                 >
-                    {isSubmittingLeave ? 'MENGIRIM...' : 'Kirim Pengajuan Izin'}
-                 </button>
-              </form>
+              </div>
            </div>
+        )}
 
-           <section>
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 ml-2">Riwayat Izin & Cuti</h4>
-              <div className="space-y-3">
-                 {myLeaveRequests.length === 0 ? (
-                    <div className="py-12 text-center border-2 border-dashed rounded-[32px] opacity-30">
-                       <p className="text-[9px] font-black uppercase">Belum ada riwayat pengajuan</p>
-                    </div>
-                 ) : (
-                    myLeaveRequests.map(leave => (
-                       <div key={leave.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                          <div className="flex justify-between items-start mb-3">
-                             <div>
-                                <p className="text-[11px] font-black text-slate-800 uppercase">{new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}</p>
-                                <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Diajukan: {new Date(leave.requestedAt).toLocaleDateString()}</p>
-                             </div>
-                             <span className={`px-2 py-1 rounded-lg text-[7px] font-black uppercase tracking-widest shadow-sm ${
-                                leave.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 
-                                leave.status === 'REJECTED' ? 'bg-red-100 text-red-700' : 
-                                'bg-amber-100 text-amber-700 animate-pulse border border-amber-200'
-                             }`}>
-                                {leave.status === 'PENDING' ? 'SEDANG DIPROSES' : leave.status}
-                             </span>
-                          </div>
-                          <p className="text-[10px] text-slate-500 font-medium italic">"{leave.reason}"</p>
-                       </div>
-                    ))
-                 )}
-              </div>
-           </section>
-        </div>
-      )}
-
-      {activeSubTab === 'profile' && (
-        <div className="max-w-4xl mx-auto pb-20">
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="md:col-span-1">
-                 <div className="bg-white p-8 rounded-[32px] border-2 border-slate-100 shadow-xl flex flex-col items-center text-center">
-                    <div className="relative group mb-4">
-                       <div className="w-24 h-24 rounded-[32px] overflow-hidden bg-slate-50 border-4 border-white shadow-xl">
-                          <img src={profileForm.photo || `https://api.dicebear.com/7.x/initials/svg?seed=${currentUser.name}`} alt="Profile" className="w-full h-full object-cover" />
-                       </div>
-                       <button onClick={() => fileInputRef.current?.click()} className="absolute -bottom-1 -right-1 w-8 h-8 bg-slate-900 text-white rounded-xl flex items-center justify-center shadow-lg border-2 border-white text-xs">📷</button>
-                       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if(file) {
-                             const reader = new FileReader();
-                             reader.onloadend = () => setProfileForm({...profileForm, photo: reader.result as string});
-                             reader.readAsDataURL(file);
-                          }
-                       }} />
-                    </div>
-                    <h3 className="text-lg font-black text-slate-800 uppercase leading-tight">{currentUser.name}</h3>
-                    <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">{currentUser.role}</p>
+        {/* VIEW: LEAVE */}
+        {activeSubTab === 'leave' && (
+           <div className="max-w-2xl mx-auto space-y-8 animate-in slide-in-from-bottom-2 pb-20">
+              <div className="bg-white p-8 md:p-12 rounded-[48px] border shadow-sm space-y-8">
+                 <div>
+                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Pengajuan Izin / Cuti</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Formulir resmi perizinan karyawan</p>
                  </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                       <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Mulai</label>
+                       <input type="date" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-xs focus:border-indigo-500 transition-all" value={leaveDates.start} onChange={e => setLeaveDates({...leaveDates, start: e.target.value})} />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Sampai</label>
+                       <input type="date" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-xs focus:border-indigo-500 transition-all" value={leaveDates.end} onChange={e => setLeaveDates({...leaveDates, end: e.target.value})} />
+                    </div>
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Alasan Keperluan</label>
+                    <textarea className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-xs h-32 resize-none focus:border-indigo-500 transition-all" placeholder="Tuliskan alasan lengkap..." value={leaveReason} onChange={e => setLeaveReason(e.target.value)} />
+                 </div>
+                 <button disabled={isSubmittingLeave} onClick={handleLeaveSubmit} className="w-full py-6 bg-slate-900 text-white rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl disabled:opacity-50 active:scale-95 transition-all">KIRIM FORMULIR ➔</button>
+              </div>
+              <div className="space-y-4">
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-4">Histori Pengajuan</p>
+                 {leaveRequests.filter(l => l.staffId === currentUser.id).slice(0, 5).map((l, i) => (
+                    <div key={i} className="bg-white p-6 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm">
+                       <div>
+                          <p className="text-[11px] font-black text-slate-800 uppercase leading-none">{new Date(l.startDate).toLocaleDateString()} - {new Date(l.endDate).toLocaleDateString()}</p>
+                          <p className="text-[10px] text-slate-400 italic mt-2">"{l.reason}"</p>
+                       </div>
+                       <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${l.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : l.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{l.status}</span>
+                    </div>
+                 ))}
+                 {leaveRequests.filter(l => l.staffId === currentUser.id).length === 0 && <div className="py-10 text-center opacity-20 text-[9px] font-black uppercase tracking-widest italic">Tidak Ada Pengajuan Cuti</div>}
+              </div>
+           </div>
+        )}
+
+        {/* VIEW: PROFESSIONAL PROFILE DOSSIER */}
+        {activeSubTab === 'profile' && (
+           <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-bottom-2 pb-32">
+              {/* DOSSIER HEADER */}
+              <div className="bg-white p-10 rounded-[48px] border shadow-sm flex flex-col md:flex-row items-center gap-10 relative overflow-hidden">
+                 <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 rounded-bl-[120px]"></div>
                  
-                 <div className="mt-6 bg-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 text-4xl">🗓️</div>
-                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-4">Informasi Jadwal</p>
-                    <div className="space-y-4">
-                       <div className="flex justify-between items-center border-b border-white/5 pb-3">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase">Hari Libur Rutin</span>
-                          <span className="text-xs font-black text-orange-400 uppercase tracking-wider">{days[currentUser.weeklyOffDay || 0]}</span>
-                       </div>
-                       <div className="flex justify-between items-center">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase">Jam Kerja</span>
-                          <span className="text-xs font-black text-white">{currentUser.shiftStartTime} - {currentUser.shiftEndTime}</span>
+                 <div className="w-36 h-36 rounded-[48px] overflow-hidden bg-slate-100 border-4 border-white shadow-2xl shrink-0 relative group">
+                    <img src={profileForm.photo || `https://api.dicebear.com/7.x/initials/svg?seed=${currentUser.name}`} className="w-full h-full object-cover" alt="Profile" />
+                    <button onClick={() => fileInputRef.current?.click()} className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[9px] font-black uppercase gap-2">
+                       <span>📷</span>
+                       <span>Ganti Foto</span>
+                    </button>
+                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => {
+                       const file = e.target.files?.[0];
+                       if(file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => setProfileForm({...profileForm, photo: reader.result as string});
+                          reader.readAsDataURL(file);
+                       }
+                    }} />
+                 </div>
+
+                 <div className="flex-1 text-center md:text-left space-y-3">
+                    <div className="inline-flex items-center gap-2 bg-orange-100 px-3 py-1 rounded-full border border-orange-200">
+                       <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                       <span className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Verified Crew Member</span>
+                    </div>
+                    <h3 className="text-4xl font-black text-slate-900 uppercase tracking-tighter leading-none">{currentUser.name}</h3>
+                    <div className="flex flex-wrap justify-center md:justify-start gap-4">
+                       <div className="flex items-center gap-2">
+                          <span className="text-[10px]">🗓️</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bergabung: {new Date(currentUser.joinedAt).toLocaleDateString('id-ID', {year:'numeric', month:'long', day:'numeric'})}</span>
                        </div>
                     </div>
                  </div>
               </div>
 
-              <div className="md:col-span-2 space-y-6">
-                 <div className="bg-white p-6 md:p-8 rounded-[40px] border border-slate-100 shadow-sm space-y-8">
-                    <section>
-                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Identitas Utama</h4>
-                       <div className="grid grid-cols-1 gap-4">
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Nama Lengkap (Sesuai KTP)</label>
-                             <input 
-                               type="text" 
-                               className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-sm focus:border-orange-500 outline-none transition-all" 
-                               value={profileForm.name || ''} 
-                               onChange={e => setProfileForm({...profileForm, name: e.target.value})} 
-                               placeholder="Nama Lengkap"
-                             />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                 {/* GROUP 1: PERSONAL & CONTACT */}
+                 <div className="space-y-6">
+                    <div className="flex items-center gap-3 px-2">
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Personal Identity</h4>
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                    </div>
+                    <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-5">
+                       <ProfileInput label="Nomor WhatsApp" icon="📱" value={profileForm.phone} onChange={(v:any) => setProfileForm({...profileForm, phone: v})} placeholder="0812xxxx" />
+                       <ProfileInput label="Alamat Email" icon="📧" value={profileForm.email} onChange={(v:any) => setProfileForm({...profileForm, email: v})} placeholder="nama@mozzaboy.com" type="email" />
+                       <div className="space-y-1.5">
+                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Alamat Tinggal</label>
+                         <textarea 
+                           className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-[11px] h-24 focus:border-orange-500 outline-none text-slate-900 resize-none"
+                           value={profileForm.address || ''}
+                           onChange={e => setProfileForm({...profileForm, address: e.target.value})}
+                           placeholder="Alamat lengkap sesuai KTP..."
+                         />
+                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 px-2 mt-10">
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Social Networks</h4>
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                    </div>
+                    <div className="bg-white p-8 rounded-[40px] border shadow-sm grid grid-cols-1 gap-4">
+                       <ProfileInput label="Instagram" icon="📸" value={profileForm.instagram} onChange={(v:any) => setProfileForm({...profileForm, instagram: v})} placeholder="@username" />
+                       <ProfileInput label="Telegram" icon="✈️" value={profileForm.telegram} onChange={(v:any) => setProfileForm({...profileForm, telegram: v})} placeholder="@username" />
+                       <ProfileInput label="TikTok" icon="🎵" value={profileForm.tiktok} onChange={(v:any) => setProfileForm({...profileForm, tiktok: v})} placeholder="@username" />
+                    </div>
+                 </div>
+
+                 {/* GROUP 2: JOB & EMERGENCY */}
+                 <div className="space-y-6">
+                    <div className="flex items-center gap-3 px-2">
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Employment Details</h4>
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                    </div>
+                    <div className="bg-slate-900 p-8 rounded-[40px] shadow-2xl space-y-6">
+                       <div className="flex justify-between items-center border-b border-white/5 pb-4">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Jabatan Sekarang</p>
+                          <p className="text-[11px] font-black text-orange-500 uppercase">{currentUser.role}</p>
+                       </div>
+                       <div className="space-y-2">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Cabang Terdaftar</p>
+                          <div className="flex flex-wrap gap-2">
+                             {currentUser.assignedOutletIds.map(oid => (
+                                <span key={oid} className="bg-white/10 text-white px-3 py-1 rounded-lg text-[9px] font-black uppercase border border-white/5">{outlets.find(o=>o.id===oid)?.name}</span>
+                             ))}
                           </div>
                        </div>
-                    </section>
-
-                    <section className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100">
-                       <h4 className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-4 border-b border-indigo-100 pb-2">Keamanan & Akses Akun</h4>
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Username Login</label>
-                             <input type="text" disabled className="w-full p-3 bg-slate-100 border rounded-xl font-bold text-xs opacity-60" value={currentUser.username} />
+                       <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                             <p className="text-[7px] font-black text-slate-500 uppercase mb-1">Mulai Shift</p>
+                             <p className="text-sm font-black text-white">{currentUser.shiftStartTime} WIB</p>
                           </div>
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Ganti Password</label>
-                             <input type="password" title="password" className="w-full p-3 bg-white border rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={profileForm.password || ''} onChange={e => setProfileForm({...profileForm, password: e.target.value})} placeholder="Masukkan password baru" />
+                          <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                             <p className="text-[7px] font-black text-slate-500 uppercase mb-1">Selesai Shift</p>
+                             <p className="text-sm font-black text-white">{currentUser.shiftEndTime} WIB</p>
                           </div>
                        </div>
-                    </section>
+                    </div>
 
-                    <section>
-                       <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b pb-2">Kontak & Domisili</h4>
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">No. WhatsApp</label>
-                             <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.phone || ''} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} />
-                          </div>
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Email</label>
-                             <input type="email" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={profileForm.email || ''} onChange={e => setProfileForm({...profileForm, email: e.target.value})} />
-                          </div>
-                          <div className="md:col-span-2">
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Alamat Domisili</label>
-                             <textarea title="address" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs h-16" value={profileForm.address || ''} onChange={e => setProfileForm({...profileForm, address: e.target.value})} />
-                          </div>
-                       </div>
-                    </section>
+                    <div className="flex items-center gap-3 px-2 mt-10">
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                       <h4 className="text-[10px] font-black text-red-400 uppercase tracking-[0.3em]">Emergency Contact</h4>
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                    </div>
+                    <div className="bg-red-50 p-8 rounded-[40px] border-2 border-red-100 space-y-5">
+                       <ProfileInput label="Nama Kontak Darurat" icon="🆘" value={profileForm.emergencyContactName} onChange={(v:any) => setProfileForm({...profileForm, emergencyContactName: v})} placeholder="Ibu / Ayah / Saudara" />
+                       <ProfileInput label="HP Kontak Darurat" icon="☎️" value={profileForm.emergencyContactPhone} onChange={(v:any) => setProfileForm({...profileForm, emergencyContactPhone: v})} placeholder="08xxxx" />
+                    </div>
 
-                    <section className="p-5 bg-orange-50/50 rounded-3xl border border-orange-100">
-                       <h4 className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-4 border-b border-orange-100 pb-2">Kontak Darurat (Urgent)</h4>
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Nama Orang Terdekat</label>
-                             <input type="text" className="w-full p-3 bg-white border rounded-xl font-bold text-xs" value={profileForm.emergencyContactName || ''} onChange={e => setProfileForm({...profileForm, emergencyContactName: e.target.value})} placeholder="Misal: Ayah / Ibu / Istri" />
-                          </div>
-                          <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase ml-1">No. HP Orang Terdekat</label>
-                             <input type="text" className="w-full p-3 bg-white border rounded-xl font-bold text-xs" value={profileForm.emergencyContactPhone || ''} onChange={e => setProfileForm({...profileForm, emergencyContactPhone: e.target.value})} placeholder="0812..." />
-                          </div>
-                       </div>
-                    </section>
-
-                    <button disabled={isSavingProfile} onClick={handleSaveProfile} className={`w-full py-5 rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl transition-all ${isSavingProfile ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white hover:bg-orange-600'}`}>
-                       {isSavingProfile ? 'MEMPROSES...' : 'SIMPAN PERUBAHAN PROFIL 💾'}
-                    </button>
+                    <div className="flex items-center gap-3 px-2 mt-10">
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Account Settings</h4>
+                       <div className="h-px flex-1 bg-slate-200"></div>
+                    </div>
+                    <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-5">
+                       <ProfileInput label="Username Login" icon="🔑" value={currentUser.username} disabled />
+                       <ProfileInput label="Update Password" icon="🛡️" value={profileForm.password} onChange={(v:any) => setProfileForm({...profileForm, password: v})} type="password" placeholder="Minimal 6 karakter" />
+                    </div>
                  </div>
               </div>
+
+              <div className="fixed bottom-24 left-0 right-0 px-6 md:static md:px-0 z-50">
+                 <button 
+                  disabled={isSavingProfile} 
+                  onClick={handleSaveProfile} 
+                  className="w-full max-w-4xl mx-auto py-6 bg-slate-900 text-white rounded-[32px] font-black text-xs uppercase tracking-[0.4em] shadow-2xl shadow-slate-900/40 active:scale-[0.98] transition-all flex items-center justify-center gap-4 border-b-4 border-slate-700"
+                 >
+                   {isSavingProfile ? (
+                     <><div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> MENYIMPAN...</>
+                   ) : "SIMPAN DOSSIER PROFIL 💾"}
+                 </button>
+              </div>
            </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };

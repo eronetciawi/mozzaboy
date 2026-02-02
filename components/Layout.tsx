@@ -24,13 +24,16 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer }) => {
-  const { currentUser, logout, stockRequests, selectedOutletId, connectedPrinter } = useApp();
+  const { currentUser, logout, stockRequests, selectedOutletId, connectedPrinter, leaveRequests } = useApp();
   
   if (!currentUser) return null;
 
   const { permissions } = currentUser;
   const isCashier = currentUser.role === UserRole.CASHIER;
-  const pendingRequestsCount = stockRequests.filter(r => (selectedOutletId === 'all' || r.outletId === selectedOutletId) && r.status === 'PENDING').length;
+  const isAdmin = currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER;
+  
+  const pendingRequestsCount = (stockRequests || []).filter(r => (selectedOutletId === 'all' || r.outletId === selectedOutletId) && r.status === 'PENDING').length;
+  const pendingLeavesCount = (leaveRequests || []).filter(l => l.status === 'PENDING').length;
 
   const menuGroups: MenuGroup[] = [
     {
@@ -71,7 +74,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
     {
       label: 'Pengaturan',
       items: [
-        { id: 'staff', label: 'Karyawan', icon: '👥', visible: permissions.canManageStaff },
+        { id: 'staff', label: 'Karyawan', icon: '👥', visible: permissions.canManageStaff, badge: (isAdmin && pendingLeavesCount > 0) ? pendingLeavesCount : null },
         { id: 'outlets', label: 'Daftar Cabang', icon: '🏢', visible: currentUser.role === UserRole.OWNER },
         { id: 'printer', label: 'Printer BT', icon: '🖨️', visible: true, status: connectedPrinter ? 'connected' : 'none' },
         { id: 'maintenance', label: 'Maintenance', icon: '🛠️', visible: currentUser.role === UserRole.OWNER },
@@ -113,7 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
                 >
                   <span className="text-base">{item.icon}</span>
                   <span className="text-[10px] uppercase font-black tracking-widest flex-1 text-left">{item.label}</span>
-                  {item.badge && <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full ring-2 ring-slate-900">{item.badge}</span>}
+                  {item.badge && <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full ring-2 ring-slate-900 animate-pulse">{item.badge}</span>}
                 </button>
               ))}
             </div>

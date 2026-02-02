@@ -24,7 +24,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const [memberQuery, setMemberQuery] = useState('');
   const [redeemPoints, setRedeemPoints] = useState(0);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
-  const [isLocating, setIsLocating] = useState(false);
 
   const isClockedInToday = useMemo(() => {
     if (!currentUser) return true;
@@ -43,7 +42,9 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     );
   }, [dailyClosings, selectedOutletId, currentUser]);
 
+  // FIXED: Added defensive checks to prevent white screen if inventory items are missing
   const checkStock = (p: Product): boolean => {
+    if (!p) return false;
     if (p.isCombo && p.comboItems) {
       return (p.comboItems || []).every(ci => {
         const subP = products.find(sp => sp.id === ci.productId);
@@ -52,7 +53,8 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     }
     return (p.bom || []).every(b => {
       const template = inventory.find(inv => inv.id === b.inventoryItemId);
-      const real = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === template?.name);
+      if (!template) return false; // Safety check
+      const real = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === template.name);
       return (real?.quantity || 0) >= b.quantity;
     });
   };
@@ -65,7 +67,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
            p.name.toLowerCase().includes(search.toLowerCase());
   });
 
-  const getPrice = (p: Product) => p.outletSettings?.[selectedOutletId]?.price || p.price;
+  const getPrice = (p: Product) => p?.outletSettings?.[selectedOutletId]?.price || p?.price || 0;
 
   const subtotal = cart.reduce((sum, item) => sum + (getPrice(item.product) * item.quantity), 0);
   const totalQty = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -82,16 +84,21 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const pointDiscountValue = redeemPoints * loyaltyConfig.redemptionValuePerPoint;
   const total = Math.max(0, subtotal - appliedTierDiscount - appliedBulkDiscount - pointDiscountValue);
 
-  const handleCheckout = (method: PaymentMethod) => {
+  const handleCheckout = async (method: PaymentMethod) => {
     if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
     if (!isClockedInToday && currentUser?.role !== UserRole.OWNER) {
        return alert("Wajib Absen Masuk Terlebih Dahulu!");
     }
-    checkout(method, redeemPoints, appliedTierDiscount, appliedBulkDiscount);
-    setShowCheckout(false);
-    setRedeemPoints(0);
-    setMobileView('menu');
-    setShowSuccessToast(true);
+    
+    try {
+      await checkout(method, redeemPoints, appliedTierDiscount, appliedBulkDiscount);
+      setShowCheckout(false);
+      setRedeemPoints(0);
+      setMobileView('menu');
+      setShowSuccessToast(true);
+    } catch (err) {
+      alert("Terjadi kesalahan saat memproses pembayaran. Silakan coba lagi.");
+    }
   };
 
   useEffect(() => {
@@ -119,7 +126,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
       {/* LEFT: PRODUCTS GRID */}
       <div className={`flex-1 flex flex-col min-w-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
-        {/* TOP BAR: SEARCH & FILTERS & SHORTCUTS */}
         <div className="px-4 py-3 md:px-6 md:py-4 bg-white border-b border-slate-100 shrink-0 z-20 space-y-3">
           <div className="flex gap-2 items-center">
             <div className="relative flex-1">
@@ -133,19 +139,14 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             </div>
             
             <div className="flex gap-1.5 shrink-0">
-               {/* SHORTCUT PRODUKSI */}
                <button onClick={() => setActiveTab('production')} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-all flex flex-col items-center justify-center min-w-[50px]">
                   <span className="text-sm">🧪</span>
                   <span className="text-[7px] font-black uppercase mt-0.5">MIX</span>
                </button>
-               
-               {/* SHORTCUT BELANJA */}
                <button onClick={() => setActiveTab('purchases')} className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100 hover:bg-emerald-100 transition-all flex flex-col items-center justify-center min-w-[50px]">
                   <span className="text-sm">🚚</span>
                   <span className="text-[7px] font-black uppercase mt-0.5">STOK</span>
                </button>
-
-               {/* MEMBER BUTTON */}
                <button onClick={() => setShowMemberModal(true)} className={`p-2.5 rounded-xl border transition-all flex flex-col items-center justify-center min-w-[50px] ${currentCustomer ? 'bg-orange-500 border-orange-600 text-white shadow-lg shadow-orange-200' : 'bg-white border-slate-200 text-slate-400 hover:border-orange-500'}`}>
                   <span className="text-sm">👤</span>
                   <span className="text-[7px] font-black uppercase mt-0.5">{currentCustomer ? 'MEMBER' : 'JOIN'}</span>
@@ -161,7 +162,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           </div>
         </div>
 
-        {/* RESPONSIVE GRID - BACKGROUND SLATE 50 UNTUK KONTRAS HALUS */}
         <div className="flex-1 bg-slate-50/50 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-32 md:pb-6 touch-pan-y">
            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 md:gap-4">
             {filteredProducts.map(product => {
@@ -221,7 +221,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
            <button onClick={() => setMobileView('menu')} className="md:hidden w-8 h-8 flex items-center justify-center bg-slate-100 rounded-xl text-xs font-black">✕</button>
         </div>
 
-        {/* CART LIST */}
         <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-2 custom-scrollbar">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center opacity-10 text-center py-20">
@@ -248,7 +247,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           )}
         </div>
 
-        {/* BILL SUMMARY */}
         <div className="p-6 md:p-8 bg-white border-t border-slate-200 space-y-5 rounded-t-[40px] shadow-[0_-15px_40px_rgba(0,0,0,0.04)]">
           <div className="space-y-2">
              <div className="flex justify-between text-[10px] font-black uppercase text-slate-400 tracking-widest">

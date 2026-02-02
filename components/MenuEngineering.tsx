@@ -55,10 +55,11 @@ export const MenuEngineering: React.FC = () => {
     alert("Projek berhasil disimpan.");
   };
 
+  // LOGIKA KALKULASI HPP PER BARIS
   const rowCalculations = useMemo(() => {
     return simBOM.map(row => {
-      const effectiveIsi = row.packageSize * (row.yieldPercent / 100);
-      const modal = effectiveIsi > 0 ? (row.purchasePrice / effectiveIsi) * row.recipeQty : 0;
+      const effectiveIsi = (row.packageSize ?? 1) * ((row.yieldPercent ?? 100) / 100);
+      const modal = effectiveIsi > 0 ? ((row.purchasePrice ?? 0) / effectiveIsi) * (row.recipeQty ?? 0) : 0;
       return { ...row, modal };
     });
   }, [simBOM]);
@@ -84,7 +85,7 @@ export const MenuEngineering: React.FC = () => {
       id: Math.random().toString(36).substr(2,9), 
       name: invItem ? invItem.name : '', 
       purchasePrice: invItem ? (invItem.costPerUnit || 0) : 0, 
-      packageSize: 1, 
+      packageSize: invItem ? (invItem.unit === 'kg' ? 1000 : 1) : 1, 
       yieldPercent: 100, 
       recipeQty: 0, 
       unit: invItem ? invItem.unit : 'gr'
@@ -134,7 +135,6 @@ export const MenuEngineering: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden text-slate-700 font-sans">
-      {/* HEADER UTAMA */}
       <div className="h-14 border-b border-slate-200 px-4 md:px-6 flex items-center justify-between shrink-0 no-print bg-white z-20 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
@@ -165,7 +165,6 @@ export const MenuEngineering: React.FC = () => {
 
       {activeSubTab === 'audit' && (
         <div className="flex-1 p-4 md:p-6 overflow-y-auto custom-scrollbar">
-           {/* Summary Cards Audit */}
            <div className="max-w-7xl mx-auto space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                  {[
@@ -184,7 +183,6 @@ export const MenuEngineering: React.FC = () => {
                  ))}
               </div>
 
-              {/* Table Audit */}
               <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left min-w-[600px]">
@@ -227,11 +225,8 @@ export const MenuEngineering: React.FC = () => {
               </div>
            ) : (
              <>
-               {/* KOLOM 1: WORKSHEET (DAFTAR BAHAN) */}
-               <div className="flex-[3] flex flex-col bg-white overflow-hidden border-r border-slate-200">
-                  {/* PERSISTENT HEADER WORKSHEET */}
+               <div className="flex-[4] flex flex-col bg-white overflow-hidden border-r border-slate-200">
                   <div className="shrink-0 bg-white z-10 border-b">
-                      {/* Name Input */}
                       <div className="px-4 py-4 md:px-8 flex justify-between items-center gap-4">
                          <input 
                             type="text"
@@ -246,7 +241,6 @@ export const MenuEngineering: React.FC = () => {
                          </div>
                       </div>
 
-                      {/* TOMBOL TAMBAH BAHAN - SELALU TERLIHAT DI MOBILE */}
                       <div className="px-4 py-3 bg-slate-50 flex gap-2 md:px-8 border-t border-slate-100">
                          <button 
                            onClick={() => setShowItemPicker(true)}
@@ -263,46 +257,51 @@ export const MenuEngineering: React.FC = () => {
                       </div>
                   </div>
 
-                  {/* DAFTAR BAHAN BAKU (SCROLLABLE) */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 space-y-4 pb-32">
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-2 md:p-6 space-y-3 pb-32">
                      {simBOM.length === 0 ? (
                         <div className="py-16 text-center space-y-4">
                            <p className="text-slate-300 font-black uppercase text-[10px] italic">Belum ada bahan baku</p>
-                           <div className="flex flex-col gap-2 max-w-[200px] mx-auto opacity-50">
-                              <button onClick={() => setShowItemPicker(true)} className="py-3 border-2 border-dashed rounded-2xl text-[9px] font-black uppercase">Ambil dari Gudang</button>
-                              <button onClick={() => addSimRow()} className="py-3 border-2 border-dashed rounded-2xl text-[9px] font-black uppercase">Input Manual</button>
-                           </div>
                         </div>
                      ) : (
                         rowCalculations.map((row) => (
-                           <div key={row.id} className="bg-white border-2 border-slate-100 rounded-3xl p-4 md:p-6 shadow-sm hover:border-indigo-200 transition-all space-y-4 relative overflow-hidden group">
+                           <div key={row.id} className="bg-white border border-slate-200 rounded-[24px] p-4 md:p-5 shadow-sm hover:border-indigo-300 transition-all space-y-4 relative overflow-hidden group">
                               <button onClick={() => setSimBOM(prev => prev.filter(s => s.id !== row.id))} className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500">✕</button>
                               
-                              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-                                 <div className="md:col-span-2">
-                                    <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Nama Bahan Baku</label>
-                                    <input type="text" className="w-full bg-slate-50 p-3 rounded-xl font-black text-xs uppercase outline-none focus:ring-2 focus:ring-indigo-200" value={row.name} onChange={e => updateSimRow(row.id, 'name', e.target.value)} />
+                              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                                 {/* NAMA BAHAN */}
+                                 <div className="lg:col-span-3">
+                                    <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Harga Bahan Baku</label>
+                                    <input type="text" className="w-full bg-slate-50 p-2.5 rounded-lg font-black text-[10px] uppercase outline-none focus:ring-2 focus:ring-indigo-200" value={row.name} onChange={e => updateSimRow(row.id, 'name', e.target.value)} placeholder="Nama..." />
                                  </div>
                                  
-                                 <div className="grid grid-cols-2 md:grid-cols-4 md:col-span-4 gap-3">
+                                 <div className="grid grid-cols-2 md:grid-cols-5 lg:col-span-9 gap-2">
+                                    {/* HARGA BELI */}
                                     <div>
-                                       <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Harga Beli</label>
-                                       <input type="number" className="w-full bg-slate-50 p-3 rounded-xl font-black text-xs outline-none" value={row.purchasePrice} onChange={e => updateSimRow(row.id, 'purchasePrice', parseFloat(e.target.value) || 0)} />
+                                       <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Harga Beli (Rp)</label>
+                                       <input type="number" className="w-full bg-slate-50 p-2.5 rounded-lg font-black text-[10px] outline-none" value={row.purchasePrice} onChange={e => updateSimRow(row.id, 'purchasePrice', parseFloat(e.target.value) || 0)} />
                                     </div>
+                                    {/* ISI */}
                                     <div>
-                                       <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Porsi/Yield%</label>
-                                       <div className="flex items-center bg-slate-50 rounded-xl px-2">
-                                          <input type="number" className="w-full bg-transparent p-3 font-black text-xs outline-none text-indigo-600" value={row.yieldPercent} onChange={e => updateSimRow(row.id, 'yieldPercent', parseFloat(e.target.value) || 100)} />
-                                          <span className="text-[9px] font-black text-slate-300">%</span>
+                                       <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Isi (Gram/Unit)</label>
+                                       <input type="number" className="w-full bg-slate-50 p-2.5 rounded-lg font-black text-[10px] outline-none" value={row.packageSize} onChange={e => updateSimRow(row.id, 'packageSize', parseFloat(e.target.value) || 1)} />
+                                    </div>
+                                    {/* PEMANFAATAN */}
+                                    <div>
+                                       <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Pemanfaatan (%)</label>
+                                       <div className="flex items-center bg-slate-50 rounded-lg px-2">
+                                          <input type="number" className="w-full bg-transparent p-2 font-black text-[10px] outline-none text-indigo-600" value={row.yieldPercent} onChange={e => updateSimRow(row.id, 'yieldPercent', parseFloat(e.target.value) || 100)} />
+                                          <span className="text-[8px] font-black text-slate-300">%</span>
                                        </div>
                                     </div>
+                                    {/* TAKARAN */}
                                     <div>
                                        <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Takaran</label>
-                                       <input type="number" className="w-full bg-indigo-50 border border-indigo-100 p-3 rounded-xl font-black text-xs text-indigo-700 outline-none" value={row.recipeQty} onChange={e => updateSimRow(row.id, 'recipeQty', parseFloat(e.target.value) || 0)} />
+                                       <input type="number" className="w-full bg-indigo-50 border border-indigo-100 p-2.5 rounded-lg font-black text-[10px] text-indigo-700 outline-none" value={row.recipeQty} onChange={e => updateSimRow(row.id, 'recipeQty', parseFloat(e.target.value) || 0)} />
                                     </div>
+                                    {/* TOTAL HPP BARIS */}
                                     <div className="text-right">
                                        <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Total HPP</label>
-                                       <p className="text-sm font-black text-slate-900 pt-2">Rp {Math.round(row.modal).toLocaleString()}</p>
+                                       <p className="text-[12px] font-black text-slate-900 pt-1.5 truncate">Rp {Math.round(row.modal).toLocaleString()}</p>
                                     </div>
                                  </div>
                               </div>
@@ -312,7 +311,6 @@ export const MenuEngineering: React.FC = () => {
                   </div>
                </div>
 
-               {/* KOLOM 2: ANALYTICS (SUMMARY) */}
                <div className="flex-1 bg-slate-50 border-l border-slate-200 overflow-y-auto p-6 space-y-6 shrink-0 custom-scrollbar pb-40">
                   <div className="flex justify-between items-center mb-2">
                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Revenue Forecast</h4>
@@ -346,7 +344,6 @@ export const MenuEngineering: React.FC = () => {
                      </div>
                   </div>
 
-                  {/* Food Cost Indicator */}
                   <div className="bg-slate-900 p-6 rounded-[32px] text-white shadow-xl">
                      <div className="flex justify-between items-end mb-4">
                         <div>
@@ -361,7 +358,6 @@ export const MenuEngineering: React.FC = () => {
                   </div>
                </div>
 
-               {/* MOBILE STICKY FOOTER SUMMARY */}
                <div className="md:hidden fixed bottom-[64px] left-0 right-0 bg-white border-t border-slate-200 p-4 flex justify-between items-center z-40 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
                   <div>
                      <p className="text-[7px] font-black text-slate-400 uppercase">Est. Net Margin</p>
@@ -385,13 +381,13 @@ export const MenuEngineering: React.FC = () => {
                   <h3 className="text-white font-black uppercase text-lg tracking-tighter">Pilih Bahan Baku</h3>
                   <p className="text-indigo-400 text-[9px] font-black uppercase tracking-widest">Master Data Gudang Aktif</p>
                </div>
-               <button onClick={() => setShowItemPicker(false)} className="w-10 h-10 bg-white/10 text-white rounded-full flex items-center justify-center">✕</button>
+               <button onClick={() => setShowItemPicker(false)} className="w-10 h-10 bg-white/10 text-white rounded-full flex items-center justify-center text-xl">✕</button>
             </div>
             <input 
                autoFocus
                type="text" 
                placeholder="Ketik nama bahan..." 
-               className="w-full p-5 bg-white rounded-2xl font-black text-xl mb-6 outline-none border-4 border-indigo-500 shadow-2xl"
+               className="w-full p-5 bg-white rounded-2xl font-black text-xl mb-6 outline-none border-4 border-indigo-50 shadow-2xl text-slate-900"
                value={pickerQuery}
                onChange={e => setPickerQuery(e.target.value)}
             />

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../store';
 import { Expense, ExpenseType, UserRole } from '../types';
 
@@ -7,7 +7,7 @@ export const ExpenseManagement: React.FC = () => {
   const { 
     expenses, expenseTypes, addExpense, updateExpense, deleteExpense, 
     addExpenseType, updateExpenseType, deleteExpenseType, 
-    currentUser, selectedOutletId, outlets 
+    currentUser, selectedOutletId, outlets, isSaving 
   } = useApp();
   
   const [showAddModal, setShowAddModal] = useState(false);
@@ -15,6 +15,9 @@ export const ExpenseManagement: React.FC = () => {
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   
+  // Toast Notification State
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | null }>({ message: '', type: null });
+
   // State for Managing Expense Types
   const [typeToDelete, setTypeToDelete] = useState<ExpenseType | null>(null);
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
@@ -22,6 +25,14 @@ export const ExpenseManagement: React.FC = () => {
   const [newTypeName, setNewTypeName] = useState('');
 
   const [newExpense, setNewExpense] = useState({ typeId: '', amount: 0, notes: '' });
+
+  // Auto-hide toast
+  useEffect(() => {
+    if (toast.type) {
+      const timer = setTimeout(() => setToast({ message: '', type: null }), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   const isAdmin = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
@@ -37,29 +48,39 @@ export const ExpenseManagement: React.FC = () => {
   };
 
   const handleOpenEdit = (exp: Expense) => {
-    if (!isAdmin) return; // Guard
+    if (!isAdmin) return;
     setEditingExpense(exp);
     setNewExpense({ typeId: exp.typeId, amount: exp.amount, notes: exp.notes });
     setShowAddModal(true);
   };
 
-  const handleSaveExpense = () => {
-    if (newExpense.typeId && newExpense.amount > 0) {
+  const handleSaveExpense = async () => {
+    if (!newExpense.typeId || newExpense.amount <= 0) {
+        setToast({ message: "Lengkapi kategori dan nominal!", type: 'error' });
+        return;
+    }
+    
+    try {
       if (editingExpense) {
-        updateExpense(editingExpense.id, newExpense);
+        await updateExpense(editingExpense.id, newExpense);
+        setToast({ message: "Catatan biaya berhasil diperbarui! ✨", type: 'success' });
       } else {
-        addExpense(newExpense);
+        await addExpense(newExpense);
+        setToast({ message: "Pengeluaran berhasil dicatat! 💸", type: 'success' });
       }
       setShowAddModal(false);
       setEditingExpense(null);
       setNewExpense({ typeId: '', amount: 0, notes: '' });
+    } catch (err) {
+      setToast({ message: "Gagal menyimpan ke database.", type: 'error' });
     }
   };
 
-  const handleAddType = () => {
+  const handleAddType = async () => {
     if (newTypeName) {
-      addExpenseType(newTypeName);
+      await addExpenseType(newTypeName);
       setNewTypeName('');
+      setToast({ message: "Kategori biaya ditambahkan.", type: 'success' });
     }
   };
 
@@ -73,6 +94,7 @@ export const ExpenseManagement: React.FC = () => {
       await updateExpenseType(editingTypeId, editingTypeName);
       setEditingTypeId(null);
       setEditingTypeName('');
+      setToast({ message: "Kategori biaya diperbarui.", type: 'success' });
     }
   };
 
@@ -80,16 +102,47 @@ export const ExpenseManagement: React.FC = () => {
     if (typeToDelete) {
       const isUsed = expenses.some(e => e.typeId === typeToDelete.id);
       if (isUsed) {
-        alert(`Kategori "${typeToDelete.name}" tidak dapat dihapus karena sudah memiliki riwayat catatan biaya.`);
+        setToast({ message: "Kategori masih digunakan di transaksi!", type: 'error' });
       } else {
         await deleteExpenseType(typeToDelete.id);
+        setToast({ message: "Kategori berhasil dihapus.", type: 'success' });
       }
       setTypeToDelete(null);
     }
   };
 
+  const handleDeleteRecord = async () => {
+    if (expenseToDelete) {
+        try {
+            await deleteExpense(expenseToDelete.id);
+            setToast({ message: "Catatan pengeluaran telah dihapus.", type: 'success' });
+            setExpenseToDelete(null);
+        } catch (err) {
+            setToast({ message: "Gagal menghapus data.", type: 'error' });
+        }
+    }
+  };
+
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
+    <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8 relative">
+      
+      {/* GLOBAL TOAST NOTIFICATION */}
+      {toast.type && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500 w-full max-w-sm px-4">
+           <div className={`px-6 py-4 rounded-[28px] shadow-2xl flex items-center gap-4 border-2 ${
+             toast.type === 'success' ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-rose-600 border-rose-400 text-white'
+           }`}>
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl shrink-0">
+                {toast.type === 'success' ? '✅' : '❌'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">Audit Keuangan</p>
+                <p className="text-[11px] font-bold opacity-95 uppercase leading-tight">{toast.message}</p>
+              </div>
+           </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Pengeluaran Cabang</h2>
@@ -174,10 +227,8 @@ export const ExpenseManagement: React.FC = () => {
                       <p className="text-[7px] font-black text-slate-300 uppercase tracking-tighter">{exp.staffName.split(' ')[0]}</p>
                    </div>
                    
-                   {/* KEAMANAN: Hanya Admin (Manager/Owner) yang bisa melihat tombol aksi */}
                    {isAdmin && (
                      <div className="flex gap-1">
-                        {/* Tombol Edit: Disembunyikan jika data belanja otomatis (isAuto) */}
                         {!isAuto && (
                           <button onClick={() => handleOpenEdit(exp)} className="w-8 h-8 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center text-xs hover:bg-blue-500 hover:text-white transition-all">✏️</button>
                         )}
@@ -185,7 +236,6 @@ export const ExpenseManagement: React.FC = () => {
                      </div>
                    )}
                    
-                   {/* Feedback untuk Kasir: Menunjukkan data terkunci */}
                    {!isAdmin && (
                       <div className="w-8 h-8 flex items-center justify-center text-slate-200">
                          <span className="text-sm">🔒</span>
@@ -242,10 +292,11 @@ export const ExpenseManagement: React.FC = () => {
                 />
               </div>
               <button 
+                disabled={isSaving}
                 onClick={handleSaveExpense} 
-                className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-orange-600 transition-all active:scale-95"
+                className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-orange-600 transition-all active:scale-95 disabled:opacity-50"
               >
-                {editingExpense ? 'UPDATE DATA BIAYA 💾' : 'SIMPAN PENGELUARAN 💾'}
+                {isSaving ? 'SEDANG MENYIMPAN...' : (editingExpense ? 'UPDATE DATA BIAYA 💾' : 'SIMPAN PENGELUARAN 💾')}
               </button>
             </div>
             <div className="h-safe-bottom md:hidden"></div>
@@ -320,7 +371,13 @@ export const ExpenseManagement: React.FC = () => {
               <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Catatan?</h3>
               <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">Data pengeluaran senilai <span className="text-red-600 font-black">Rp {expenseToDelete.amount.toLocaleString()}</span> akan hilang permanen.</p>
               <div className="flex flex-col gap-3">
-                 <button onClick={() => { deleteExpense(expenseToDelete.id); setExpenseToDelete(null); }} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700">IYA, HAPUS</button>
+                 <button 
+                    disabled={isSaving}
+                    onClick={handleDeleteRecord} 
+                    className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700 disabled:opacity-50"
+                 >
+                    {isSaving ? 'MENGHAPUS...' : 'IYA, HAPUS'}
+                 </button>
                  <button onClick={() => setExpenseToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
               </div>
            </div>

@@ -17,7 +17,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const { 
     inventory = [], selectedOutletId, outlets = [], processProduction, 
     wipRecipes = [], addWIPRecipe, updateWIPRecipe, deleteWIPRecipe, productionRecords = [],
-    currentUser, fetchFromCloud
+    currentUser, fetchFromCloud, isSaving
   } = useApp();
   
   const [activeSubTab, setActiveSubTab] = useState<'recipes' | 'logs'>('recipes');
@@ -26,6 +26,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const [isEditingMode, setIsEditingMode] = useState(false);
   const [view, setView] = useState<'list' | 'form'>('list');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [isProcessingLocal, setIsProcessingLocal] = useState(false);
   
   // Form State
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
@@ -110,6 +111,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
 
   const saveMaster = async () => {
     if (!recipeName || !resultItemId || components.length === 0) return alert("Mohon lengkapi Nama Resep, Item Hasil, dan Bahan Baku!");
+    setIsProcessingLocal(true);
     const payload = {
       name: recipeName, 
       resultItemId, 
@@ -121,22 +123,35 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
     if (activeRecipe) await updateWIPRecipe({ ...activeRecipe, ...payload });
     else await addWIPRecipe(payload);
     setView('list');
+    setIsProcessingLocal(false);
     await fetchFromCloud();
   };
 
   const finishProduction = async () => {
-    const insufficient = components.filter(c => (allMaterials.find(m => m.id === c.inventoryItemId)?.quantity || 0) < c.quantity);
-    if (insufficient.length > 0) return alert("Stok bahan di gudang tidak mencukupi!");
+    const insufficient = components.filter(c => {
+       const mat = allMaterials.find(m => m.id === c.inventoryItemId);
+       return (mat?.quantity || 0) < c.quantity;
+    });
     
-    await processProduction({ resultItemId, resultQuantity, components });
+    if (insufficient.length > 0) return alert("Stok bahan di gudang tidak mencukupi untuk batch ini!");
     
-    setShowSuccessToast(true);
-    setTimeout(async () => {
-      setShowSuccessToast(false);
-      await fetchFromCloud();
-      setView('list');
-      setActiveSubTab('logs');
-    }, 1500);
+    setIsProcessingLocal(true);
+    try {
+      await processProduction({ resultItemId, resultQuantity, components });
+      setShowSuccessToast(true);
+      
+      // Delay for toast effect and view transition
+      setTimeout(async () => {
+        setShowSuccessToast(false);
+        await fetchFromCloud();
+        setView('list');
+        setActiveSubTab('logs');
+        setIsProcessingLocal(false);
+      }, 1800);
+    } catch (err) {
+      alert("Terjadi kesalahan teknis saat memproses produksi.");
+      setIsProcessingLocal(false);
+    }
   };
 
   const addComponentRow = (item?: InventoryItem) => {
@@ -159,13 +174,14 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
 
   return (
     <div className="h-full bg-slate-50 flex flex-col overflow-hidden relative">
+      {/* TOAST SUCCESS PRECISE */}
       {showSuccessToast && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
-           <div className="bg-indigo-600 text-white px-10 py-5 rounded-[40px] shadow-2xl flex items-center gap-5 border-2 border-indigo-400">
-              <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center text-3xl shadow-inner">👨‍🍳</div>
+           <div className="bg-slate-900 text-white px-10 py-5 rounded-[40px] shadow-2xl flex items-center gap-5 border-2 border-indigo-500/30">
+              <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-3xl shadow-lg animate-bounce">👨‍🍳</div>
               <div>
-                <p className="text-[12px] font-black uppercase tracking-[0.3em] leading-none">Produksi Berhasil!</p>
-                <p className="text-[10px] font-bold text-indigo-200 uppercase mt-1.5 tracking-widest">Riwayat Masak Telah Diperbarui.</p>
+                <p className="text-[12px] font-black uppercase tracking-[0.3em] leading-none text-indigo-400">Produksi Berhasil!</p>
+                <p className="text-[10px] font-bold text-slate-300 uppercase mt-1.5 tracking-widest">Stok WIP bertambah, bahan baku dikurangi.</p>
               </div>
            </div>
         </div>
@@ -228,6 +244,11 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                        </div>
                     </div>
                   ))}
+                  {filteredRecipes.length === 0 && (
+                    <div className="col-span-full py-20 text-center opacity-20">
+                       <p className="text-sm font-black uppercase italic">Belum ada resep terdaftar.</p>
+                    </div>
+                  )}
                </div>
              ) : (
                <div className="space-y-4">
@@ -258,6 +279,11 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                       </div>
                     );
                   })}
+                  {filteredLogs.length === 0 && (
+                    <div className="py-20 text-center opacity-20">
+                       <p className="text-sm font-black uppercase italic">Belum ada riwayat produksi.</p>
+                    </div>
+                  )}
                </div>
              )}
           </div>
@@ -269,19 +295,19 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                        <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter text-center">Konfigurasi Master Resep</h3>
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Resep</label>
-                          <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm" placeholder="Contoh: Adonan Corndog Original" value={recipeName} onChange={e => setRecipeName(e.target.value)} />
+                          <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-indigo-500" placeholder="Contoh: Adonan Corndog Original" value={recipeName} onChange={e => setRecipeName(e.target.value)} />
                        </div>
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Item Hasil (WIP)</label>
-                             <button onClick={() => setPickerModal({rowId: 'result', type: 'wip'})} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-xs text-left flex justify-between items-center">
+                             <button onClick={() => setPickerModal({rowId: 'result', type: 'wip'})} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-xs text-left flex justify-between items-center hover:bg-slate-100 transition-colors">
                                 <span>{inventory.find(i => i.id === resultItemId)?.name || '-- Pilih Produk Jadi --'}</span>
                                 <span className="opacity-30">🔍</span>
                              </button>
                           </div>
                           <div>
                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Hasil per Batch ({inventory.find(i => i.id === resultItemId)?.unit || ''})</label>
-                             <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm" value={resultQuantity} onChange={e => setResultQuantity(parseFloat(e.target.value) || 1)} />
+                             <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-indigo-500" value={resultQuantity} onChange={e => setResultQuantity(parseFloat(e.target.value) || 1)} />
                           </div>
                        </div>
                        <div className="space-y-4">
@@ -293,13 +319,13 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                              {components.map(comp => {
                                 const item = inventory.find(i => i.id === comp.inventoryItemId);
                                 return (
-                                   <div key={comp.id} className="p-4 bg-white border-2 border-slate-50 rounded-2xl flex items-center gap-4 group">
+                                   <div key={comp.id} className="p-4 bg-white border-2 border-slate-50 rounded-2xl flex items-center gap-4 group hover:border-indigo-200 transition-all">
                                       <div className="flex-1 min-w-0">
                                          <p className="text-[11px] font-black text-slate-800 uppercase truncate">{item?.name || 'Pilih Bahan...'}</p>
                                          <p className="text-[8px] font-bold text-slate-400 uppercase">{item?.unit}</p>
                                       </div>
-                                      <input type="number" step="any" className="w-24 p-2 bg-slate-50 border rounded-xl font-black text-center text-xs" value={comp.quantity} onChange={e => setComponents(prev => prev.map(c => c.id === comp.id ? {...c, quantity: parseFloat(e.target.value) || 0} : c))} />
-                                      <button onClick={() => setComponents(prev => prev.filter(c => c.id !== comp.id))} className="text-red-400 opacity-20 group-hover:opacity-100">✕</button>
+                                      <input type="number" step="any" className="w-24 p-2 bg-slate-50 border rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-200" value={comp.quantity} onChange={e => setComponents(prev => prev.map(c => c.id === comp.id ? {...c, quantity: parseFloat(e.target.value) || 0} : c))} />
+                                      <button onClick={() => setComponents(prev => prev.filter(c => c.id !== comp.id))} className="text-red-400 opacity-20 group-hover:opacity-100 hover:text-red-600 transition-all">✕</button>
                                    </div>
                                 );
                              })}
@@ -308,7 +334,13 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                              )}
                           </div>
                        </div>
-                       <button onClick={saveMaster} className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black text-xs uppercase tracking-widest shadow-xl">SIMPAN MASTER RESEP 💾</button>
+                       <button 
+                         disabled={isProcessingLocal}
+                         onClick={saveMaster} 
+                         className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50"
+                       >
+                         {isProcessingLocal ? 'MENYIMPAN...' : 'SIMPAN MASTER RESEP 💾'}
+                       </button>
                     </div>
                  </div>
               ) : (
@@ -318,7 +350,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                        <div className="flex items-center justify-center gap-5">
                           <input 
                             type="number" onFocus={e => e.target.select()}
-                            className="bg-slate-50 border-4 border-indigo-600 font-black text-6xl text-center outline-none w-44 h-28 rounded-[40px] text-slate-900 shadow-inner" 
+                            className="bg-slate-50 border-4 border-indigo-600 font-black text-6xl text-center outline-none w-44 h-28 rounded-[40px] text-slate-900 shadow-inner focus:bg-white transition-all" 
                             value={resultQuantity} onChange={e => setResultQuantity(parseFloat(e.target.value) || 0)} 
                           />
                           <span className="text-3xl font-black text-slate-300 uppercase">{inventory.find(m => m.id === resultItemId)?.unit}</span>
@@ -331,7 +363,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                              const material = inventory.find(m => m.id === comp.inventoryItemId);
                              const isShort = (material?.quantity || 0) < comp.quantity;
                              return (
-                               <div key={comp.id} className={`p-5 rounded-[28px] border-2 flex justify-between items-center ${isShort ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'}`}>
+                               <div key={comp.id} className={`p-5 rounded-[28px] border-2 flex justify-between items-center transition-all ${isShort ? 'bg-red-50 border-red-200 shadow-inner' : 'bg-slate-50 border-slate-100'}`}>
                                   <div>
                                      <p className="text-xs font-black text-slate-800 uppercase leading-none mb-1.5">{material?.name || '??'}</p>
                                      <p className={`text-[8px] font-bold uppercase ${isShort ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
@@ -346,7 +378,23 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                           })}
                        </div>
                     </div>
-                    <button onClick={finishProduction} className="w-full py-8 bg-indigo-600 text-white rounded-[40px] font-black text-sm uppercase tracking-[0.4em] shadow-xl">KONFIRMASI PROSES MASAK ✅</button>
+                    <button 
+                      disabled={isProcessingLocal}
+                      onClick={finishProduction} 
+                      className="w-full py-8 bg-indigo-600 text-white rounded-[40px] font-black text-sm uppercase tracking-[0.4em] shadow-xl hover:bg-indigo-700 active:scale-95 disabled:bg-slate-300 disabled:shadow-none transition-all flex items-center justify-center gap-4"
+                    >
+                       {isProcessingLocal ? (
+                         <>
+                           <div className="w-6 h-6 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
+                           <span>MEMPROSES...</span>
+                         </>
+                       ) : (
+                         <>
+                           <span>KONFIRMASI PROSES MASAK</span>
+                           <span className="text-2xl">✅</span>
+                         </>
+                       )}
+                    </button>
                  </div>
               )}
            </div>
@@ -375,7 +423,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                <h3 className="text-white font-black uppercase text-lg">Pilih dari Gudang</h3>
                <button onClick={() => setPickerModal(null)} className="w-10 h-10 bg-white/10 text-white rounded-full flex items-center justify-center">✕</button>
             </div>
-            <input autoFocus type="text" placeholder="Cari nama item..." className="w-full p-5 bg-white rounded-2xl font-black text-xl mb-6 outline-none border-4 border-indigo-500 shadow-2xl text-slate-900" value={pickerQuery} onChange={e => setPickerQuery(e.target.value)} />
+            <input autoFocus type="text" placeholder="Cari nama item..." className="w-full p-5 bg-white rounded-2xl font-black text-xl mb-6 outline-none border-4 border-indigo-50 shadow-2xl text-slate-900" value={pickerQuery} onChange={e => setPickerQuery(e.target.value)} />
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
                {filteredPickerItems.map(item => (
                   <button key={item.id} onClick={() => {
@@ -390,6 +438,11 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                      <span className="text-indigo-400 group-hover:text-white text-xl">＋</span>
                   </button>
                ))}
+               {filteredPickerItems.length === 0 && (
+                  <div className="py-20 text-center opacity-40">
+                     <p className="text-white font-black uppercase text-xs">Item tidak ditemukan di gudang cabang ini.</p>
+                  </div>
+               )}
             </div>
          </div>
       )}

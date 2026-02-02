@@ -27,18 +27,18 @@ export const PurchaseManagement: React.FC = () => {
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   
   const filteredInventoryItems = useMemo(() => {
-    return inventory
+    return (inventory || [])
       .filter(i => i.outletId === selectedOutletId)
       .filter(i => i.type === InventoryItemType.RAW)
       .filter(i => !isCashier || i.canCashierPurchase === true)
       .filter(i => i.name.toLowerCase().includes(itemPickerQuery.toLowerCase()));
   }, [inventory, selectedOutletId, isCashier, itemPickerQuery]);
 
-  const selectedItem = inventory.find(i => i.id === formData.inventoryItemId);
+  const selectedItem = (inventory || []).find(i => i.id === formData.inventoryItemId);
   const finalQuantity = useConversion ? (rawPurchaseQty * multiplier) : formData.quantity;
 
   const filteredPurchases = useMemo(() => {
-    return purchases
+    return (purchases || [])
       .filter(p => p.outletId === selectedOutletId)
       .filter(p => p.itemName.toLowerCase().includes(searchTerm.toLowerCase()))
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -46,7 +46,12 @@ export const PurchaseManagement: React.FC = () => {
 
   const handleSave = () => {
     if (formData.inventoryItemId && finalQuantity > 0 && formData.unitPrice > 0) {
-      addPurchase({ inventoryItemId: formData.inventoryItemId, quantity: finalQuantity, unitPrice: formData.unitPrice }, formData.requestId);
+      addPurchase({ 
+        inventoryItemId: formData.inventoryItemId, 
+        quantity: finalQuantity, 
+        unitPrice: formData.unitPrice, 
+        requestId: formData.requestId 
+      });
       setShowModal(false);
       resetForm();
       setShowSuccessToast(true);
@@ -110,19 +115,21 @@ export const PurchaseManagement: React.FC = () => {
                  </div>
               </div>
               <div className="text-right">
-                 <p className="text-sm font-black text-slate-900">Rp {p.totalPrice.toLocaleString()}</p>
-                 <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest">{p.quantity} {inventory.find(i=>i.name===p.itemName)?.unit}</p>
+                 {/* SAFE FORMATTER APPLIED HERE */}
+                 <p className="text-sm font-black text-slate-900">Rp {(p.totalPrice ?? 0).toLocaleString()}</p>
+                 <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest">{(p.quantity ?? 0).toLocaleString()} {(inventory || []).find(i=>i.name===p.itemName)?.unit}</p>
               </div>
            </div>
          ))}
+         {filteredPurchases.length === 0 && (
+           <div className="py-20 text-center opacity-20 italic text-[10px] uppercase font-black">Riwayat belanja kosong</div>
+         )}
       </div>
 
-      {/* COMPACT RESPONSIVE MODAL BELANJA */}
       {showModal && (
         <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-md flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-10 overflow-hidden border-t md:border border-white/20">
              
-             {/* DRAG HANDLE FOR MOBILE */}
              <div className="md:hidden w-full flex justify-center pt-3 pb-1">
                 <div className="w-12 h-1.5 bg-slate-200 rounded-full"></div>
              </div>
@@ -136,8 +143,6 @@ export const PurchaseManagement: React.FC = () => {
              </div>
              
              <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 custom-scrollbar">
-                
-                {/* 1. Pilih Barang */}
                 <div className="space-y-3">
                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] block ml-1">Pilih Item dari Gudang</label>
                    {!selectedItem ? (
@@ -152,14 +157,13 @@ export const PurchaseManagement: React.FC = () => {
                      <div className="p-5 bg-orange-50 border-2 border-orange-100 rounded-3xl flex justify-between items-center shadow-inner">
                         <div>
                            <p className="text-[11px] font-black text-orange-600 uppercase leading-none">{selectedItem.name}</p>
-                           <p className="text-[8px] font-bold text-orange-400 uppercase mt-1">Stok Saat Ini: {selectedItem.quantity} {selectedItem.unit}</p>
+                           <p className="text-[8px] font-bold text-orange-400 uppercase mt-1">Stok Saat Ini: {(selectedItem.quantity ?? 0).toLocaleString()} {selectedItem.unit}</p>
                         </div>
                         <button onClick={() => setFormData({...formData, inventoryItemId: ''})} className="w-8 h-8 bg-white text-orange-500 rounded-full flex items-center justify-center shadow-sm border border-orange-100 font-black text-[10px]">✕</button>
                      </div>
                    )}
                 </div>
 
-                {/* 2. Kuantitas */}
                 <div className="space-y-3">
                    <div className="flex justify-between items-center">
                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Kuantitas Nota</label>
@@ -172,15 +176,15 @@ export const PurchaseManagement: React.FC = () => {
                       <div className="grid grid-cols-7 gap-2 bg-slate-50 p-5 rounded-[32px] border border-slate-100 shadow-inner">
                          <div className="col-span-3">
                             <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Qty Nota</label>
-                            <input type="number" onFocus={e => e.target.select()} className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400" value={rawPurchaseQty} onChange={e => setRawPurchaseQty(parseFloat(e.target.value) || 0)} />
+                            <input type="number" onFocus={e => e.target.select()} className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400" value={rawPurchaseQty || ''} onChange={e => setRawPurchaseQty(parseFloat(e.target.value) || 0)} />
                          </div>
                          <div className="col-span-1 flex items-center justify-center pt-5 text-xs opacity-20">✖</div>
                          <div className="col-span-3">
                             <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Gram per Pack</label>
-                            <input type="number" onFocus={e => e.target.select()} className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400" value={multiplier} onChange={e => setMultiplier(parseFloat(e.target.value) || 1)} />
+                            <input type="number" onFocus={e => e.target.select()} className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400" value={multiplier || ''} onChange={e => setMultiplier(parseFloat(e.target.value) || 1)} />
                          </div>
                          <div className="col-span-7 pt-2 text-center">
-                            <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Input Gudang: {finalQuantity.toLocaleString()} {selectedItem?.unit}</p>
+                            <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Input Gudang: {(finalQuantity ?? 0).toLocaleString()} {selectedItem?.unit}</p>
                          </div>
                       </div>
                    ) : (
@@ -189,7 +193,7 @@ export const PurchaseManagement: React.FC = () => {
                            type="number" 
                            onFocus={e => e.target.select()} 
                            className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-[28px] font-black text-xl text-center outline-none focus:border-orange-500 transition-all text-slate-900 shadow-inner" 
-                           value={formData.quantity} 
+                           value={formData.quantity || ''} 
                            onChange={e => setFormData({...formData, quantity: parseFloat(e.target.value) || 0})} 
                            placeholder="0"
                          />
@@ -198,7 +202,6 @@ export const PurchaseManagement: React.FC = () => {
                    )}
                 </div>
 
-                {/* 3. Total Harga */}
                 <div className="space-y-3">
                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Total Nominal Nota (Uang)</label>
                    <div className="relative">
@@ -226,7 +229,6 @@ export const PurchaseManagement: React.FC = () => {
         </div>
       )}
 
-      {/* FULL SCREEN ITEM PICKER */}
       {showItemPicker && (
          <div className="fixed inset-0 z-[300] bg-slate-900/95 backdrop-blur-2xl p-4 flex flex-col animate-in fade-in duration-200">
             <div className="flex justify-between items-center mb-6 text-white px-2">
@@ -257,17 +259,11 @@ export const PurchaseManagement: React.FC = () => {
                   >
                      <div>
                         <p className="text-white font-black uppercase text-sm">{item.name}</p>
-                        <p className="text-white/30 text-[8px] font-bold uppercase mt-1">Stok: {item.quantity} {item.unit}</p>
+                        <p className="text-white/30 text-[8px] font-bold uppercase mt-1">Stok: {(item.quantity ?? 0).toLocaleString()} {item.unit}</p>
                      </div>
                      <span className="text-orange-500 opacity-30 group-hover:text-white group-hover:opacity-100">PILIH</span>
                   </button>
                ))}
-               {filteredInventoryItems.length === 0 && (
-                  <div className="text-center py-20 opacity-20 flex flex-col items-center">
-                     <span className="text-4xl mb-4">🚫</span>
-                     <p className="text-white font-black uppercase text-xs">Item Tidak Ditemukan</p>
-                  </div>
-               )}
             </div>
          </div>
       )}

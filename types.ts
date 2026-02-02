@@ -53,8 +53,8 @@ export interface Attendance {
   id: string;
   staffId: string;
   staffName: string;
-  outletId: string; // Added for branch-specific tracking
-  date: string; // YYYY-MM-DD
+  outletId: string; 
+  date: string; // Format: YYYY-MM-DD
   clockIn: Date;
   clockOut?: Date;
   status: 'PRESENT' | 'LATE' | 'ABSENT';
@@ -67,7 +67,7 @@ export interface LeaveRequest {
   id: string;
   staffId: string;
   staffName: string;
-  outletId: string; // Added for branch-specific tracking
+  outletId: string; 
   startDate: Date;
   endDate: Date;
   reason: string;
@@ -273,6 +273,8 @@ export interface DailyClosing {
   staffId: string;
   staffName: string;
   timestamp: Date;
+  shiftName: string;
+  openingBalance: number;
   totalSalesCash: number;
   totalSalesQRIS: number;
   totalExpenses: number;

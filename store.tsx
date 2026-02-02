@@ -24,8 +24,6 @@ export const getPermissionsByRole = (role: UserRole): Permissions => {
       return { canAccessReports: true, canManageStaff: false, canManageMenu: true, canManageInventory: true, canProcessSales: true, canVoidTransactions: true, canManageSettings: true };
     case UserRole.CASHIER:
       return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: true, canProcessSales: true, canVoidTransactions: false, canManageSettings: false };
-    case UserRole.KITCHEN:
-      return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: true, canProcessSales: false, canVoidTransactions: false, canManageSettings: false };
     default:
       return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: false, canProcessSales: false, canVoidTransactions: false, canManageSettings: false };
   }
@@ -95,21 +93,8 @@ interface AppActions {
   addInventoryItem: (item: any, outletIds?: string[]) => Promise<void>;
   updateInventoryItem: (item: InventoryItem) => Promise<void>;
   deleteInventoryItem: (id: string) => Promise<void>;
-  addStockRequest: (itemId: string, qty: number) => Promise<void>;
-  deleteStockRequest: (id: string) => Promise<void>;
-  addExpense: (expense: any) => Promise<void>;
-  updateExpense: (id: string, data: Partial<Expense>) => Promise<void>;
-  deleteExpense: (id: string) => Promise<void>;
-  addExpenseType: (name: string) => Promise<void>;
-  updateExpenseType: (id: string, name: string) => Promise<void>;
-  deleteExpenseType: (id: string) => Promise<void>;
-  addCategory: (name: string) => Promise<void>;
-  updateCategory: (id: string, name: string) => Promise<void>;
-  deleteCategory: (id: string) => Promise<void>;
-  performClosing: (actualCash: number, notes: string) => Promise<void>;
-  approveClosing: (id: string) => Promise<void>;
-  rejectClosing: (id: string) => Promise<void>;
-  addPurchase: (purchase: { inventoryItemId: string; quantity: number; unitPrice: number }, requestId?: string) => Promise<void>;
+  performClosing: (actualCash: number, notes: string, openingBalance: number, shiftName: string) => Promise<void>;
+  addPurchase: (purchase: { inventoryItemId: string; quantity: number; unitPrice: number; requestId?: string }) => Promise<void>;
   selectCustomer: (id: string | null) => void;
   addCustomer: (customer: any) => Promise<void>;
   updateCustomer: (customer: Customer) => Promise<void>;
@@ -136,13 +121,21 @@ interface AppActions {
   voidTransaction: (txId: string) => Promise<void>;
   fetchFromCloud: () => Promise<void>;
   cloneOutletSetup: (fromOutletId: string, toOutletId: string) => Promise<void>;
-  exportData: () => void;
-  importData: (json: string) => Promise<boolean>;
   resetGlobalData: () => Promise<void>;
+  resetAttendanceLogs: () => Promise<void>;
   updateSupabaseConfig: (config: SupabaseConfig) => void;
   syncToCloud: () => void;
-  exportTableToCSV: (table: 'products' | 'inventory' | 'categories' | 'outlets' | 'staff' | 'wip_recipes' | 'expenses' | 'purchases') => void;
-  importCSVToTable: (table: 'products' | 'inventory' | 'categories' | 'outlets' | 'staff' | 'wip_recipes' | 'expenses' | 'purchases', csv: string) => Promise<boolean>;
+  exportTableToCSV: (table: string) => void;
+  importCSVToTable: (table: string, csv: string) => Promise<boolean>;
+  addExpense: (expense: any) => Promise<void>;
+  updateExpense: (id: string, data: Partial<Expense>) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
+  addExpenseType: (name: string) => Promise<void>;
+  updateExpenseType: (id: string, name: string) => Promise<void>;
+  deleteExpenseType: (id: string) => Promise<void>;
+  addCategory: (name: string) => Promise<void>;
+  updateCategory: (id: string, name: string) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
 }
 
 const AppContext = createContext<(AppState & AppActions) | undefined>(undefined);
@@ -173,8 +166,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isFirstLoad, setIsFirstLoad] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [lastWipeTimestamp, setLastWipeTimestamp] = useState<number>(0);
-  const [wipedOutletId, setWipedOutletId] = useState<string | null>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -240,7 +231,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('transactions').select('*').order('timestamp', { ascending: false }).limit(1000),
         supabase.from('expenses').select('*'),
         supabase.from('expense_types').select('*'),
-        supabase.from('daily_closings').select('*'),
+        supabase.from('daily_closings').select('*').order('timestamp', { ascending: false }),
         supabase.from('stock_transfers').select('*'),
         supabase.from('stock_requests').select('*'),
         supabase.from('production_records').select('*').order('timestamp', { ascending: false }),
@@ -254,38 +245,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const data = results.map(r => r.status === 'fulfilled' ? r.value.data : null);
 
-      const filterWiped = (arr: any[]) => {
-        if (!wipedOutletId || Date.now() - lastWipeTimestamp > 5000) return arr;
-        return (arr || []).filter(item => item.outletId !== wipedOutletId);
-      };
-
-      const filterWipedTransfers = (arr: any[]) => {
-        if (!wipedOutletId || Date.now() - lastWipeTimestamp > 5000) return arr;
-        return (arr || []).filter(item => item.fromOutletId !== wipedOutletId && item.toOutletId !== wipedOutletId);
-      };
-
-      if (data[0]) setProducts(data[0]);
-      if (data[1]) setCategories(data[1]);
-      if (data[2]) setInventory(data[2]);
-      if (data[3]) setOutlets(data[3].length > 0 ? data[3] : OUTLETS);
-      if (data[4]) setStaff(data[4].length > 0 ? data[4] : INITIAL_STAFF);
-      
-      if (data[5]) setAttendance(hydrateDates(filterWiped(data[5])));
-      if (data[6]) setLeaveRequests(hydrateDates(filterWiped(data[6])));
+      if (data[0]) setProducts(hydrateDates(data[0]));
+      if (data[1]) setCategories(hydrateDates(data[1]));
+      if (data[2]) setInventory(hydrateDates(data[2]));
+      if (data[3]) setOutlets(data[3].length > 0 ? hydrateDates(data[3]) : OUTLETS);
+      if (data[4]) setStaff(data[4].length > 0 ? hydrateDates(data[4]) : INITIAL_STAFF);
+      if (data[5]) setAttendance(hydrateDates(data[5]));
+      if (data[6]) setLeaveRequests(hydrateDates(data[6]));
       if (data[7]) setCustomers(hydrateDates(data[7]));
-      if (data[8]) setTransactions(filterWiped(data[8]));
-      if (data[9]) setExpenses(hydrateDates(filterWiped(data[9])));
-      if (data[10]) setExpenseTypes(data[10]);
-      if (data[11]) setDailyClosings(hydrateDates(filterWiped(data[11])));
-      if (data[12]) setStockTransfers(hydrateDates(filterWipedTransfers(data[12])));
-      if (data[13]) setStockRequests(hydrateDates(filterWiped(data[13])));
-      if (data[14]) setProductionRecords(hydrateDates(filterWiped(data[14]))); else setProductionRecords([]);
-      if (data[15]) setPurchases(hydrateDates(filterWiped(data[15])));
-      if (data[16]) setMembershipTiers(data[16]);
-      if (data[17]) setBulkDiscounts(data[17]);
+      if (data[8]) setTransactions(hydrateDates(data[8]));
+      if (data[9]) setExpenses(hydrateDates(data[9]));
+      if (data[10]) setExpenseTypes(hydrateDates(data[10]));
+      if (data[11]) setDailyClosings(hydrateDates(data[11]));
+      if (data[12]) setStockTransfers(hydrateDates(data[12]));
+      if (data[13]) setStockRequests(hydrateDates(data[13]));
+      if (data[14]) setProductionRecords(hydrateDates(data[14]));
+      if (data[15]) setPurchases(hydrateDates(data[15]));
+      if (data[16]) setMembershipTiers(hydrateDates(data[16]));
+      if (data[17]) setBulkDiscounts(hydrateDates(data[17]));
       if (data[18]) setSimulations(hydrateDates(data[18]));
-      if (data[19]) setLoyaltyConfig(data[19]);
-      if (data[20]) setWipRecipes(data[20]); else setWipRecipes([]);
+      if (data[19]) setLoyaltyConfig(hydrateDates(data[19]));
+      if (data[20]) setWipRecipes(hydrateDates(data[20]));
     } catch (e) {
       console.error("Fetch Cloud Error:", e);
     } finally {
@@ -301,168 +281,253 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const actions: AppActions = {
     fetchFromCloud,
     login: async (u, p) => {
-      if (!supabase) return { success: false, message: "Koneksi cloud bermasalah." };
-      const { data: cloudUser } = await supabase.from('staff').select('*').eq('username', u).eq('password', p).maybeSingle();
-      if (cloudUser) {
-        if (cloudUser.status === 'INACTIVE') return { success: false, message: "Akun dinonaktifkan oleh Owner." };
-        
-        // --- VALIDASI WAKTU SHIFT LOGIN (Ubah ke 30 Menit) ---
-        if (cloudUser.role === UserRole.CASHIER) {
-           const now = new Date();
-           const [sHour, sMin] = (cloudUser.shiftStartTime || '00:00').split(':').map(Number);
-           const shiftStart = new Date(now);
-           shiftStart.setHours(sHour, sMin, 0, 0);
+      if (!supabase) return { success: false, message: "Cloud Offline." };
+      const { data } = await supabase.from('staff').select('*').eq('username', u).eq('password', p).maybeSingle();
+      if (data) {
+         const mapped = hydrateDates(data);
+         if (mapped.status === 'INACTIVE') return { success: false, message: "Akses dinonaktifkan." };
+         
+         const now = new Date();
+         const [sh, sm] = (mapped.shiftStartTime || '10:00').split(':').map(Number);
+         const shiftLimit = new Date(); shiftLimit.setHours(sh, sm, 0, 0);
+         const prepTime = new Date(shiftLimit.getTime() - (30 * 60 * 1000));
+         
+         if (mapped.role === UserRole.CASHIER && now < prepTime) {
+            return { success: false, message: `Akses ditolak. Persiapan shift mulai pukul ${prepTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` };
+         }
 
-           const diffMin = (shiftStart.getTime() - now.getTime()) / (1000 * 60);
-
-           // Jika login lebih awal dari 30 menit sebelum shift dimulai
-           if (diffMin > 30) {
-              return { 
-                success: false, 
-                message: `Belum waktunya shift Anda. Shift mulai jam ${cloudUser.shiftStartTime}. Anda hanya bisa login 30 menit sebelum shift dimulai.` 
-              };
-           }
-        }
-
-        const todayStr = new Date().toDateString();
-        const outletId = cloudUser.assignedOutletIds[0] || 'out1';
-        
-        const hasClosedToday = dailyClosings.some(c => c.staffId === cloudUser.id && c.outletId === outletId && new Date(c.timestamp).toDateString() === todayStr);
-        if (hasClosedToday && cloudUser.role === UserRole.CASHIER) {
-           return { success: false, message: "Anda sudah melakukan tutup shift hari ini dan tidak bisa login kembali." };
-        }
-
-        const shiftStartHour = parseInt((cloudUser.shiftStartTime || '00:00').split(':')[0]);
-        if (shiftStartHour >= 14 && cloudUser.role === UserRole.CASHIER) {
-           const shift1Closed = dailyClosings.some(c => c.outletId === outletId && new Date(c.timestamp).toDateString() === todayStr);
-           if (!shift1Closed) {
-              return { success: false, message: "Akses Ditolak. Kasir Shift 1 belum melakukan tutup buku / serah terima laci." };
-           }
-        }
-
-        setIsAuthenticated(true);
-        setCurrentUser(cloudUser);
-        setLoginTime(new Date());
-        localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(cloudUser));
-        setSelectedOutletId(outletId);
-        localStorage.setItem(STORAGE_OUTLET_KEY, outletId);
-        return { success: true };
+         setCurrentUser(mapped);
+         setIsAuthenticated(true);
+         localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(mapped));
+         const oid = mapped.assignedOutletIds[0] || 'out1';
+         setSelectedOutletId(oid);
+         localStorage.setItem(STORAGE_OUTLET_KEY, oid);
+         return { success: true };
       }
-      return { success: false, message: "Username atau Password salah." };
+      return { success: false, message: "Kredensial salah." };
     },
-    logout: () => { 
-      setIsAuthenticated(false); 
-      setCurrentUser(null); 
-      localStorage.removeItem(STORAGE_USER_KEY);
-      localStorage.removeItem(STORAGE_OUTLET_KEY);
-    },
-    switchOutlet: (id) => {
-      setSelectedOutletId(id);
-      localStorage.setItem(STORAGE_OUTLET_KEY, id);
-    },
+    logout: () => { setIsAuthenticated(false); setCurrentUser(null); localStorage.removeItem(STORAGE_USER_KEY); },
+    switchOutlet: (id) => { setSelectedOutletId(id); localStorage.setItem(STORAGE_OUTLET_KEY, id); },
     addToCart: (p) => setCart(prev => {
       const ex = prev.find(i => i.product.id === p.id);
       if (ex) return prev.map(i => i.product.id === p.id ? { ...i, quantity: i.quantity + 1 } : i);
       return [...prev, { product: p, quantity: 1 }];
     }),
+    updateCartQuantity: (pid, delta) => setCart(prev => prev.map(i => i.product.id === pid ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0)),
     removeFromCart: (pid) => setCart(prev => prev.filter(i => i.product.id !== pid)),
-    updateCartQuantity: (pid, d) => setCart(prev => prev.map(i => i.product.id === pid ? { ...i, quantity: Math.max(0, i.quantity + d) } : i).filter(i => i.quantity > 0)),
     clearCart: () => setCart([]),
     checkout: async (method, redeem = 0, memberDisc = 0, bulkDisc = 0) => {
       if (!supabase || selectedOutletId === 'all') return;
       setIsSaving(true);
       try {
         let subtotal = 0; let totalCost = 0;
-        const calcCost = (p: Product): number => {
-          let c = 0;
-          if (p.isCombo && p.comboItems) {
-            p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) c += calcCost(inner) * ci.quantity; });
-          } else {
-            (p.bom || []).forEach(b => {
-              const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
-              c += (b.quantity * (item?.costPerUnit || 0));
-            });
-          }
-          return c;
-        };
         cart.forEach(i => {
-          const pr = i.product.outletSettings?.[selectedOutletId]?.price || i.product.price;
-          subtotal += pr * i.quantity;
-          totalCost += calcCost(i.product) * i.quantity;
+           const price = i.product.outletSettings?.[selectedOutletId]?.price || i.product.price;
+           subtotal += price * i.quantity;
+           const itemCost = (i.product.bom || []).reduce((acc, b) => {
+              const inv = inventory.find(inv => inv.id === b.inventoryItemId);
+              return acc + (b.quantity * (inv?.costPerUnit || 0));
+           }, 0);
+           totalCost += itemCost * i.quantity;
         });
         const ptVal = redeem * loyaltyConfig.redemptionValuePerPoint;
         const total = Math.max(0, subtotal - memberDisc - bulkDisc - ptVal);
-        const earned = Math.floor(total / loyaltyConfig.earningAmountPerPoint);
-        const tx: Transaction = {
-          id: `TX-${Date.now()}`, outletId: selectedOutletId, customerId: selectedCustomerId || undefined, 
-          items: [...cart], subtotal, tax: 0, total, totalCost, paymentMethod: method, 
-          status: OrderStatus.CLOSED, timestamp: new Date(), cashierId: currentUser?.id || 'sys', cashierName: currentUser?.name || 'System',
-          pointsEarned: earned, pointsRedeemed: redeem, pointDiscountValue: ptVal, membershipDiscount: memberDisc, bulkDiscount: bulkDisc
+        
+        const txPayload = {
+          id: `TX-${Date.now()}`, 
+          outletId: selectedOutletId, 
+          customerId: selectedCustomerId || null, 
+          items: cart, 
+          subtotal, total, totalCost,
+          paymentMethod: method, status: OrderStatus.CLOSED, 
+          timestamp: new Date().toISOString(), 
+          cashierId: currentUser?.id, cashierName: currentUser?.name,
+          pointsEarned: Math.floor(total/1000), pointsRedeemed: redeem, 
+          pointDiscountValue: ptVal, membershipDiscount: memberDisc, bulkDiscount: bulkDisc
         };
-        await supabase.from('transactions').insert(tx);
-        const updates: InventoryItem[] = [];
+        
+        await supabase.from('transactions').insert(txPayload);
+        const updates: any[] = [];
         const deduct = (p: Product, mult: number) => {
            if (p.isCombo && p.comboItems) {
-             p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) deduct(inner, mult * ci.quantity); });
+              p.comboItems.forEach(ci => { const inner = products.find(ip => ip.id === ci.productId); if (inner) deduct(inner, mult * ci.quantity); });
            } else {
-             (p.bom || []).forEach(b => {
-                const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
-                if (item) updates.push({ ...item, quantity: item.quantity - (b.quantity * mult) });
-             });
+              (p.bom || []).forEach(b => {
+                 const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
+                 if (item) updates.push({ id: item.id, quantity: item.quantity - (b.quantity * mult) });
+              });
            }
         };
         cart.forEach(i => deduct(i.product, i.quantity));
         if (updates.length > 0) await supabase.from('inventory').upsert(updates);
-        if (selectedCustomerId) {
-          const cust = customers.find(c => c.id === selectedCustomerId);
-          if (cust) await supabase.from('customers').update({ points: cust.points - redeem + earned, lastVisit: new Date() }).eq('id', cust.id);
-        }
-        setCart([]); setSelectedCustomerId(null);
-        await fetchFromCloud();
+        setCart([]); setSelectedCustomerId(null); await fetchFromCloud();
       } finally { setIsSaving(false); }
     },
-    voidTransaction: async (id) => {
-      await supabase!.from('transactions').update({ status: OrderStatus.VOIDED }).eq('id', id);
-      await fetchFromCloud();
+    clockIn: async (lat, lng, notes) => {
+      if (!supabase || !currentUser) return { success: false, message: "Sesi expired." };
+      const localDay = new Date().toLocaleDateString('en-CA');
+      const { data: ex } = await supabase.from('attendance').select('*').eq('staffId', currentUser.id).eq('date', localDay).maybeSingle();
+      if (ex) return { success: false, message: "Sudah absen hari ini." };
+      
+      const { error } = await supabase.from('attendance').insert({ 
+        id: `att-${Date.now()}`, staffId: currentUser.id, staffName: currentUser.name, 
+        outletId: selectedOutletId, date: localDay, clockIn: new Date().toISOString(), 
+        status: 'PRESENT', latitude: lat, longitude: lng, notes 
+      });
+      if (error) throw error;
+      await fetchFromCloud(); return { success: true };
     },
+    clockOut: async () => {
+      if (!supabase || !currentUser) return;
+      const { data: act } = await supabase.from('attendance').select('*').eq('staffId', currentUser.id).is('clockOut', null).order('clockIn', { ascending: false }).limit(1).maybeSingle();
+      if (act) {
+         await supabase.from('attendance').update({ clockOut: new Date().toISOString() }).eq('id', act.id);
+         await fetchFromCloud();
+      }
+    },
+    performClosing: async (actualCash, notes, openingBalance, shiftName) => {
+       if(!supabase || !currentUser) return;
+       setIsSaving(true);
+       try {
+          const start = new Date(); start.setHours(0,0,0,0);
+          const txs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start);
+          const cash = txs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+b.total, 0);
+          const qris = txs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a,b)=>a+b.total, 0);
+          const exp = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser.id && new Date(e.timestamp) >= start).reduce((a,b)=>a+b.amount, 0);
+          const expected = openingBalance + cash - exp;
+          
+          const { error } = await supabase.from('daily_closings').insert({ 
+             id: `CLS-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser.id, staffName: currentUser.name, 
+             timestamp: new Date().toISOString(), shiftName, openingBalance, 
+             totalSalesCash: cash, totalSalesQRIS: qris, totalExpenses: exp, 
+             actualCash, discrepancy: actualCash - expected, notes, status: 'APPROVED' 
+          });
+          if (error) throw error;
+          
+          // Auto Clock Out
+          await supabase.from('attendance').update({ clockOut: new Date().toISOString() }).eq('staffId', currentUser.id).is('clockOut', null);
+          await fetchFromCloud();
+       } finally { setIsSaving(false); }
+    },
+    resetAttendanceLogs: async () => { if(supabase) { await supabase.from('attendance').delete().neq('id', 'VOID'); await fetchFromCloud(); } },
+    resetOutletData: async (oid) => {
+       if(!supabase) return;
+       setIsSaving(true);
+       await Promise.all([
+          supabase.from('transactions').delete().match({ outletId: oid }),
+          supabase.from('expenses').delete().match({ outletId: oid }),
+          supabase.from('attendance').delete().match({ outletId: oid }),
+          supabase.from('daily_closings').delete().match({ outletId: oid }),
+          supabase.from('purchases').delete().match({ outletId: oid }),
+          supabase.from('production_records').delete().match({ outletId: oid }),
+          supabase.from('stock_transfers').delete().or(`fromOutletId.eq.${oid},toOutletId.eq.${oid}`)
+       ]);
+       await fetchFromCloud(); setIsSaving(false);
+    },
+    resetGlobalData: async () => {
+       if(!supabase) return;
+       setIsSaving(true);
+       const tables = ['transactions', 'expenses', 'attendance', 'leave_requests', 'purchases', 'daily_closings', 'products', 'inventory', 'categories', 'staff', 'outlets', 'customers'];
+       await Promise.all(tables.map(t => supabase.from(t).delete().neq('id', 'VOID')));
+       await fetchFromCloud(); setIsSaving(false);
+    },
+    exportTableToCSV: (table) => {
+       let data: any[] = [];
+       switch(table) {
+          case 'products': data = products; break;
+          case 'inventory': data = inventory; break;
+          case 'transactions': data = transactions; break;
+          case 'staff': data = staff; break;
+          case 'outlets': data = outlets; break;
+          case 'categories': data = categories; break;
+          case 'customers': data = customers; break;
+          case 'expenses': data = expenses; break;
+          case 'expense_types': data = expenseTypes; break;
+          case 'daily_closings': data = dailyClosings; break;
+          case 'purchases': data = purchases; break;
+          case 'attendance': data = attendance; break;
+          case 'leave_requests': data = leaveRequests; break;
+          case 'stock_transfers': data = stockTransfers; break;
+          case 'production_records': data = productionRecords; break;
+          case 'membership_tiers': data = membershipTiers; break;
+          case 'bulk_discounts': data = bulkDiscounts; break;
+          case 'wip_recipes': data = wipRecipes; break;
+       }
+
+       if(data.length === 0) return alert(`Data tabel ${table} masih kosong.`);
+       
+       const headers = Object.keys(data[0]).join(',');
+       const rows = data.map(r => 
+          Object.values(r).map(v => {
+             if (v === null || v === undefined) return '""';
+             const str = typeof v === 'object' ? JSON.stringify(v) : String(v);
+             return `"${str.replace(/"/g, '""')}"`;
+          }).join(',')
+       ).join('\n');
+
+       const blob = new Blob([`${headers}\n${rows}`], { type: 'text/csv;charset=utf-8;' });
+       const url = window.URL.createObjectURL(blob);
+       const a = document.createElement('a');
+       a.href = url;
+       a.download = `backup_${table}_${new Date().toISOString().split('T')[0]}.csv`;
+       a.click();
+    },
+    importCSVToTable: async (table, csv) => { 
+       if (!supabase) return false;
+       try {
+          const lines = csv.split('\n').filter(line => line.trim() !== '');
+          const headers = lines[0].split(',');
+          const dataRows = lines.slice(1);
+          
+          const payload = dataRows.map(row => {
+             const values: string[] = [];
+             let current = '';
+             let inQuotes = false;
+             for (let i = 0; i < row.length; i++) {
+                const char = row[i];
+                if (char === '"' && row[i + 1] === '"') { current += '"'; i++; }
+                else if (char === '"') inQuotes = !inQuotes;
+                else if (char === ',' && !inQuotes) { values.push(current); current = ''; }
+                else current += char;
+             }
+             values.push(current);
+
+             const obj: any = {};
+             headers.forEach((h, idx) => {
+                let val = values[idx]?.trim();
+                if (val?.startsWith('"') && val?.endsWith('"')) val = val.substring(1, val.length - 1);
+                
+                // Smart parsing for Objects/Arrays
+                if (val?.startsWith('{') || val?.startsWith('[')) {
+                   try { obj[h] = JSON.parse(val); } catch(e) { obj[h] = val; }
+                } else {
+                   obj[h] = val;
+                }
+             });
+             return obj;
+          });
+
+          const { error } = await supabase.from(table).upsert(payload);
+          if (error) throw error;
+          await fetchFromCloud();
+          return true;
+       } catch (err) {
+          console.error(`Import Error (${table}):`, err);
+          return false;
+       }
+    },
+    addStaff: async (s) => { await supabase!.from('staff').insert(s); await fetchFromCloud(); },
+    updateStaff: async (s) => { await supabase!.from('staff').update(s).eq('id', s.id); if(currentUser?.id === s.id) setCurrentUser(s); await fetchFromCloud(); },
+    deleteStaff: async (id) => { await supabase!.from('staff').delete().eq('id', id); await fetchFromCloud(); },
+    submitLeave: async (l) => { await supabase!.from('leave_requests').insert({ ...l, id: `lv-${Date.now()}`, status: 'PENDING', requestedAt: new Date().toISOString() }); await fetchFromCloud(); },
+    updateLeaveStatus: async (id, s) => { await supabase!.from('leave_requests').update({ status: s }).eq('id', id); await fetchFromCloud(); },
     addProduct: async (p) => { await supabase!.from('products').insert(p); await fetchFromCloud(); },
     updateProduct: async (p) => { await supabase!.from('products').update(p).eq('id', p.id); await fetchFromCloud(); },
     deleteProduct: async (id) => { await supabase!.from('products').delete().eq('id', id); await fetchFromCloud(); },
-    addStaff: async (s) => { await supabase!.from('staff').insert(s); await fetchFromCloud(); },
-    updateStaff: async (s) => { await supabase!.from('staff').update(s).eq('id', s.id); await fetchFromCloud(); },
-    deleteStaff: async (id) => { await supabase!.from('staff').delete().eq('id', id); await fetchFromCloud(); },
-    clockIn: async (lat, lng, notes) => {
-      if (selectedOutletId === 'all') return { success: false, message: "Pilih cabang spesifik untuk absen." };
-      const att: Attendance = { id: `att-${Date.now()}`, staffId: currentUser!.id, staffName: currentUser!.name, outletId: selectedOutletId, date: new Date().toISOString().split('T')[0], clockIn: new Date(), status: 'PRESENT', latitude: lat, longitude: lng, notes };
-      await supabase!.from('attendance').insert(att);
-      await fetchFromCloud();
-      return { success: true };
-    },
-    clockOut: async () => {
-      const today = new Date().toISOString().split('T')[0];
-      await supabase!.from('attendance').update({ clockOut: new Date() }).eq('staffId', currentUser!.id).eq('date', today);
-      await fetchFromCloud();
-    },
-    submitLeave: async (l) => {
-      await supabase!.from('leave_requests').insert({ ...l, id: `lv-${Date.now()}`, staffId: currentUser!.id, staffName: currentUser!.name, outletId: selectedOutletId, status: 'PENDING', requestedAt: new Date() });
-      await fetchFromCloud();
-    },
-    updateLeaveStatus: async (id, s) => { await supabase!.from('leave_requests').update({ status: s }).eq('id', id); await fetchFromCloud(); },
-    addInventoryItem: async (i, outletIds = []) => { 
-      const targets = outletIds.length > 0 ? outletIds : [selectedOutletId];
-      const payloads = targets.map(oid => ({ ...i, id: `inv-${oid}-${Date.now()}`, outletId: oid }));
-      await supabase!.from('inventory').insert(payloads); 
-      await fetchFromCloud(); 
-    },
+    addInventoryItem: async (i, oids = []) => { const payloads = (oids.length > 0 ? oids : [selectedOutletId]).map(oid => ({ ...i, id: `inv-${oid}-${Date.now()}`, outletId: oid })); await supabase!.from('inventory').insert(payloads); await fetchFromCloud(); },
     updateInventoryItem: async (i) => { await supabase!.from('inventory').update(i).eq('id', i.id); await fetchFromCloud(); },
     deleteInventoryItem: async (id) => { await supabase!.from('inventory').delete().eq('id', id); await fetchFromCloud(); },
-    addStockRequest: async (iid, q) => {
-      const item = inventory.find(i => i.id === iid);
-      await supabase!.from('stock_requests').insert({ id: `req-${Date.now()}`, outletId: selectedOutletId, inventoryItemId: iid, itemName: item?.name, requestedQuantity: q, unit: item?.unit, status: RequestStatus.PENDING, timestamp: new Date(), staffId: currentUser!.id, staffName: currentUser!.name, isUrgent: true });
-      await fetchFromCloud();
-    },
-    deleteStockRequest: async (id) => { await supabase!.from('stock_requests').delete().eq('id', id); await fetchFromCloud(); },
-    addExpense: async (e) => { await supabase!.from('expenses').insert({ ...e, id: `exp-${Date.now()}`, timestamp: new Date(), staffId: currentUser!.id, staffName: currentUser!.name, outletId: selectedOutletId }); await fetchFromCloud(); },
+    addExpense: async (e) => { await supabase!.from('expenses').insert({ ...e, id: `exp-${Date.now()}`, timestamp: new Date().toISOString(), staffId: currentUser?.id, staffName: currentUser?.name, outletId: selectedOutletId }); await fetchFromCloud(); },
     updateExpense: async (id, d) => { await supabase!.from('expenses').update(d).eq('id', id); await fetchFromCloud(); },
     deleteExpense: async (id) => { await supabase!.from('expenses').delete().eq('id', id); await fetchFromCloud(); },
     addExpenseType: async (n) => { await supabase!.from('expense_types').insert({ id: `et-${Date.now()}`, name: n }); await fetchFromCloud(); },
@@ -471,50 +536,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addCategory: async (n) => { await supabase!.from('categories').insert({ id: `cat-${Date.now()}`, name: n }); await fetchFromCloud(); },
     updateCategory: async (id, n) => { await supabase!.from('categories').update({ name: n }).eq('id', id); await fetchFromCloud(); },
     deleteCategory: async (id) => { await supabase!.from('categories').delete().eq('id', id); await fetchFromCloud(); },
-    performClosing: async (actual, notes) => {
-      const start = new Date(); start.setHours(0,0,0,0);
-      const shiftTxs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser!.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start);
-      const cash = shiftTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((acc,b)=>acc+b.total, 0);
-      const qris = shiftTxs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((acc,b)=>acc+b.total, 0);
-      const exp = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser!.id && new Date(e.timestamp) >= start).reduce((acc,b)=>acc+b.amount, 0);
-      const disc = actual - (cash - exp);
-      const cls = { id: `CLS-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser!.id, staffName: currentUser!.name, timestamp: new Date(), totalSalesCash: cash, totalSalesQRIS: qris, totalExpenses: exp, actualCash: actual, discrepancy: disc, notes, status: 'APPROVED' };
-      await supabase!.from('daily_closings').insert(cls);
-      await fetchFromCloud();
-    },
-    approveClosing: async (id) => { await supabase!.from('daily_closings').update({ status: 'APPROVED' }).eq('id', id); await fetchFromCloud(); },
-    rejectClosing: async (id) => { await supabase!.from('daily_closings').delete().eq('id', id); await fetchFromCloud(); },
-    addPurchase: async (p, rid) => {
-      const item = inventory.find(i => i.id === p.inventoryItemId);
-      if (!item) return;
-      await supabase!.from('purchases').insert({ id: `pur-${Date.now()}`, outletId: selectedOutletId, inventoryItemId: p.inventoryItemId, itemName: item.name, quantity: p.quantity, unitPrice: p.unitPrice / p.quantity, totalPrice: p.unitPrice, staffId: currentUser!.id, staffName: currentUser!.name, timestamp: new Date(), requestId: rid });
-      await supabase!.from('inventory').update({ quantity: item.quantity + p.quantity }).eq('id', p.inventoryItemId);
-      if (rid) await supabase!.from('stock_requests').update({ status: RequestStatus.FULFILLED }).eq('id', rid);
-      await fetchFromCloud();
-    },
+    addPurchase: async (p) => { const payload = { ...p, id: `pur-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser?.id, staffName: currentUser?.name, timestamp: new Date().toISOString(), itemName: inventory.find(i=>i.id===p.inventoryItemId)?.name }; await supabase!.from('purchases').insert(payload); const item = inventory.find(inv => inv.id === p.inventoryItemId); if (item) await supabase!.from('inventory').update({ quantity: item.quantity + p.quantity }).eq('id', item.id); await fetchFromCloud(); },
     processProduction: async (d) => {
-      const item = inventory.find(i => i.id === d.resultItemId);
-      await supabase!.from('production_records').insert({ ...d, id: `prod-${Date.now()}`, outletId: selectedOutletId, timestamp: new Date(), staffId: currentUser!.id, staffName: currentUser!.name });
-      await supabase!.from('inventory').update({ quantity: (item?.quantity || 0) + d.resultQuantity }).eq('id', d.resultItemId);
-      await fetchFromCloud();
+       if(!supabase || !currentUser) return;
+       setIsSaving(true);
+       try {
+          await supabase.from('production_records').insert({ 
+             ...d, id: `PROD-${Date.now()}`, timestamp: new Date().toISOString(), 
+             staffId: currentUser.id, staffName: currentUser.name, outletId: selectedOutletId 
+          });
+          const updates = d.components.map(c => {
+             const item = inventory.find(i => i.id === c.inventoryItemId);
+             return { id: c.inventoryItemId, quantity: (item?.quantity || 0) - c.quantity };
+          });
+          const resItem = inventory.find(i => i.id === d.resultItemId);
+          if (resItem) updates.push({ id: resItem.id, quantity: (resItem.quantity || 0) + d.resultQuantity });
+          await supabase.from('inventory').upsert(updates);
+          await fetchFromCloud();
+       } finally { setIsSaving(false); }
     },
-    addWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').insert({ ...recipe, id: `wipr-${Date.now()}` }); await fetchFromCloud(); },
+    addWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').insert({ ...recipe, id: `wip-${Date.now()}` }); await fetchFromCloud(); },
     updateWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id); await fetchFromCloud(); },
     deleteWIPRecipe: async (id) => { await supabase!.from('wip_recipes').delete().eq('id', id); await fetchFromCloud(); },
-    addCustomer: async (c) => { await supabase!.from('customers').insert({ ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date(), registeredByStaffId: currentUser!.id, registeredByStaffName: currentUser!.name, registeredAtOutletId: selectedOutletId, registeredAtOutletName: outlets.find(o=>o.id===selectedOutletId)?.name }); await fetchFromCloud(); },
+    addCustomer: async (c) => { await supabase!.from('customers').insert({ ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date().toISOString(), registeredByStaffId: currentUser?.id, registeredByStaffName: currentUser?.name, registeredAtOutletId: selectedOutletId }); await fetchFromCloud(); },
     updateCustomer: async (c) => { await supabase!.from('customers').update(c).eq('id', c.id); await fetchFromCloud(); },
     deleteCustomer: async (id) => { await supabase!.from('customers').delete().eq('id', id); await fetchFromCloud(); },
     addOutlet: async (o) => { await supabase!.from('outlets').insert(o); await fetchFromCloud(); },
     updateOutlet: async (o) => { await supabase!.from('outlets').update(o).eq('id', o.id); await fetchFromCloud(); },
     deleteOutlet: async (id) => { await supabase!.from('outlets').delete().eq('id', id); await fetchFromCloud(); },
-    transferStock: async (f, t, n, q) => {
-      const itemF = inventory.find(i => i.outletId === f && i.name === n);
-      const itemT = inventory.find(i => i.outletId === t && i.name === n);
-      await supabase!.from('inventory').update({ quantity: (itemF?.quantity || 0) - q }).eq('id', itemF!.id);
-      if (itemT) await supabase!.from('inventory').update({ quantity: (itemT.quantity || 0) + q }).eq('id', itemT.id);
-      else await supabase!.from('inventory').insert({ id: `inv-${Date.now()}`, outletId: t, name: n, unit: itemF!.unit, quantity: q, minStock: itemF!.minStock, costPerUnit: itemF!.costPerUnit, type: itemF!.type });
-      await supabase!.from('stock_transfers').insert({ id: `tr-${Date.now()}`, fromOutletId: f, fromOutletName: outlets.find(o=>o.id===f)?.name, toOutletId: t, toOutletName: outlets.find(o=>o.id===t)?.name, itemName: n, quantity: q, unit: itemF!.unit, timestamp: new Date(), staffId: currentUser!.id, staffName: currentUser!.name });
-      await fetchFromCloud();
+    transferStock: async (f, t, i, q) => { 
+       if(!supabase || !currentUser) return;
+       setIsSaving(true);
+       try {
+          const fromItem = inventory.find(inv => inv.outletId === f && inv.name === i);
+          const toItem = inventory.find(inv => inv.outletId === t && inv.name === i);
+          if (fromItem && toItem) {
+             const fromOutletName = outlets.find(o => o.id === f)?.name || f;
+             const toOutletName = outlets.find(o => o.id === t)?.name || t;
+             await supabase.from('stock_transfers').insert({
+                id: `TRF-${Date.now()}`, fromOutletId: f, fromOutletName, toOutletId: t, toOutletName,
+                itemName: i, quantity: q, unit: fromItem.unit, timestamp: new Date().toISOString(),
+                staffId: currentUser.id, staffName: currentUser.name
+             });
+             await supabase.from('inventory').upsert([
+                { id: fromItem.id, quantity: fromItem.quantity - q },
+                { id: toItem.id, quantity: toItem.quantity + q }
+             ]);
+          }
+          await fetchFromCloud();
+       } finally { setIsSaving(false); }
     },
     addMembershipTier: async (t) => { await supabase!.from('membership_tiers').insert({ ...t, id: `t-${Date.now()}` }); await fetchFromCloud(); },
     updateMembershipTier: async (t) => { await supabase!.from('membership_tiers').update(t).eq('id', t.id); await fetchFromCloud(); },
@@ -525,228 +595,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     saveSimulation: async (s) => { await supabase!.from('simulations').upsert(s); await fetchFromCloud(); },
     deleteSimulation: async (id) => { await supabase!.from('simulations').delete().eq('id', id); await fetchFromCloud(); },
     updateLoyaltyConfig: async (c) => { await supabase!.from('loyalty_config').upsert({ ...c, id: 'global' }); await fetchFromCloud(); },
-    resetOutletData: async (oid) => { 
-       if (!supabase) return;
-       setIsSaving(true);
-       
-       setAttendance(prev => prev.filter(a => a.outletId !== oid));
-       setLeaveRequests(prev => prev.filter(l => l.outletId !== oid));
-       setTransactions(prev => prev.filter(t => t.outletId !== oid));
-       setExpenses(prev => prev.filter(e => e.outletId !== oid));
-       setDailyClosings(prev => prev.filter(c => c.outletId !== oid));
-       setPurchases(prev => prev.filter(p => p.outletId !== oid));
-       setProductionRecords(prev => prev.filter(r => r.outletId !== oid));
-       setStockRequests(prev => prev.filter(r => r.outletId !== oid));
-       setStockTransfers(prev => prev.filter(t => t.fromOutletId !== oid && t.toOutletId !== oid));
-
-       setWipedOutletId(oid);
-       setLastWipeTimestamp(Date.now());
-
-       try {
-         await Promise.all([
-           supabase.from('transactions').delete().match({ outletId: oid }),
-           supabase.from('expenses').delete().match({ outletId: oid }),
-           supabase.from('daily_closings').delete().match({ outletId: oid }),
-           supabase.from('purchases').delete().match({ outletId: oid }),
-           supabase.from('production_records').delete().match({ outletId: oid }),
-           supabase.from('stock_requests').delete().match({ outletId: oid }),
-           supabase.from('attendance').delete().match({ outletId: oid }),
-           supabase.from('leave_requests').delete().match({ outletId: oid }),
-           supabase.from('stock_transfers').delete().or(`fromOutletId.eq.${oid},toOutletId.eq.${oid}`)
-         ]);
-
-         setTimeout(async () => {
-           await fetchFromCloud();
-         }, 1000);
-
-       } finally { 
-         setIsSaving(false); 
-       }
-    },
-    cloneOutletSetup: async (fromId, toId) => {
-      if (!supabase) return;
-      setIsSaving(true);
-      try {
-         const { data: sourceInv } = await supabase.from('inventory').select('*').eq('outletId', fromId);
-         if (sourceInv) {
-            const newInv = sourceInv.map(item => ({ ...item, id: `inv-${Date.now()}-${Math.random().toString(36).substr(2,5)}`, outletId: toId, quantity: 0 }));
-            await supabase.from('inventory').insert(newInv);
-         }
-         const { data: allProds } = await supabase.from('products').select('*');
-         if (allProds) {
-            const updates = allProds.map(p => {
-               const settings = p.outletSettings || {};
-               const sourceSetting = settings[fromId] || { price: p.price, isAvailable: true };
-               return { ...p, outletSettings: { ...settings, [toId]: sourceSetting } };
-            });
-            await supabase.from('products').upsert(updates);
-         }
-         await fetchFromCloud();
-      } finally { setIsSaving(false); }
-    },
-    selectCustomer: setSelectedCustomerId,
-    setConnectedPrinter,
-    exportData: () => {
-      const data = { products, categories, inventory, staff, outlets, transactions, expenses, dailyClosings, wipRecipes, loyaltyConfig, membershipTiers, bulkDiscounts };
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `mozzaboy_master_${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-    },
-    importData: async (json) => { 
-      if (!supabase) return false;
-      setIsSaving(true);
-      try {
-        const data = JSON.parse(json);
-        const tables = ['categories', 'products', 'inventory', 'staff', 'outlets', 'membership_tiers', 'bulk_discounts', 'wip_recipes', 'loyalty_config'];
-        for (const table of tables) {
-          if (data[table] && Array.isArray(data[table])) {
-            if (table === 'staff') await supabase.from(table).delete().neq('id', currentUser?.id || '0');
-            else await supabase.from(table).delete().neq('id', 'keep_all'); 
-            await supabase.from(table).insert(data[table]);
-          } else if (data[table] && typeof data[table] === 'object' && table === 'loyalty_config') {
-            await supabase.from(table).upsert({ ...data[table], id: 'global' });
-          }
-        }
-        await fetchFromCloud();
-        return true;
-      } catch (e) { console.error("Import Error:", e); return false; } finally { setIsSaving(false); }
-    },
-    exportTableToCSV: (table) => {
-      let data: any[] = [];
-      if (table === 'products') data = products;
-      else if (table === 'inventory') data = inventory;
-      else if (table === 'categories') data = categories;
-      else if (table === 'outlets') data = outlets;
-      else if (table === 'staff') data = staff;
-      else if (table === 'wip_recipes') data = wipRecipes;
-      else if (table === 'expenses') data = expenses;
-      else if (table === 'purchases') data = purchases;
-      const jsonToCSV = (arr: any[]): string => {
-        if (!arr || arr.length === 0) return "";
-        const headers = Object.keys(arr[0]);
-        const csvRows = [headers.join(',')];
-        for (const row of arr) {
-          const values = headers.map(header => {
-            const val = row[header];
-            if (val === null || val === undefined) return "";
-            if (typeof val === 'object') return `"${JSON.stringify(val).replace(/"/g, '""')}"`;
-            return `"${val.toString().replace(/"/g, '""')}"`;
-          });
-          csvRows.push(values.join(','));
-        }
-        return csvRows.join('\n');
-      };
-      const csv = jsonToCSV(data);
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `mozzaboy_${table}_${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-    },
-    importCSVToTable: async (table, csv) => {
-      if (!supabase) return false;
-      setIsSaving(true);
-      try {
-        const csvToJSON = (raw: string): any[] => {
-          const lines = raw.split(/\r?\n/).filter(l => l.trim() !== "");
-          if (lines.length < 2) return [];
-          const headers = lines[0].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/^"|"$/g, '').trim());
-          return lines.slice(1).map(line => {
-            const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
-            const obj: any = {};
-            headers.forEach((h, i) => {
-              let val: any = values[i];
-              if (val === undefined || val === "") obj[h] = null;
-              else if (val.startsWith('{') || val.startsWith('[')) { try { obj[h] = JSON.parse(val); } catch(e) { obj[h] = val; } }
-              else if (val.toLowerCase() === 'true') obj[h] = true;
-              else if (val.toLowerCase() === 'false') obj[h] = false;
-              else if (!isNaN(val) && val.trim() !== "") obj[h] = Number(val);
-              else obj[h] = val;
-            });
-            return obj;
-          });
-        };
-        const json = csvToJSON(csv);
-        if (!json || json.length === 0) return false;
-        if (table === 'staff') { await supabase.from(table).delete().neq('id', currentUser?.id || '0'); }
-        else if (table === 'expenses' || table === 'purchases') await supabase.from(table).delete().neq('id', 'safe');
-        else { await supabase.from(table).delete().neq('id', 'wipe_placeholder_safe'); }
-        const sanitized = json.map(row => {
-          const r = { ...row };
-          if (r.price !== undefined) r.price = Number(r.price) || 0;
-          if (r.quantity !== undefined) r.quantity = Number(r.quantity) || 0;
-          if (r.amount !== undefined) r.amount = Number(r.amount) || 0;
-          if (r.totalPrice !== undefined) r.totalPrice = Number(r.totalPrice) || 0;
-          if (r.unitPrice !== undefined) r.unitPrice = Number(r.unitPrice) || 0;
-          if (r.costPerUnit !== undefined) r.costPerUnit = Number(r.costPerUnit) || 0;
-          if (r.minStock !== undefined) r.minStock = Number(r.minStock) || 0;
-          if (r.resultQuantity !== undefined) r.resultQuantity = Number(r.resultQuantity) || 0;
-          if (r.timestamp && typeof r.timestamp === 'string') r.timestamp = new Date(r.timestamp);
-          return r;
-        });
-        await supabase.from(table).insert(sanitized);
-        await fetchFromCloud();
-        return true;
-      } finally { setIsSaving(false); }
-    },
-    resetGlobalData: async () => { 
-       if (!supabase) return;
+    voidTransaction: async (txId) => { await supabase!.from('transactions').update({ status: OrderStatus.VOIDED }).eq('id', txId); await fetchFromCloud(); },
+    cloneOutletSetup: async (fid, tid) => {
+       if(!supabase) return;
        setIsSaving(true);
        try {
-         const tables = ['transactions', 'expenses', 'daily_closings', 'purchases', 'stock_transfers', 'stock_requests', 'production_records', 'attendance', 'leave_requests', 'customers', 'simulations', 'products', 'inventory', 'categories', 'wip_recipes', 'membership_tiers', 'bulk_discounts'];
-         for (const table of tables) { await supabase.from(table).delete().neq('id', '0'); }
-         await supabase.from('staff').delete().neq('role', UserRole.OWNER);
-         await fetchFromCloud();
+          const items = inventory.filter(i => i.outletId === fid);
+          const payloads = items.map(i => ({ ...i, id: `inv-${tid}-${Date.now()}-${Math.random()}`, outletId: tid, quantity: 0 }));
+          await supabase.from('inventory').insert(payloads);
+          await fetchFromCloud();
        } finally { setIsSaving(false); }
     },
-    updateSupabaseConfig: (c) => { console.log("Config updated", c); },
-    syncToCloud: () => { fetchFromCloud(); }
+    updateSupabaseConfig: (c) => { },
+    syncToCloud: () => { fetchFromCloud(); },
+    selectCustomer: setSelectedCustomerId,
+    setConnectedPrinter
   };
 
   return (
-    <AppContext.Provider value={{ 
-      products: products || [], 
-      categories: categories || [], 
-      inventory: inventory || [], 
-      stockTransfers: stockTransfers || [], 
-      stockRequests: stockRequests || [], 
-      productionRecords: productionRecords || [], 
-      wipRecipes: wipRecipes || [],
-      transactions: transactions || [], 
-      filteredTransactions: selectedOutletId === 'all' 
-        ? (transactions || [])
-        : (transactions || []).filter(tx => tx.outletId === selectedOutletId), 
-      outlets: outlets || [],
-      currentUser, isAuthenticated, loginTime, 
-      cart: cart || [], 
-      staff: staff || [], 
-      attendance: attendance || [], 
-      leaveRequests: leaveRequests || [], 
-      selectedOutletId, 
-      customers: customers || [], 
-      selectedCustomerId, 
-      expenses: expenses || [], 
-      expenseTypes: expenseTypes || [], 
-      dailyClosings: dailyClosings || [], 
-      purchases: purchases || [], 
-      connectedPrinter, membershipTiers, 
-      bulkDiscounts, simulations, loyaltyConfig, isSaving, isCloudConnected, 
-      isInitialLoading, supabaseConfig, ...actions 
-    }}>
+    <AppContext.Provider value={{ ...actions, products, categories, inventory, stockTransfers, stockRequests, productionRecords, wipRecipes, transactions, filteredTransactions: selectedOutletId === 'all' ? transactions : transactions.filter(tx => tx.outletId === selectedOutletId), outlets, currentUser, isAuthenticated, loginTime, cart, staff, attendance, leaveRequests, selectedOutletId, customers, selectedCustomerId, expenses, expenseTypes, dailyClosings, purchases, connectedPrinter, membershipTiers, bulkDiscounts, simulations, loyaltyConfig, isSaving, isCloudConnected, isInitialLoading, supabaseConfig }}>
       {isInitialLoading ? (
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white">
            <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-6"></div>
-           <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Menghubungkan ke Cloud Database...</p>
+           <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Enterprise Cloud Engine...</p>
         </div>
       ) : children}
-      {isSaving && !isInitialLoading && (
-        <div className="fixed bottom-4 right-4 z-[999] bg-slate-900/90 text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl border border-white/10 animate-in fade-in slide-in-from-bottom-2">
-           <div className="w-2 h-2 bg-orange-50 rounded-full animate-ping"></div>
-           <span className="text-[8px] font-black uppercase tracking-widest">Sinkronisasi Cloud...</span>
-        </div>
-      )}
     </AppContext.Provider>
   );
 };
