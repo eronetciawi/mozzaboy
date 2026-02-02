@@ -25,24 +25,24 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const [redeemPoints, setRedeemPoints] = useState(0);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
+  // FIX: Menggunakan toLocaleDateString('en-CA') agar konsisten dengan waktu lokal (YYYY-MM-DD)
   const isClockedInToday = useMemo(() => {
     if (!currentUser) return true;
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = new Date().toLocaleDateString('en-CA');
     return (attendance || []).some(a => a.staffId === currentUser.id && a.date === todayStr);
   }, [attendance, currentUser]);
 
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return false;
-    const todayStr = new Date().toDateString();
+    const todayStr = new Date().toLocaleDateString('en-CA');
     return (dailyClosings || []).some(c => 
       c.outletId === selectedOutletId && 
       c.staffId === currentUser.id && 
-      new Date(c.timestamp).toDateString() === todayStr
+      new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
     );
   }, [dailyClosings, selectedOutletId, currentUser]);
 
-  // FIXED: Added defensive checks to prevent white screen if inventory items are missing
   const checkStock = (p: Product): boolean => {
     if (!p) return false;
     if (p.isCombo && p.comboItems) {
@@ -53,7 +53,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     }
     return (p.bom || []).every(b => {
       const template = inventory.find(inv => inv.id === b.inventoryItemId);
-      if (!template) return false; // Safety check
+      if (!template) return false;
       const real = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === template.name);
       return (real?.quantity || 0) >= b.quantity;
     });
@@ -86,7 +86,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
   const handleCheckout = async (method: PaymentMethod) => {
     if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
-    if (!isClockedInToday && currentUser?.role !== UserRole.OWNER) {
+    if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
        return alert("Wajib Absen Masuk Terlebih Dahulu!");
     }
     
@@ -111,7 +111,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   return (
     <div className="h-full flex flex-col md:flex-row overflow-hidden bg-white relative">
       
-      {/* SUCCESS TOAST */}
       {showSuccessToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-slate-900 text-white px-8 py-3 rounded-2xl shadow-2xl flex items-center gap-4 border border-white/10">
@@ -124,7 +123,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       )}
 
-      {/* LEFT: PRODUCTS GRID */}
       <div className={`flex-1 flex flex-col min-w-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
         <div className="px-4 py-3 md:px-6 md:py-4 bg-white border-b border-slate-100 shrink-0 z-20 space-y-3">
           <div className="flex gap-2 items-center">
@@ -198,7 +196,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       </div>
 
-      {/* MOBILE FLOATING CART INFO */}
       {mobileView === 'menu' && cart.length > 0 && (
         <div className="md:hidden fixed bottom-20 left-0 right-0 px-4 z-[60] animate-in slide-in-from-bottom-5">
           <button onClick={() => setMobileView('cart')} className="w-full bg-slate-900 text-white rounded-2xl p-4 shadow-2xl flex justify-between items-center active:scale-95">
@@ -211,7 +208,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       )}
 
-      {/* RIGHT: TICKET / CART */}
       <div className={`${mobileView === 'cart' ? 'flex' : 'hidden md:flex'} w-full md:w-80 lg:w-96 bg-slate-50 border-l border-slate-200 flex-col relative z-[70] h-full`}>
         <div className="p-4 md:p-6 bg-white border-b border-slate-100 flex justify-between items-center shrink-0">
            <div>
@@ -274,7 +270,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       </div>
 
-      {/* PAYMENT MODAL */}
       {showCheckout && (
         <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-md flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white rounded-t-[32px] md:rounded-[40px] w-full max-w-sm p-8 shadow-2xl animate-in slide-in-from-bottom-10">
@@ -298,7 +293,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       )}
 
-      {/* MEMBER CRM MODAL */}
       {showMemberModal && (
         <div className="fixed inset-0 z-[210] bg-slate-900/90 backdrop-blur-md flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white rounded-t-[32px] md:rounded-[40px] w-full max-w-sm p-6 shadow-2xl animate-in slide-in-from-bottom-10">

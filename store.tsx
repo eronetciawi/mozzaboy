@@ -346,7 +346,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           pointDiscountValue: ptVal, membershipDiscount: memberDisc, bulkDiscount: bulkDisc
         };
         
-        await supabase.from('transactions').insert(txPayload);
+        const { data: txData, error: txError } = await supabase.from('transactions').insert(txPayload).select();
+        if (txError) throw txError;
+
+        // Optimistic UI for inventory and transactions
+        if (txData) setTransactions(prev => [hydrateDates(txData[0]), ...prev]);
+
         const updates: any[] = [];
         const deduct = (p: Product, mult: number) => {
            if (p.isCombo && p.comboItems) {
@@ -359,36 +364,74 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
            }
         };
         cart.forEach(i => deduct(i.product, i.quantity));
-        if (updates.length > 0) await supabase.from('inventory').upsert(updates);
-        setCart([]); setSelectedCustomerId(null); await fetchFromCloud();
+        if (updates.length > 0) {
+           await supabase.from('inventory').upsert(updates);
+           setInventory(prev => prev.map(inv => {
+              const up = updates.find(u => u.id === inv.id);
+              return up ? { ...inv, quantity: up.quantity } : inv;
+           }));
+        }
+        
+        setCart([]); setSelectedCustomerId(null);
       } finally { setIsSaving(false); }
     },
     clockIn: async (lat, lng, notes) => {
       if (!supabase || !currentUser) return { success: false, message: "Sesi expired." };
-      const localDay = new Date().toLocaleDateString('en-CA');
-      const { data: ex } = await supabase.from('attendance').select('*').eq('staffId', currentUser.id).eq('date', localDay).maybeSingle();
-      if (ex) return { success: false, message: "Sudah absen hari ini." };
       
-      const { error } = await supabase.from('attendance').insert({ 
-        id: `att-${Date.now()}`, staffId: currentUser.id, staffName: currentUser.name, 
-        outletId: selectedOutletId, date: localDay, clockIn: new Date().toISOString(), 
+      const now = new Date();
+      const localDay = now.toLocaleDateString('en-CA');
+      
+      const { data: existing } = await supabase.from('attendance')
+        .select('*')
+        .eq('staffId', currentUser.id)
+        .eq('date', localDay)
+        .maybeSingle();
+
+      if (existing) return { success: false, message: "Anda sudah absen hari ini." };
+      
+      const payload = { 
+        id: `att-${Date.now()}`, 
+        staffId: currentUser.id, staff_id: currentUser.id,
+        staffName: currentUser.name, staff_name: currentUser.name,
+        outletId: selectedOutletId, outlet_id: selectedOutletId,
+        date: localDay, 
+        clockIn: now.toISOString(), clock_in: now.toISOString(),
         status: 'PRESENT', latitude: lat, longitude: lng, notes 
-      });
+      };
+
+      const { data, error } = await supabase.from('attendance').insert(payload).select();
       if (error) throw error;
-      await fetchFromCloud(); return { success: true };
+      
+      if (data) setAttendance(prev => [...prev, ...hydrateDates(data)]);
+      return { success: true };
     },
     clockOut: async () => {
       if (!supabase || !currentUser) return;
-      const { data: act } = await supabase.from('attendance').select('*').eq('staffId', currentUser.id).is('clockOut', null).order('clockIn', { ascending: false }).limit(1).maybeSingle();
-      if (act) {
-         await supabase.from('attendance').update({ clockOut: new Date().toISOString() }).eq('id', act.id);
-         await fetchFromCloud();
+      const now = new Date().toISOString();
+      
+      const { data: activeShift } = await supabase.from('attendance')
+        .select('*')
+        .eq('staffId', currentUser.id)
+        .is('clockOut', null)
+        .order('clockIn', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activeShift) {
+         const { data, error } = await supabase.from('attendance').update({ 
+           clockOut: now, clock_out: now 
+         }).eq('id', activeShift.id).select();
+         
+         if (!error && data) {
+            setAttendance(prev => prev.map(a => a.id === activeShift.id ? hydrateDates(data[0]) : a));
+         }
       }
     },
     performClosing: async (actualCash, notes, openingBalance, shiftName) => {
        if(!supabase || !currentUser) return;
        setIsSaving(true);
        try {
+          const nowIso = new Date().toISOString();
           const start = new Date(); start.setHours(0,0,0,0);
           const txs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start);
           const cash = txs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+b.total, 0);
@@ -396,20 +439,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const exp = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser.id && new Date(e.timestamp) >= start).reduce((a,b)=>a+b.amount, 0);
           const expected = openingBalance + cash - exp;
           
-          const { error } = await supabase.from('daily_closings').insert({ 
+          const { data: clsData, error } = await supabase.from('daily_closings').insert({ 
              id: `CLS-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser.id, staffName: currentUser.name, 
-             timestamp: new Date().toISOString(), shiftName, openingBalance, 
+             timestamp: nowIso, shiftName, openingBalance, 
              totalSalesCash: cash, totalSalesQRIS: qris, totalExpenses: exp, 
              actualCash, discrepancy: actualCash - expected, notes, status: 'APPROVED' 
-          });
-          if (error) throw error;
+          }).select();
           
-          // Auto Clock Out
-          await supabase.from('attendance').update({ clockOut: new Date().toISOString() }).eq('staffId', currentUser.id).is('clockOut', null);
-          await fetchFromCloud();
+          if (error) throw error;
+          if (clsData) setDailyClosings(prev => [hydrateDates(clsData[0]), ...prev]);
+          
+          await supabase.from('attendance').update({ 
+            clockOut: nowIso, clock_out: nowIso 
+          }).eq('staffId', currentUser.id).is('clockOut', null);
+          
+          // Re-fetch only attendance to be sure
+          const { data: attData } = await supabase.from('attendance').select('*').eq('staffId', currentUser.id).order('clockIn', { ascending: false }).limit(10);
+          if (attData) setAttendance(prev => {
+             const others = prev.filter(a => a.staffId !== currentUser.id);
+             return [...others, ...hydrateDates(attData)];
+          });
        } finally { setIsSaving(false); }
     },
-    resetAttendanceLogs: async () => { if(supabase) { await supabase.from('attendance').delete().neq('id', 'VOID'); await fetchFromCloud(); } },
+    resetAttendanceLogs: async () => { if(supabase) { await supabase.from('attendance').delete().neq('id', 'VOID'); setAttendance([]); } },
     resetOutletData: async (oid) => {
        if(!supabase) return;
        setIsSaving(true);
@@ -516,35 +568,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return false;
        }
     },
-    addStaff: async (s) => { await supabase!.from('staff').insert(s); await fetchFromCloud(); },
-    updateStaff: async (s) => { await supabase!.from('staff').update(s).eq('id', s.id); if(currentUser?.id === s.id) setCurrentUser(s); await fetchFromCloud(); },
-    deleteStaff: async (id) => { await supabase!.from('staff').delete().eq('id', id); await fetchFromCloud(); },
-    submitLeave: async (l) => { await supabase!.from('leave_requests').insert({ ...l, id: `lv-${Date.now()}`, status: 'PENDING', requestedAt: new Date().toISOString() }); await fetchFromCloud(); },
-    updateLeaveStatus: async (id, s) => { await supabase!.from('leave_requests').update({ status: s }).eq('id', id); await fetchFromCloud(); },
-    addProduct: async (p) => { await supabase!.from('products').insert(p); await fetchFromCloud(); },
-    updateProduct: async (p) => { await supabase!.from('products').update(p).eq('id', p.id); await fetchFromCloud(); },
-    deleteProduct: async (id) => { await supabase!.from('products').delete().eq('id', id); await fetchFromCloud(); },
+    addStaff: async (s) => { await supabase!.from('staff').insert(s); setStaff(prev => [...prev, hydrateDates(s)]); },
+    updateStaff: async (s) => { await supabase!.from('staff').update(s).eq('id', s.id); setStaff(prev => prev.map(m => m.id === s.id ? hydrateDates(s) : m)); if(currentUser?.id === s.id) setCurrentUser(s); },
+    deleteStaff: async (id) => { await supabase!.from('staff').delete().eq('id', id); setStaff(prev => prev.filter(m => m.id !== id)); },
+    submitLeave: async (l) => { const payload = { ...l, id: `lv-${Date.now()}`, status: 'PENDING', requestedAt: new Date().toISOString(), staffId: currentUser?.id, staffName: currentUser?.name, outletId: selectedOutletId }; await supabase!.from('leave_requests').insert(payload); setLeaveRequests(prev => [...prev, hydrateDates(payload)]); },
+    updateLeaveStatus: async (id, s) => { await supabase!.from('leave_requests').update({ status: s }).eq('id', id); setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status: s } : l)); },
+    addProduct: async (p) => { await supabase!.from('products').insert(p); setProducts(prev => [...prev, p]); },
+    updateProduct: async (p) => { await supabase!.from('products').update(p).eq('id', p.id); setProducts(prev => prev.map(m => m.id === p.id ? p : m)); },
+    deleteProduct: async (id) => { await supabase!.from('products').delete().eq('id', id); setProducts(prev => prev.filter(m => m.id !== id)); },
     addInventoryItem: async (i, oids = []) => { const payloads = (oids.length > 0 ? oids : [selectedOutletId]).map(oid => ({ ...i, id: `inv-${oid}-${Date.now()}`, outletId: oid })); await supabase!.from('inventory').insert(payloads); await fetchFromCloud(); },
-    updateInventoryItem: async (i) => { await supabase!.from('inventory').update(i).eq('id', i.id); await fetchFromCloud(); },
-    deleteInventoryItem: async (id) => { await supabase!.from('inventory').delete().eq('id', id); await fetchFromCloud(); },
-    addExpense: async (e) => { await supabase!.from('expenses').insert({ ...e, id: `exp-${Date.now()}`, timestamp: new Date().toISOString(), staffId: currentUser?.id, staffName: currentUser?.name, outletId: selectedOutletId }); await fetchFromCloud(); },
-    updateExpense: async (id, d) => { await supabase!.from('expenses').update(d).eq('id', id); await fetchFromCloud(); },
-    deleteExpense: async (id) => { await supabase!.from('expenses').delete().eq('id', id); await fetchFromCloud(); },
-    addExpenseType: async (n) => { await supabase!.from('expense_types').insert({ id: `et-${Date.now()}`, name: n }); await fetchFromCloud(); },
-    updateExpenseType: async (id, n) => { await supabase!.from('expense_types').update({ name: n }).eq('id', id); await fetchFromCloud(); },
-    deleteExpenseType: async (id) => { await supabase!.from('expense_types').delete().eq('id', id); await fetchFromCloud(); },
-    addCategory: async (n) => { await supabase!.from('categories').insert({ id: `cat-${Date.now()}`, name: n }); await fetchFromCloud(); },
-    updateCategory: async (id, n) => { await supabase!.from('categories').update({ name: n }).eq('id', id); await fetchFromCloud(); },
-    deleteCategory: async (id) => { await supabase!.from('categories').delete().eq('id', id); await fetchFromCloud(); },
-    addPurchase: async (p) => { const payload = { ...p, id: `pur-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser?.id, staffName: currentUser?.name, timestamp: new Date().toISOString(), itemName: inventory.find(i=>i.id===p.inventoryItemId)?.name }; await supabase!.from('purchases').insert(payload); const item = inventory.find(inv => inv.id === p.inventoryItemId); if (item) await supabase!.from('inventory').update({ quantity: item.quantity + p.quantity }).eq('id', item.id); await fetchFromCloud(); },
+    updateInventoryItem: async (i) => { await supabase!.from('inventory').update(i).eq('id', i.id); setInventory(prev => prev.map(m => m.id === i.id ? i : m)); },
+    deleteInventoryItem: async (id) => { await supabase!.from('inventory').delete().eq('id', id); setInventory(prev => prev.filter(m => m.id !== id)); },
+    addExpense: async (e) => { const payload = { ...e, id: `exp-${Date.now()}`, timestamp: new Date().toISOString(), staffId: currentUser?.id, staffName: currentUser?.name, outletId: selectedOutletId }; await supabase!.from('expenses').insert(payload); setExpenses(prev => [...prev, hydrateDates(payload)]); },
+    updateExpense: async (id, d) => { await supabase!.from('expenses').update(d).eq('id', id); setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...hydrateDates(d) } : e)); },
+    deleteExpense: async (id) => { await supabase!.from('expenses').delete().eq('id', id); setExpenses(prev => prev.filter(e => e.id !== id)); },
+    addExpenseType: async (n) => { const payload = { id: `et-${Date.now()}`, name: n }; await supabase!.from('expense_types').insert(payload); setExpenseTypes(prev => [...prev, payload]); },
+    updateExpenseType: async (id, n) => { await supabase!.from('expense_types').update({ name: n }).eq('id', id); setExpenseTypes(prev => prev.map(t => t.id === id ? { ...t, name: n } : t)); },
+    deleteExpenseType: async (id) => { await supabase!.from('expense_types').delete().eq('id', id); setExpenseTypes(prev => prev.filter(t => t.id !== id)); },
+    addCategory: async (n) => { const payload = { id: `cat-${Date.now()}`, name: n }; await supabase!.from('categories').insert(payload); setCategories(prev => [...prev, payload]); },
+    updateCategory: async (id, n) => { await supabase!.from('categories').update({ name: n }).eq('id', id); setCategories(prev => prev.map(c => c.id === id ? { ...c, name: n } : c)); },
+    deleteCategory: async (id) => { await supabase!.from('categories').delete().eq('id', id); setCategories(prev => prev.filter(c => c.id !== id)); },
+    addPurchase: async (p) => { 
+       const payload = { ...p, id: `pur-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser?.id, staffName: currentUser?.name, timestamp: new Date().toISOString(), itemName: inventory.find(i=>i.id===p.inventoryItemId)?.name, totalPrice: p.quantity * p.unitPrice }; 
+       await supabase!.from('purchases').insert(payload); 
+       const item = inventory.find(inv => inv.id === p.inventoryItemId); 
+       if (item) {
+          const newQty = item.quantity + p.quantity;
+          await supabase!.from('inventory').update({ quantity: newQty }).eq('id', item.id);
+          setInventory(prev => prev.map(inv => inv.id === item.id ? { ...inv, quantity: newQty } : inv));
+       }
+       setPurchases(prev => [hydrateDates(payload), ...prev]);
+    },
     processProduction: async (d) => {
        if(!supabase || !currentUser) return;
        setIsSaving(true);
        try {
-          await supabase.from('production_records').insert({ 
+          const payload = { 
              ...d, id: `PROD-${Date.now()}`, timestamp: new Date().toISOString(), 
              staffId: currentUser.id, staffName: currentUser.name, outletId: selectedOutletId 
-          });
+          };
+          await supabase.from('production_records').insert(payload);
           const updates = d.components.map(c => {
              const item = inventory.find(i => i.id === c.inventoryItemId);
              return { id: c.inventoryItemId, quantity: (item?.quantity || 0) - c.quantity };
@@ -552,18 +615,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const resItem = inventory.find(i => i.id === d.resultItemId);
           if (resItem) updates.push({ id: resItem.id, quantity: (resItem.quantity || 0) + d.resultQuantity });
           await supabase.from('inventory').upsert(updates);
-          await fetchFromCloud();
+          
+          setProductionRecords(prev => [hydrateDates(payload), ...prev]);
+          setInventory(prev => prev.map(inv => {
+             const up = updates.find(u => u.id === inv.id);
+             return up ? { ...inv, quantity: up.quantity } : inv;
+          }));
        } finally { setIsSaving(false); }
     },
-    addWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').insert({ ...recipe, id: `wip-${Date.now()}` }); await fetchFromCloud(); },
-    updateWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id); await fetchFromCloud(); },
-    deleteWIPRecipe: async (id) => { await supabase!.from('wip_recipes').delete().eq('id', id); await fetchFromCloud(); },
-    addCustomer: async (c) => { await supabase!.from('customers').insert({ ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date().toISOString(), registeredByStaffId: currentUser?.id, registeredByStaffName: currentUser?.name, registeredAtOutletId: selectedOutletId }); await fetchFromCloud(); },
-    updateCustomer: async (c) => { await supabase!.from('customers').update(c).eq('id', c.id); await fetchFromCloud(); },
-    deleteCustomer: async (id) => { await supabase!.from('customers').delete().eq('id', id); await fetchFromCloud(); },
-    addOutlet: async (o) => { await supabase!.from('outlets').insert(o); await fetchFromCloud(); },
-    updateOutlet: async (o) => { await supabase!.from('outlets').update(o).eq('id', o.id); await fetchFromCloud(); },
-    deleteOutlet: async (id) => { await supabase!.from('outlets').delete().eq('id', id); await fetchFromCloud(); },
+    addWIPRecipe: async (recipe) => { const payload = { ...recipe, id: `wip-${Date.now()}` }; await supabase!.from('wip_recipes').insert(payload); setWipRecipes(prev => [...prev, hydrateDates(payload)]); },
+    updateWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id); setWipRecipes(prev => prev.map(r => r.id === recipe.id ? hydrateDates(recipe) : r)); },
+    deleteWIPRecipe: async (id) => { await supabase!.from('wip_recipes').delete().eq('id', id); setWipRecipes(prev => prev.filter(r => r.id !== id)); },
+    addCustomer: async (c) => { const payload = { ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date().toISOString(), registeredByStaffId: currentUser?.id, registeredByStaffName: currentUser?.name, registeredAtOutletId: selectedOutletId }; await supabase!.from('customers').insert(payload); setCustomers(prev => [...prev, hydrateDates(payload)]); },
+    updateCustomer: async (c) => { await supabase!.from('customers').update(c).eq('id', c.id); setCustomers(prev => prev.map(cust => cust.id === c.id ? hydrateDates(c) : cust)); },
+    deleteCustomer: async (id) => { await supabase!.from('customers').delete().eq('id', id); setCustomers(prev => prev.filter(c => c.id !== id)); },
+    addOutlet: async (o) => { await supabase!.from('outlets').insert(o); setOutlets(prev => [...prev, hydrateDates(o)]); },
+    updateOutlet: async (o) => { await supabase!.from('outlets').update(o).eq('id', o.id); setOutlets(prev => prev.map(out => out.id === o.id ? hydrateDates(o) : out)); },
+    deleteOutlet: async (id) => { await supabase!.from('outlets').delete().eq('id', id); setOutlets(prev => prev.filter(o => o.id !== id)); },
     transferStock: async (f, t, i, q) => { 
        if(!supabase || !currentUser) return;
        setIsSaving(true);
@@ -573,29 +641,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (fromItem && toItem) {
              const fromOutletName = outlets.find(o => o.id === f)?.name || f;
              const toOutletName = outlets.find(o => o.id === t)?.name || t;
-             await supabase.from('stock_transfers').insert({
+             const payload = {
                 id: `TRF-${Date.now()}`, fromOutletId: f, fromOutletName, toOutletId: t, toOutletName,
                 itemName: i, quantity: q, unit: fromItem.unit, timestamp: new Date().toISOString(),
                 staffId: currentUser.id, staffName: currentUser.name
-             });
+             };
+             await supabase.from('stock_transfers').insert(payload);
              await supabase.from('inventory').upsert([
                 { id: fromItem.id, quantity: fromItem.quantity - q },
                 { id: toItem.id, quantity: toItem.quantity + q }
              ]);
+             setStockTransfers(prev => [hydrateDates(payload), ...prev]);
+             setInventory(prev => prev.map(inv => {
+                if (inv.id === fromItem.id) return { ...inv, quantity: inv.quantity - q };
+                if (inv.id === toItem.id) return { ...inv, quantity: inv.quantity + q };
+                return inv;
+             }));
           }
-          await fetchFromCloud();
        } finally { setIsSaving(false); }
     },
-    addMembershipTier: async (t) => { await supabase!.from('membership_tiers').insert({ ...t, id: `t-${Date.now()}` }); await fetchFromCloud(); },
-    updateMembershipTier: async (t) => { await supabase!.from('membership_tiers').update(t).eq('id', t.id); await fetchFromCloud(); },
-    deleteMembershipTier: async (id) => { await supabase!.from('membership_tiers').delete().eq('id', id); await fetchFromCloud(); },
-    addBulkDiscount: async (r) => { await supabase!.from('bulk_discounts').insert({ ...r, id: `r-${Date.now()}` }); await fetchFromCloud(); },
-    updateBulkDiscount: async (r) => { await supabase!.from('bulk_discounts').update(r).eq('id', r.id); await fetchFromCloud(); },
-    deleteBulkDiscount: async (id) => { await supabase!.from('bulk_discounts').delete().eq('id', id); await fetchFromCloud(); },
-    saveSimulation: async (s) => { await supabase!.from('simulations').upsert(s); await fetchFromCloud(); },
-    deleteSimulation: async (id) => { await supabase!.from('simulations').delete().eq('id', id); await fetchFromCloud(); },
-    updateLoyaltyConfig: async (c) => { await supabase!.from('loyalty_config').upsert({ ...c, id: 'global' }); await fetchFromCloud(); },
-    voidTransaction: async (txId) => { await supabase!.from('transactions').update({ status: OrderStatus.VOIDED }).eq('id', txId); await fetchFromCloud(); },
+    addMembershipTier: async (t) => { const payload = { ...t, id: `t-${Date.now()}` }; await supabase!.from('membership_tiers').insert(payload); setMembershipTiers(prev => [...prev, payload]); },
+    updateMembershipTier: async (t) => { await supabase!.from('membership_tiers').update(t).eq('id', t.id); setMembershipTiers(prev => prev.map(tier => tier.id === t.id ? t : tier)); },
+    deleteMembershipTier: async (id) => { await supabase!.from('membership_tiers').delete().eq('id', id); setMembershipTiers(prev => prev.filter(t => t.id !== id)); },
+    addBulkDiscount: async (r) => { const payload = { ...r, id: `r-${Date.now()}` }; await supabase!.from('bulk_discounts').insert(payload); setBulkDiscounts(prev => [...prev, payload]); },
+    updateBulkDiscount: async (r) => { await supabase!.from('bulk_discounts').update(r).eq('id', r.id); setBulkDiscounts(prev => prev.map(rule => rule.id === r.id ? r : rule)); },
+    deleteBulkDiscount: async (id) => { await supabase!.from('bulk_discounts').delete().eq('id', id); setBulkDiscounts(prev => prev.filter(r => r.id !== id)); },
+    saveSimulation: async (s) => { await supabase!.from('simulations').upsert(s); setSimulations(prev => { const others = prev.filter(item => item.id !== s.id); return [...others, hydrateDates(s)]; }); },
+    deleteSimulation: async (id) => { await supabase!.from('simulations').delete().eq('id', id); setSimulations(prev => prev.filter(s => s.id !== id)); },
+    updateLoyaltyConfig: async (c) => { await supabase!.from('loyalty_config').upsert({ ...c, id: 'global' }); setLoyaltyConfig(c); },
+    voidTransaction: async (txId) => { await supabase!.from('transactions').update({ status: OrderStatus.VOIDED }).eq('id', txId); setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, status: OrderStatus.VOIDED } : tx)); },
     cloneOutletSetup: async (fid, tid) => {
        if(!supabase) return;
        setIsSaving(true);
