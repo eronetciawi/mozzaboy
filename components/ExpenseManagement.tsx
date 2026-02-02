@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../store';
 import { Expense, ExpenseType, UserRole } from '../types';
 
@@ -7,7 +7,7 @@ export const ExpenseManagement: React.FC = () => {
   const { 
     expenses, expenseTypes, addExpense, updateExpense, deleteExpense, 
     addExpenseType, updateExpenseType, deleteExpenseType, 
-    currentUser, selectedOutletId, outlets, isSaving 
+    currentUser, selectedOutletId, outlets, isSaving, dailyClosings = []
   } = useApp();
   
   const [showAddModal, setShowAddModal] = useState(false);
@@ -15,10 +15,8 @@ export const ExpenseManagement: React.FC = () => {
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   
-  // Toast Notification State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | null }>({ message: '', type: null });
 
-  // State for Managing Expense Types
   const [typeToDelete, setTypeToDelete] = useState<ExpenseType | null>(null);
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [editingTypeName, setEditingTypeName] = useState('');
@@ -26,13 +24,22 @@ export const ExpenseManagement: React.FC = () => {
 
   const [newExpense, setNewExpense] = useState({ typeId: '', amount: 0, notes: '' });
 
-  // Auto-hide toast
   useEffect(() => {
     if (toast.type) {
       const timer = setTimeout(() => setToast({ message: '', type: null }), 4000);
       return () => clearTimeout(timer);
     }
   }, [toast]);
+
+  const isShiftClosed = useMemo(() => {
+    if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    return (dailyClosings || []).some(c => 
+      c.outletId === selectedOutletId && 
+      c.staffId === currentUser.id && 
+      new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
+    );
+  }, [dailyClosings, selectedOutletId, currentUser]);
 
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   const isAdmin = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
@@ -42,6 +49,7 @@ export const ExpenseManagement: React.FC = () => {
   const todayExpenses = outletExpenses.filter(e => new Date(e.timestamp).toDateString() === new Date().toDateString());
 
   const handleOpenAdd = () => {
+    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
     setEditingExpense(null);
     setNewExpense({ typeId: '', amount: 0, notes: '' });
     setShowAddModal(true);
@@ -55,6 +63,7 @@ export const ExpenseManagement: React.FC = () => {
   };
 
   const handleSaveExpense = async () => {
+    if (isShiftClosed) return;
     if (!newExpense.typeId || newExpense.amount <= 0) {
         setToast({ message: "Lengkapi kategori dan nominal!", type: 'error' });
         return;
@@ -125,8 +134,6 @@ export const ExpenseManagement: React.FC = () => {
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8 relative">
-      
-      {/* GLOBAL TOAST NOTIFICATION */}
       {toast.type && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500 w-full max-w-sm px-4">
            <div className={`px-6 py-4 rounded-[28px] shadow-2xl flex items-center gap-4 border-2 ${
@@ -158,10 +165,11 @@ export const ExpenseManagement: React.FC = () => {
             </button>
           )}
           <button 
+            disabled={isShiftClosed}
             onClick={handleOpenAdd}
-            className="flex-[2] md:flex-none px-6 py-3 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase shadow-xl shadow-slate-900/10 hover:bg-orange-500 transition-all"
+            className={`flex-[2] md:flex-none px-6 py-3 rounded-xl font-black text-[9px] uppercase shadow-xl transition-all ${isShiftClosed ? 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-orange-500 shadow-slate-900/10'}`}
           >
-            + Catat Biaya Baru
+            {isShiftClosed ? '🔒 SHIFT CLOSED' : '+ Catat Biaya Baru'}
           </button>
         </div>
       </div>
@@ -177,7 +185,7 @@ export const ExpenseManagement: React.FC = () => {
       <div className="space-y-3">
         <div className="flex justify-between items-center ml-2 mb-2">
            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Riwayat Pengeluaran</h3>
-           {!isAdmin && <span className="text-[7px] font-black text-slate-300 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded">Mode Kasir: Riwayat Terkunci</span>}
+           {isShiftClosed && <span className="text-[7px] font-black text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded border border-rose-100 animate-pulse">Akses Terkunci: Sudah Tutup Buku</span>}
         </div>
         
         {outletExpenses.length === 0 ? (
@@ -238,7 +246,7 @@ export const ExpenseManagement: React.FC = () => {
                    
                    {!isAdmin && (
                       <div className="w-8 h-8 flex items-center justify-center text-slate-200">
-                         <span className="text-sm">🔒</span>
+                         <span className="text-sm">{isShiftClosed ? '🔒' : '🔒'}</span>
                       </div>
                    )}
                 </div>
@@ -248,7 +256,6 @@ export const ExpenseManagement: React.FC = () => {
         )}
       </div>
 
-      {/* MODAL INPUT PENGELUARAN */}
       {showAddModal && (
         <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-lg p-8 md:p-12 shadow-2xl animate-in slide-in-from-bottom-10 md:zoom-in-95">
@@ -301,86 +308,6 @@ export const ExpenseManagement: React.FC = () => {
             </div>
             <div className="h-safe-bottom md:hidden"></div>
           </div>
-        </div>
-      )}
-
-      {/* MODAL MANAJEMEN JENIS BIAYA */}
-      {showTypeModal && (
-        <div className="fixed inset-0 z-[210] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-4">
-           <div className="bg-white rounded-[48px] w-full max-w-md flex flex-col shadow-2xl animate-in zoom-in-95">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                 <div>
-                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Jenis Pengeluaran</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Master Data Kategori</p>
-                 </div>
-                 <button onClick={() => setShowTypeModal(false)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">✕</button>
-              </div>
-
-              <div className="p-8 space-y-6">
-                 <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      className="flex-1 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-xs focus:border-orange-500 outline-none" 
-                      placeholder="Nama kategori baru..."
-                      value={newTypeName}
-                      onChange={e => setNewTypeName(e.target.value)}
-                    />
-                    <button onClick={handleAddType} className="px-6 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-orange-500/20 active:scale-95 transition-all">Tambah</button>
-                 </div>
-
-                 <div className="max-h-64 overflow-y-auto custom-scrollbar pr-2 space-y-2">
-                    {expenseTypes.map(type => (
-                       <div key={type.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center group">
-                          {editingTypeId === type.id ? (
-                             <div className="flex gap-2 w-full">
-                                <input 
-                                  autoFocus
-                                  className="flex-1 p-2 bg-white border border-orange-500 rounded-xl text-xs font-black uppercase outline-none"
-                                  value={editingTypeName}
-                                  onChange={e => setEditingTypeName(e.target.value)}
-                                />
-                                <button onClick={handleSaveEditType} className="w-8 h-8 bg-green-500 text-white rounded-xl flex items-center justify-center">✓</button>
-                                <button onClick={() => setEditingTypeId(null)} className="w-8 h-8 bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center text-xs">✕</button>
-                             </div>
-                          ) : (
-                             <>
-                               <span className="text-[11px] font-black text-slate-700 uppercase">{type.name}</span>
-                               <div className="flex gap-1">
-                                  <button onClick={() => handleStartEditType(type)} className="w-8 h-8 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center text-[10px]">✏️</button>
-                                  <button onClick={() => setTypeToDelete(type)} className="w-8 h-8 bg-red-50 text-red-400 rounded-xl flex items-center justify-center text-[10px]">🗑️</button>
-                               </div>
-                             </>
-                          )}
-                       </div>
-                    ))}
-                 </div>
-              </div>
-
-              <div className="p-8 border-t border-slate-50 bg-slate-50/50 rounded-b-[48px]">
-                 <button onClick={() => setShowTypeModal(false)} className="w-full py-4 text-slate-400 font-black uppercase text-[10px] tracking-widest">Selesai</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* MODAL KONFIRMASI HAPUS PENGELUARAN */}
-      {expenseToDelete && (
-        <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-6">
-           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
-              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[32px] flex items-center justify-center text-4xl mx-auto mb-6 shadow-inner">🗑️</div>
-              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Catatan?</h3>
-              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">Data pengeluaran senilai <span className="text-red-600 font-black">Rp {expenseToDelete.amount.toLocaleString()}</span> akan hilang permanen.</p>
-              <div className="flex flex-col gap-3">
-                 <button 
-                    disabled={isSaving}
-                    onClick={handleDeleteRecord} 
-                    className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700 disabled:opacity-50"
-                 >
-                    {isSaving ? 'MENGHAPUS...' : 'IYA, HAPUS'}
-                 </button>
-                 <button onClick={() => setExpenseToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
-              </div>
-           </div>
         </div>
       )}
     </div>

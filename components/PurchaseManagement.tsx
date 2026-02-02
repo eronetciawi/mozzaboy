@@ -1,10 +1,10 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store';
 import { RequestStatus, UserRole, InventoryItemType } from '../types';
 
 export const PurchaseManagement: React.FC = () => {
-  const { purchases, inventory, addPurchase, selectedOutletId, outlets, currentUser } = useApp();
+  const { purchases, inventory, addPurchase, selectedOutletId, outlets, currentUser, dailyClosings = [] } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -22,6 +22,16 @@ export const PurchaseManagement: React.FC = () => {
     unitPrice: 0,
     requestId: undefined as string | undefined
   });
+
+  const isShiftClosed = useMemo(() => {
+    if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    return (dailyClosings || []).some(c => 
+      c.outletId === selectedOutletId && 
+      c.staffId === currentUser.id && 
+      new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
+    );
+  }, [dailyClosings, selectedOutletId, currentUser]);
 
   const isCashier = currentUser?.role === UserRole.CASHIER;
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
@@ -44,7 +54,14 @@ export const PurchaseManagement: React.FC = () => {
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [purchases, selectedOutletId, searchTerm]);
 
+  const handleOpenAdd = () => {
+    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
+    resetForm();
+    setShowModal(true);
+  };
+
   const handleSave = () => {
+    if (isShiftClosed) return;
     if (formData.inventoryItemId && finalQuantity > 0 && formData.unitPrice > 0) {
       addPurchase({ 
         inventoryItemId: formData.inventoryItemId, 
@@ -86,10 +103,11 @@ export const PurchaseManagement: React.FC = () => {
           <p className="text-slate-500 font-medium text-[10px] uppercase italic">Pencatatan Belanja {activeOutlet?.name}</p>
         </div>
         <button 
-          onClick={() => { resetForm(); setShowModal(true); }}
-          className="w-full md:w-auto px-8 py-4 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-orange-600 transition-all flex items-center justify-center gap-2 active:scale-95"
+          disabled={isShiftClosed}
+          onClick={handleOpenAdd}
+          className={`w-full md:w-auto px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all flex items-center justify-center gap-2 active:scale-95 ${isShiftClosed ? 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed' : 'bg-orange-500 text-white hover:bg-orange-600'}`}
         >
-          <span>🚚</span> INPUT BELANJA BARU
+          <span>{isShiftClosed ? '🔒' : '🚚'}</span> {isShiftClosed ? 'SHIFT CLOSED' : 'INPUT BELANJA BARU'}
         </button>
       </div>
 
@@ -115,7 +133,6 @@ export const PurchaseManagement: React.FC = () => {
                  </div>
               </div>
               <div className="text-right">
-                 {/* SAFE FORMATTER APPLIED HERE */}
                  <p className="text-sm font-black text-slate-900">Rp {(p.totalPrice ?? 0).toLocaleString()}</p>
                  <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest">{(p.quantity ?? 0).toLocaleString()} {(inventory || []).find(i=>i.name===p.itemName)?.unit}</p>
               </div>

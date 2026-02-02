@@ -1,9 +1,10 @@
 
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../store';
+import { UserRole } from '../types';
 
 export const StockTransferManagement: React.FC = () => {
-  const { inventory, outlets, selectedOutletId, stockTransfers, transferStock } = useApp();
+  const { inventory, outlets, selectedOutletId, stockTransfers, transferStock, currentUser, dailyClosings = [] } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -12,6 +13,16 @@ export const StockTransferManagement: React.FC = () => {
   const [pickerQuery, setPickerQuery] = useState('');
 
   const [formData, setFormData] = useState({ toOutletId: '', itemName: '', quantity: 0 });
+
+  const isShiftClosed = useMemo(() => {
+    if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    return (dailyClosings || []).some(c => 
+      c.outletId === selectedOutletId && 
+      c.staffId === currentUser.id && 
+      new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
+    );
+  }, [dailyClosings, selectedOutletId, currentUser]);
 
   const currentOutletInventory = inventory.filter(i => i.outletId === selectedOutletId);
   const destinationOutlets = outlets.filter(o => o.id !== selectedOutletId);
@@ -36,7 +47,13 @@ export const StockTransferManagement: React.FC = () => {
     );
   }, [currentOutletInventory, pickerQuery]);
 
+  const handleOpenAdd = () => {
+    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
+    setShowModal(true);
+  };
+
   const handleTransfer = () => {
+    if (isShiftClosed) return;
     if (!formData.toOutletId || !formData.itemName || formData.quantity <= 0) return alert("Lengkapi data mutasi!");
     transferStock(selectedOutletId, formData.toOutletId, formData.itemName, formData.quantity);
     setShowModal(false);
@@ -53,10 +70,11 @@ export const StockTransferManagement: React.FC = () => {
           <p className="text-slate-500 font-medium text-[10px] uppercase italic tracking-widest">Kontrol pergerakan stok: <span className="text-indigo-600 font-bold">{activeOutlet?.name}</span></p>
         </div>
         <button 
-          onClick={() => setShowModal(true)}
-          className="w-full md:w-auto px-6 py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl shadow-indigo-500/20 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+          disabled={isShiftClosed}
+          onClick={handleOpenAdd}
+          className={`w-full md:w-auto px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all flex items-center justify-center gap-2 ${isShiftClosed ? 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed' : 'bg-indigo-600 text-white shadow-indigo-500/20 hover:bg-indigo-700'}`}
         >
-          <span>📦</span> + KIRIM STOK KE CABANG LAIN
+          <span>{isShiftClosed ? '🔒' : '📦'}</span> {isShiftClosed ? 'SHIFT CLOSED' : '+ KIRIM STOK KE CABANG LAIN'}
         </button>
       </div>
 
@@ -158,7 +176,6 @@ export const StockTransferManagement: React.FC = () => {
         </div>
       )}
 
-      {/* SEARCHABLE ITEM PICKER MODAL */}
       {showItemPicker && (
          <div className="fixed inset-0 z-[300] bg-slate-900/95 backdrop-blur-2xl p-4 flex flex-col animate-in fade-in duration-200">
             <div className="flex justify-between items-center mb-6 text-white px-2">

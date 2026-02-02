@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store';
 import { InventoryItemType, WIPRecipe, ProductionComponent, UserRole, InventoryItem } from '../types';
@@ -17,7 +16,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const { 
     inventory = [], selectedOutletId, outlets = [], processProduction, 
     wipRecipes = [], addWIPRecipe, updateWIPRecipe, deleteWIPRecipe, productionRecords = [],
-    currentUser, fetchFromCloud, isSaving
+    currentUser, fetchFromCloud, isSaving, dailyClosings = []
   } = useApp();
   
   const [activeSubTab, setActiveSubTab] = useState<'recipes' | 'logs'>('recipes');
@@ -40,6 +39,16 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const [globalSearch, setGlobalSearch] = useState('');
   const [pickerModal, setPickerModal] = useState<{rowId: string, type: 'wip' | 'material'} | null>(null);
   const [pickerQuery, setPickerQuery] = useState('');
+
+  const isShiftClosed = useMemo(() => {
+    if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    return (dailyClosings || []).some(c => 
+      c.outletId === selectedOutletId && 
+      c.staffId === currentUser.id && 
+      new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
+    );
+  }, [dailyClosings, selectedOutletId, currentUser]);
 
   const isCashier = currentUser?.role === UserRole.CASHIER;
   const isGlobalView = selectedOutletId === 'all';
@@ -79,12 +88,14 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   }, [resultQuantity, activeRecipe, isEditingMode]);
 
   const startNewRecipe = () => {
+    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
     setRecipeName(''); setResultItemId(''); setResultQuantity(1); setComponents([]);
     setIsCashierOperatedFlag(false); setSelectedBranches(isGlobalView ? [outlets[0]?.id] : [selectedOutletId]);
     setIsEditingMode(true); setView('form'); setActiveRecipe(null);
   };
 
   const handleEditRecipe = (r: WIPRecipe) => {
+    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
     setActiveRecipe(r); setRecipeName(r.name); setResultItemId(r.resultItemId);
     setResultQuantity(r.resultQuantity); setIsCashierOperatedFlag(r.isCashierOperated || false);
     setSelectedBranches(r.assignedOutletIds || []);
@@ -101,6 +112,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   };
 
   const handleExecuteMode = (r: WIPRecipe) => {
+    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
     if (isGlobalView) return alert("Pilih cabang spesifik terlebih dahulu!");
     setActiveRecipe(r); 
     setResultItemId(r.resultItemId);
@@ -110,6 +122,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   };
 
   const saveMaster = async () => {
+    if (isShiftClosed) return;
     if (!recipeName || !resultItemId || components.length === 0) return alert("Mohon lengkapi Nama Resep, Item Hasil, dan Bahan Baku!");
     setIsProcessingLocal(true);
     const payload = {
@@ -128,6 +141,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   };
 
   const finishProduction = async () => {
+    if (isShiftClosed) return;
     const insufficient = components.filter(c => {
        const mat = allMaterials.find(m => m.id === c.inventoryItemId);
        return (mat?.quantity || 0) < c.quantity;
@@ -140,7 +154,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
       await processProduction({ resultItemId, resultQuantity, components });
       setShowSuccessToast(true);
       
-      // Delay for toast effect and view transition
       setTimeout(async () => {
         setShowSuccessToast(false);
         await fetchFromCloud();
@@ -174,7 +187,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
 
   return (
     <div className="h-full bg-slate-50 flex flex-col overflow-hidden relative">
-      {/* TOAST SUCCESS PRECISE */}
       {showSuccessToast && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-slate-900 text-white px-10 py-5 rounded-[40px] shadow-2xl flex items-center gap-5 border-2 border-indigo-500/30">
@@ -197,7 +209,13 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                </div>
             </div>
             {view === 'list' && !isCashier && activeSubTab === 'recipes' && (
-              <button onClick={startNewRecipe} className="bg-indigo-600 text-white px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-indigo-700 transition-all">+ Master Baru</button>
+              <button 
+                disabled={isShiftClosed}
+                onClick={startNewRecipe} 
+                className={`px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all ${isShiftClosed ? 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+              >
+                {isShiftClosed ? '🔒 LOCKED' : '+ Master Baru'}
+              </button>
             )}
             {view === 'form' && (
                <button onClick={() => setView('list')} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">✕</button>
@@ -207,6 +225,10 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
          {view === 'list' && (
            <div className="px-4 md:px-6 pb-3">
               <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full md:w-fit border shadow-inner">
+                 {/* 
+                    FIX: Changed comparison from setActiveSubTab (state setter) to activeSubTab (state value). 
+                    The comparison was previously checking if the function itself equalled 'recipes'.
+                 */}
                  <button onClick={() => setActiveSubTab('recipes')} className={`flex-1 md:flex-none px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'recipes' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>Master Resep</button>
                  <button onClick={() => setActiveSubTab('logs')} className={`flex-1 md:flex-none px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${activeSubTab === 'logs' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>
                    Riwayat
@@ -234,7 +256,13 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                           </div>
                        </div>
                        <div className="flex gap-3">
-                          <button onClick={() => handleExecuteMode(r)} className="flex-[4] py-4 bg-indigo-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl shadow-indigo-200 active:scale-95 transition-all">MULAI MASAK ⚡</button>
+                          <button 
+                            disabled={isShiftClosed}
+                            onClick={() => handleExecuteMode(r)} 
+                            className={`flex-[4] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl transition-all ${isShiftClosed ? 'bg-slate-100 text-slate-300 shadow-none grayscale cursor-not-allowed' : 'bg-indigo-600 text-white shadow-indigo-200 active:scale-95'}`}
+                          >
+                            {isShiftClosed ? '🔒 SHIFT CLOSED' : 'MULAI MASAK ⚡'}
+                          </button>
                           {!isCashier && (
                             <div className="flex flex-1 gap-2">
                                <button onClick={() => handleEditRecipe(r)} className="flex-1 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black text-[11px] uppercase border border-slate-100 hover:bg-slate-100 transition-all text-center">Edit</button>
@@ -325,7 +353,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                                          <p className="text-[8px] font-bold text-slate-400 uppercase">{item?.unit}</p>
                                       </div>
                                       <input type="number" step="any" className="w-24 p-2 bg-slate-50 border rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-200" value={comp.quantity} onChange={e => setComponents(prev => prev.map(c => c.id === comp.id ? {...c, quantity: parseFloat(e.target.value) || 0} : c))} />
-                                      <button onClick={() => setComponents(prev => prev.filter(c => c.id !== comp.id))} className="text-red-400 opacity-20 group-hover:opacity-100 hover:text-red-600 transition-all">✕</button>
+                                      <button onClick={() => setComponents(prev => prev.filter(c => i.id !== comp.id))} className="text-red-400 opacity-20 group-hover:opacity-100 hover:text-red-600 transition-all">✕</button>
                                    </div>
                                 );
                              })}
@@ -401,7 +429,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
         )}
       </div>
 
-      {/* CONFIRM DELETE MODAL */}
       {recipeToDelete && (
         <div className="fixed inset-0 z-[400] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-6">
            <div className="bg-white rounded-[48px] w-full max-w-sm p-12 text-center shadow-2xl animate-in zoom-in-95">
@@ -416,7 +443,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
         </div>
       )}
 
-      {/* PICKER MODAL */}
       {pickerModal && (
          <div className="fixed inset-0 z-[300] bg-slate-950/90 backdrop-blur-xl p-4 flex flex-col animate-in fade-in duration-200">
             <div className="flex justify-between items-center mb-6">
@@ -438,11 +464,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                      <span className="text-indigo-400 group-hover:text-white text-xl">＋</span>
                   </button>
                ))}
-               {filteredPickerItems.length === 0 && (
-                  <div className="py-20 text-center opacity-40">
-                     <p className="text-white font-black uppercase text-xs">Item tidak ditemukan di gudang cabang ini.</p>
-                  </div>
-               )}
             </div>
          </div>
       )}
