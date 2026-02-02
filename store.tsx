@@ -346,11 +346,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           pointDiscountValue: ptVal, membershipDiscount: memberDisc, bulkDiscount: bulkDisc
         };
         
-        const { data: txData, error: txError } = await supabase.from('transactions').insert(txPayload).select();
-        if (txError) throw txError;
+        // INSTANT LOCAL UPDATE (OPTIMISTIC)
+        const localTx = hydrateDates(txPayload);
+        setTransactions(prev => [localTx, ...prev]);
 
-        // Optimistic UI for inventory and transactions
-        if (txData) setTransactions(prev => [hydrateDates(txData[0]), ...prev]);
+        await supabase.from('transactions').insert(txPayload);
 
         const updates: any[] = [];
         const deduct = (p: Product, mult: number) => {
@@ -399,15 +399,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'PRESENT', latitude: lat, longitude: lng, notes 
       };
 
-      const { data, error } = await supabase.from('attendance').insert(payload).select();
-      if (error) throw error;
+      // INSTANT LOCAL UPDATE
+      const localRecord = hydrateDates(payload);
+      setAttendance(prev => [...prev, localRecord]);
+
+      // Fire and forget to cloud
+      supabase.from('attendance').insert(payload).then(({error}) => {
+        if(error) console.error("Cloud ClockIn Error:", error);
+      });
       
-      if (data) setAttendance(prev => [...prev, ...hydrateDates(data)]);
       return { success: true };
     },
     clockOut: async () => {
       if (!supabase || !currentUser) return;
-      const now = new Date().toISOString();
+      const now = new Date();
       
       const { data: activeShift } = await supabase.from('attendance')
         .select('*')
@@ -418,20 +423,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .maybeSingle();
 
       if (activeShift) {
-         const { data, error } = await supabase.from('attendance').update({ 
-           clockOut: now, clock_out: now 
-         }).eq('id', activeShift.id).select();
+         // INSTANT LOCAL UPDATE
+         setAttendance(prev => prev.map(a => a.id === activeShift.id ? { ...a, clockOut: now } : a));
          
-         if (!error && data) {
-            setAttendance(prev => prev.map(a => a.id === activeShift.id ? hydrateDates(data[0]) : a));
-         }
+         await supabase.from('attendance').update({ 
+           clockOut: now.toISOString(), clock_out: now.toISOString() 
+         }).eq('id', activeShift.id);
       }
     },
     performClosing: async (actualCash, notes, openingBalance, shiftName) => {
        if(!supabase || !currentUser) return;
        setIsSaving(true);
        try {
-          const nowIso = new Date().toISOString();
+          const now = new Date();
+          const nowIso = now.toISOString();
           const start = new Date(); start.setHours(0,0,0,0);
           const txs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start);
           const cash = txs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+b.total, 0);
@@ -439,26 +444,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const exp = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser.id && new Date(e.timestamp) >= start).reduce((a,b)=>a+b.amount, 0);
           const expected = openingBalance + cash - exp;
           
-          const { data: clsData, error } = await supabase.from('daily_closings').insert({ 
+          const closingPayload = { 
              id: `CLS-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser.id, staffName: currentUser.name, 
              timestamp: nowIso, shiftName, openingBalance, 
              totalSalesCash: cash, totalSalesQRIS: qris, totalExpenses: exp, 
              actualCash, discrepancy: actualCash - expected, notes, status: 'APPROVED' 
-          }).select();
-          
-          if (error) throw error;
-          if (clsData) setDailyClosings(prev => [hydrateDates(clsData[0]), ...prev]);
-          
+          };
+
+          // INSTANT LOCAL UPDATE
+          setDailyClosings(prev => [hydrateDates(closingPayload), ...prev]);
+          setAttendance(prev => prev.map(a => (a.staffId === currentUser.id && !a.clockOut) ? { ...a, clockOut: now } : a));
+
+          await supabase.from('daily_closings').insert(closingPayload);
           await supabase.from('attendance').update({ 
             clockOut: nowIso, clock_out: nowIso 
           }).eq('staffId', currentUser.id).is('clockOut', null);
           
-          // Re-fetch only attendance to be sure
-          const { data: attData } = await supabase.from('attendance').select('*').eq('staffId', currentUser.id).order('clockIn', { ascending: false }).limit(10);
-          if (attData) setAttendance(prev => {
-             const others = prev.filter(a => a.staffId !== currentUser.id);
-             return [...others, ...hydrateDates(attData)];
-          });
        } finally { setIsSaving(false); }
     },
     resetAttendanceLogs: async () => { if(supabase) { await supabase.from('attendance').delete().neq('id', 'VOID'); setAttendance([]); } },

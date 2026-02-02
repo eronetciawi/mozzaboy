@@ -10,7 +10,7 @@ interface AttendanceProps {
 export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
   const { 
     currentUser, clockIn, clockOut, attendance, leaveRequests, 
-    submitLeave, transactions, updateStaff, fetchFromCloud, outlets
+    submitLeave, transactions, updateStaff, outlets
   } = useApp();
   
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'performance' | 'leave' | 'profile'>('clock');
@@ -23,10 +23,6 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
   const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    fetchFromCloud();
-  }, []);
 
   useEffect(() => {
     if (currentUser) {
@@ -94,7 +90,8 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
     const res = await clockIn();
     if (res.success) {
       setToast({ message: "Absen Masuk Berhasil! Selamat bertugas.", type: 'success' });
-      setTimeout(() => setActiveTab?.('dashboard'), 2000);
+      // Percepat durasi delay agar user tidak menunggu lama
+      setTimeout(() => setActiveTab?.('dashboard'), 800);
     } else {
       setToast({ message: res.message || "Gagal Absen.", type: 'error' });
     }
