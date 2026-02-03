@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store';
 import { InventoryItemType, WIPRecipe, ProductionComponent, UserRole, InventoryItem } from '../types';
@@ -90,7 +91,8 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const startNewRecipe = () => {
     if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
     setRecipeName(''); setResultItemId(''); setResultQuantity(1); setComponents([]);
-    setIsCashierOperatedFlag(false); setSelectedBranches(isGlobalView ? [outlets[0]?.id] : [selectedOutletId]);
+    setIsCashierOperatedFlag(false); 
+    setSelectedBranches(isGlobalView ? outlets.map(o => o.id) : [selectedOutletId]);
     setIsEditingMode(true); setView('form'); setActiveRecipe(null);
   };
 
@@ -103,11 +105,16 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
     setIsEditingMode(true); setView('form');
   };
 
+  const toggleBranch = (outletId: string) => {
+    setSelectedBranches(prev => 
+      prev.includes(outletId) ? prev.filter(id => id !== outletId) : [...prev, outletId]
+    );
+  };
+
   const handleDeleteRecipe = async () => {
     if (recipeToDelete) {
       await deleteWIPRecipe(recipeToDelete.id);
       setRecipeToDelete(null);
-      await fetchFromCloud();
     }
   };
 
@@ -124,6 +131,8 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const saveMaster = async () => {
     if (isShiftClosed) return;
     if (!recipeName || !resultItemId || components.length === 0) return alert("Mohon lengkapi Nama Resep, Item Hasil, dan Bahan Baku!");
+    if (selectedBranches.length === 0) return alert("Pilih minimal satu cabang untuk mengaktifkan resep ini!");
+    
     setIsProcessingLocal(true);
     const payload = {
       name: recipeName, 
@@ -137,31 +146,39 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
     else await addWIPRecipe(payload);
     setView('list');
     setIsProcessingLocal(false);
-    await fetchFromCloud();
   };
 
   const finishProduction = async () => {
     if (isShiftClosed) return;
+    
+    // Periksa kecukupan stok di cabang AKTIF berdasarkan NAMA item
     const insufficient = components.filter(c => {
-       const mat = allMaterials.find(m => m.id === c.inventoryItemId);
-       return (mat?.quantity || 0) < c.quantity;
+       const sourceItemInfo = inventory.find(i => i.id === c.inventoryItemId);
+       if (!sourceItemInfo) return true;
+       
+       const localMat = inventory.find(i => i.name === sourceItemInfo.name && i.outletId === selectedOutletId);
+       return (localMat?.quantity || 0) < c.quantity;
     });
     
-    if (insufficient.length > 0) return alert("Stok bahan di gudang tidak mencukupi untuk batch ini!");
+    if (insufficient.length > 0) {
+       const firstBadItem = inventory.find(i => i.id === insufficient[0].inventoryItemId)?.name;
+       return alert(`Stok ${firstBadItem} tidak mencukupi untuk produksi batch ini!`);
+    }
     
     setIsProcessingLocal(true);
     try {
+      // Menjalankan proses produksi (Optimistic & Background Sync)
       await processProduction({ resultItemId, resultQuantity, components });
-      setShowSuccessToast(true);
       
-      setTimeout(async () => {
+      setShowSuccessToast(true);
+      setTimeout(() => {
         setShowSuccessToast(false);
-        await fetchFromCloud();
         setView('list');
         setActiveSubTab('logs');
         setIsProcessingLocal(false);
-      }, 1800);
+      }, 800);
     } catch (err) {
+      console.error("Finish Production Error:", err);
       alert("Terjadi kesalahan teknis saat memproses produksi.");
       setIsProcessingLocal(false);
     }
@@ -193,7 +210,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
               <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-3xl shadow-lg animate-bounce">👨‍🍳</div>
               <div>
                 <p className="text-[12px] font-black uppercase tracking-[0.3em] leading-none text-indigo-400">Produksi Berhasil!</p>
-                <p className="text-[10px] font-bold text-slate-300 uppercase mt-1.5 tracking-widest">Stok WIP bertambah, bahan baku dikurangi.</p>
+                <p className="text-[10px] font-bold text-slate-300 uppercase mt-1.5 tracking-widest">Stok bahan baku terpotong otomatis.</p>
               </div>
            </div>
         </div>
@@ -247,7 +264,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                              <div className="w-14 h-14 bg-indigo-50 rounded-[28px] flex items-center justify-center text-3xl shadow-inner text-indigo-600">🍳</div>
                              <div>
                                 <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight leading-tight">{r.name}</h4>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">Standard Batch: {r.resultQuantity} {inventory.find(i => i.id === r.resultItemId)?.unit || 'Unit'}</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">Target Batch: {r.resultQuantity} {inventory.find(i => i.id === r.resultItemId)?.unit || 'Unit'}</p>
                              </div>
                           </div>
                        </div>
@@ -317,10 +334,23 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                  <div className="space-y-8 animate-in slide-in-from-bottom-5">
                     <div className="bg-white p-8 md:p-10 rounded-[48px] border-2 border-indigo-100 shadow-xl space-y-8">
                        <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter text-center">Konfigurasi Master Resep</h3>
-                       <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Resep</label>
-                          <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-indigo-500" placeholder="Contoh: Adonan Corndog Original" value={recipeName} onChange={e => setRecipeName(e.target.value)} />
+                       
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div>
+                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Resep</label>
+                             <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-indigo-500" placeholder="Contoh: Boba Brown Sugar" value={recipeName} onChange={e => setRecipeName(e.target.value)} />
+                          </div>
+                          <div>
+                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1 flex justify-between">
+                                <span>Operasional Kasir?</span>
+                                <span className="text-indigo-600">{isCashierOperatedFlag ? 'AKTIF' : 'OFF'}</span>
+                             </label>
+                             <button onClick={() => setIsCashierOperatedFlag(!isCashierOperatedFlag)} className={`w-full p-4 border-2 rounded-2xl font-black text-[10px] uppercase transition-all ${isCashierOperatedFlag ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                                {isCashierOperatedFlag ? 'Kasir Bisa Memasak ✓' : 'Hanya Akses Dapur'}
+                             </button>
+                          </div>
                        </div>
+
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
                              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Item Hasil (WIP)</label>
@@ -334,6 +364,21 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                              <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-indigo-500" value={resultQuantity} onChange={e => setResultQuantity(parseFloat(e.target.value) || 1)} />
                           </div>
                        </div>
+
+                       <div className="p-6 bg-slate-900 rounded-[32px] text-white">
+                          <p className="text-[9px] font-black text-orange-500 uppercase tracking-[0.2em] mb-4">Aktif di Cabang:</p>
+                          <div className="flex flex-wrap gap-2">
+                             {outlets.map(o => (
+                                <button 
+                                 key={o.id} 
+                                 onClick={() => toggleBranch(o.id)}
+                                 className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase border-2 transition-all ${selectedBranches.includes(o.id) ? 'bg-orange-500 border-orange-500 text-white' : 'bg-transparent border-white/10 text-white/40'}`}>
+                                  {o.name}
+                                </button>
+                             ))}
+                          </div>
+                       </div>
+
                        <div className="space-y-4">
                           <div className="flex justify-between items-center px-1">
                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Komposisi Bahan Baku (RAW)</label>
@@ -353,9 +398,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                                    </div>
                                 );
                              })}
-                             {components.length === 0 && (
-                                <button onClick={() => setPickerModal({rowId: 'new', type: 'material'})} className="w-full py-10 border-4 border-dashed rounded-[32px] text-slate-300 font-black uppercase text-[10px] hover:border-indigo-400 hover:text-indigo-400 transition-all">Pilih Bahan Baku Resep</button>
-                             )}
                           </div>
                        </div>
                        <button 
@@ -384,18 +426,20 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                        <p className="text-[10px] font-black text-slate-900 uppercase tracking-widest border-b pb-4 mb-4">Checklist Penggunaan Stok</p>
                        <div className="space-y-3">
                           {components.map(comp => {
-                             const material = inventory.find(m => m.id === comp.inventoryItemId);
-                             const isShort = (material?.quantity || 0) < comp.quantity;
+                             const sourceItemInfo = inventory.find(i => i.id === comp.inventoryItemId);
+                             const localMaterial = inventory.find(m => m.name === sourceItemInfo?.name && m.outletId === selectedOutletId);
+                             
+                             const isShort = (localMaterial?.quantity || 0) < comp.quantity;
                              return (
                                <div key={comp.id} className={`p-5 rounded-[28px] border-2 flex justify-between items-center transition-all ${isShort ? 'bg-red-50 border-red-200 shadow-inner' : 'bg-slate-50 border-slate-100'}`}>
                                   <div>
-                                     <p className="text-xs font-black text-slate-800 uppercase leading-none mb-1.5">{material?.name || '??'}</p>
+                                     <p className="text-xs font-black text-slate-800 uppercase leading-none mb-1.5">{localMaterial?.name || sourceItemInfo?.name || '??'}</p>
                                      <p className={`text-[8px] font-bold uppercase ${isShort ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
-                                        {isShort ? `⚠️ KURANG: ${(comp.quantity - (material?.quantity || 0)).toFixed(1)} ${material?.unit}` : `Ready: ${material?.quantity} ${material?.unit}`}
+                                        {isShort ? `⚠️ KURANG: ${(comp.quantity - (localMaterial?.quantity || 0)).toFixed(1)} ${localMaterial?.unit}` : `Ready: ${localMaterial?.quantity} ${localMaterial?.unit}`}
                                      </p>
                                   </div>
                                   <div className="text-right">
-                                     <p className={`text-xl font-black ${isShort ? 'text-red-700' : 'text-indigo-600'}`}>{comp.quantity} <span className="text-[9px] uppercase">{material?.unit}</span></p>
+                                     <p className={`text-xl font-black ${isShort ? 'text-red-700' : 'text-indigo-600'}`}>{comp.quantity} <span className="text-[9px] uppercase">{localMaterial?.unit}</span></p>
                                   </div>
                                </div>
                              );

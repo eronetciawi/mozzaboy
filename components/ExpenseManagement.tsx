@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../store';
 import { Expense, ExpenseType, UserRole } from '../types';
@@ -308,6 +307,86 @@ export const ExpenseManagement: React.FC = () => {
             </div>
             <div className="h-safe-bottom md:hidden"></div>
           </div>
+        </div>
+      )}
+
+      {/* MODAL PENGELOLAAN JENIS BIAYA (EXPENSE TYPES) */}
+      {showTypeModal && (
+        <div className="fixed inset-0 z-[210] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4">
+          <div className="bg-white rounded-[40px] w-full max-w-lg p-8 md:p-12 shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95">
+             <div className="flex justify-between items-center mb-8 shrink-0">
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Kategori Biaya</h3>
+                <button onClick={() => setShowTypeModal(false)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400">✕</button>
+             </div>
+             
+             <div className="flex gap-2 mb-8 shrink-0">
+                <input 
+                  type="text" 
+                  className="flex-1 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-xs outline-none focus:border-orange-500"
+                  placeholder="Nama Kategori Baru..."
+                  value={newTypeName}
+                  onChange={e => setNewTypeName(e.target.value)}
+                />
+                <button onClick={handleAddType} className="px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg">TAMBAH</button>
+             </div>
+
+             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+                {expenseTypes.map(type => (
+                   <div key={type.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center group">
+                      {editingTypeId === type.id ? (
+                        <input 
+                          autoFocus
+                          className="flex-1 bg-white p-2 rounded-lg font-bold text-xs outline-none border border-orange-500"
+                          value={editingTypeName}
+                          onChange={e => setEditingTypeName(e.target.value)}
+                          onBlur={handleSaveEditType}
+                          onKeyDown={e => e.key === 'Enter' && handleSaveEditType()}
+                        />
+                      ) : (
+                        <span className="font-black text-slate-700 uppercase text-[11px]">{type.name}</span>
+                      )}
+                      <div className="flex gap-1">
+                         <button onClick={() => handleStartEditType(type)} className="w-8 h-8 flex items-center justify-center bg-white text-blue-500 rounded-lg hover:bg-blue-500 hover:text-white transition-all text-xs">✏️</button>
+                         <button onClick={() => setTypeToDelete(type)} className="w-8 h-8 flex items-center justify-center bg-white text-red-500 rounded-lg hover:bg-red-500 hover:text-white transition-all text-xs">🗑️</button>
+                      </div>
+                   </div>
+                ))}
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL KONFIRMASI HAPUS PENGELUARAN */}
+      {expenseToDelete && (
+        <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-6">
+           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[32px] flex items-center justify-center text-4xl mx-auto mb-6 shadow-inner">🗑️</div>
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Catatan?</h3>
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8 leading-relaxed">
+                 Catatan pengeluaran <span className="text-red-600 font-black">Rp {expenseToDelete.amount.toLocaleString()}</span> akan dihapus permanen.
+              </p>
+              <div className="flex flex-col gap-3">
+                 <button onClick={handleDeleteRecord} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700">IYA, HAPUS PERMANEN</button>
+                 <button onClick={() => setExpenseToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* MODAL KONFIRMASI HAPUS JENIS BIAYA */}
+      {typeToDelete && (
+        <div className="fixed inset-0 z-[260] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-6">
+           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[32px] flex items-center justify-center text-4xl mx-auto mb-6 shadow-inner">⚠️</div>
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Kategori?</h3>
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8 leading-relaxed">
+                 Kategori <span className="text-red-600 font-black">"{typeToDelete.name}"</span> akan dihapus. Pastikan tidak ada pengeluaran aktif dengan kategori ini.
+              </p>
+              <div className="flex flex-col gap-3">
+                 <button onClick={handleConfirmDeleteType} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700">IYA, HAPUS</button>
+                 <button onClick={() => setTypeToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
+              </div>
+           </div>
         </div>
       )}
     </div>

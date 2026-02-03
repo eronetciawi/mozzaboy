@@ -4,7 +4,7 @@ import { useApp } from '../store';
 import { RequestStatus, UserRole, InventoryItemType } from '../types';
 
 export const PurchaseManagement: React.FC = () => {
-  const { purchases, inventory, addPurchase, selectedOutletId, outlets, currentUser, dailyClosings = [] } = useApp();
+  const { purchases, inventory, addPurchase, selectedOutletId, outlets, currentUser, dailyClosings = [], isSaving } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -13,7 +13,7 @@ export const PurchaseManagement: React.FC = () => {
   const [itemPickerQuery, setItemPickerQuery] = useState('');
 
   const [useConversion, setUseConversion] = useState(false);
-  const [multiplier, setMultiplier] = useState(1000);
+  const [multiplier, setMultiplier] = useState(10); // Default per box/pack
   const [rawPurchaseQty, setRawPurchaseQty] = useState(0);
 
   const [formData, setFormData] = useState({ 
@@ -60,10 +60,17 @@ export const PurchaseManagement: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleSave = () => {
-    if (isShiftClosed) return;
-    if (formData.inventoryItemId && finalQuantity > 0 && formData.unitPrice > 0) {
-      addPurchase({ 
+  const handleSave = async () => {
+    if (isShiftClosed || isSaving) return;
+    
+    // Validasi data sebelum kirim
+    if (!formData.inventoryItemId || finalQuantity <= 0 || formData.unitPrice <= 0) {
+       alert("Lengkapi Item, Kuantitas, dan Total Bayar!");
+       return;
+    }
+
+    try {
+      await addPurchase({ 
         inventoryItemId: formData.inventoryItemId, 
         quantity: finalQuantity, 
         unitPrice: formData.unitPrice, 
@@ -73,6 +80,8 @@ export const PurchaseManagement: React.FC = () => {
       resetForm();
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (err) {
+      alert("Gagal memproses data belanja.");
     }
   };
 
@@ -81,6 +90,7 @@ export const PurchaseManagement: React.FC = () => {
     setRawPurchaseQty(0);
     setUseConversion(false);
     setItemPickerQuery('');
+    setMultiplier(10);
   };
 
   return (
@@ -192,13 +202,26 @@ export const PurchaseManagement: React.FC = () => {
                    {useConversion ? (
                       <div className="grid grid-cols-7 gap-2 bg-slate-50 p-5 rounded-[32px] border border-slate-100 shadow-inner">
                          <div className="col-span-3">
-                            <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Qty Nota</label>
-                            <input type="number" onFocus={e => e.target.select()} className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400" value={rawPurchaseQty || ''} onChange={e => setRawPurchaseQty(parseFloat(e.target.value) || 0)} />
+                            <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Qty Nota (Bungkus/Kotak)</label>
+                            <input 
+                              type="number" 
+                              onFocus={e => e.target.select()} 
+                              className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400 text-slate-900" 
+                              value={rawPurchaseQty || ''} 
+                              onChange={e => setRawPurchaseQty(parseFloat(e.target.value) || 0)} 
+                              placeholder="0"
+                            />
                          </div>
                          <div className="col-span-1 flex items-center justify-center pt-5 text-xs opacity-20">✖</div>
                          <div className="col-span-3">
-                            <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Gram per Pack</label>
-                            <input type="number" onFocus={e => e.target.select()} className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400" value={multiplier || ''} onChange={e => setMultiplier(parseFloat(e.target.value) || 1)} />
+                            <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Isi per Kotak</label>
+                            <input 
+                              type="number" 
+                              onFocus={e => e.target.select()} 
+                              className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400 text-slate-900" 
+                              value={multiplier || ''} 
+                              onChange={e => setMultiplier(parseFloat(e.target.value) || 1)} 
+                            />
                          </div>
                          <div className="col-span-7 pt-2 text-center">
                             <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Input Gudang: {(finalQuantity ?? 0).toLocaleString()} {selectedItem?.unit}</p>
@@ -232,15 +255,18 @@ export const PurchaseManagement: React.FC = () => {
                         placeholder="0"
                       />
                    </div>
+                   <p className="text-[7px] text-slate-400 uppercase italic ml-2">Masukkan total uang yang dibayar sesuai struk belanja.</p>
                 </div>
              </div>
 
              <div className="px-6 md:px-10 py-6 border-t border-slate-50 bg-slate-50/50 shrink-0 pb-safe">
                 <button 
-                  disabled={!formData.inventoryItemId || finalQuantity <= 0 || formData.unitPrice <= 0}
+                  disabled={!formData.inventoryItemId || finalQuantity <= 0 || formData.unitPrice <= 0 || isSaving}
                   onClick={handleSave} 
                   className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.4em] shadow-xl disabled:opacity-20 active:scale-95 transition-all"
-                >SUBMIT BELANJA 🚀</button>
+                >
+                  {isSaving ? 'SEDANG MENYIMPAN...' : 'SUBMIT BELANJA 🚀'}
+                </button>
              </div>
           </div>
         </div>

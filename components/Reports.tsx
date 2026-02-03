@@ -8,9 +8,9 @@ import {
 import { OrderStatus, PaymentMethod, DailyClosing, Product, Transaction, InventoryItemType, InventoryItem } from '../types';
 import html2canvas from 'html2canvas';
 
-type ReportTab = 'finance' | 'sales' | 'inventory' | 'production' | 'hr' | 'logs';
+type ReportTab = 'finance' | 'sales' | 'inventory' | 'expenses' | 'production' | 'hr' | 'logs';
 
-const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
+const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#3b82f6', '#06b6d4'];
 
 export const Reports: React.FC = () => {
   const { 
@@ -20,7 +20,7 @@ export const Reports: React.FC = () => {
   } = useApp();
   
   const [activeTab, setActiveTab] = useState<ReportTab>('finance');
-  const [timeFilter, setTimeFilter] = useState<'day' | 'week' | 'month' | 'history' | 'date'>('month');
+  const [timeFilter, setTimeFilter] = useState<'day' | 'week' | 'month' | 'history' | 'date'>('day');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [specificDate, setSpecificDate] = useState(new Date().toISOString().split('T')[0]);
@@ -36,10 +36,13 @@ export const Reports: React.FC = () => {
 
     if (timeFilter === 'day') {
       start.setHours(0,0,0,0);
+      end.setHours(23,59,59,999);
     } else if (timeFilter === 'week') {
       start.setDate(start.getDate() - 7);
+      end = new Date();
     } else if (timeFilter === 'month') {
       start.setDate(start.getDate() - 30);
+      end = new Date();
     } else if (timeFilter === 'history') {
       start = new Date(selectedYear, selectedMonth, 1);
       end = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59);
@@ -48,12 +51,12 @@ export const Reports: React.FC = () => {
       end = new Date(specificDate); end.setHours(23,59,59,999);
     }
 
-    const txs = transactions.filter(t => (selectedOutletId === 'all' || t.outletId === selectedOutletId) && new Date(t.timestamp) >= start && new Date(t.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
-    const exps = expenses.filter(e => (selectedOutletId === 'all' || e.outletId === selectedOutletId) && new Date(e.timestamp) >= start && new Date(e.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
-    const logs = dailyClosings.filter(l => (selectedOutletId === 'all' || l.outletId === selectedOutletId) && new Date(l.timestamp) >= start && new Date(l.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
-    const prods = productionRecords.filter(pr => (selectedOutletId === 'all' || pr.outletId === selectedOutletId) && new Date(pr.timestamp) >= start && new Date(pr.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
-    const burs = purchases.filter(p => (selectedOutletId === 'all' || p.outletId === selectedOutletId) && new Date(p.timestamp) >= start && new Date(p.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
-    const trfs = stockTransfers.filter(t => (selectedOutletId === 'all' || t.fromOutletId === selectedOutletId || t.toOutletId === selectedOutletId) && new Date(t.timestamp) >= start && new Date(t.timestamp) <= (timeFilter === 'history' || timeFilter === 'date' ? end : new Date()));
+    const txs = transactions.filter(t => (selectedOutletId === 'all' || t.outletId === selectedOutletId) && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
+    const exps = expenses.filter(e => (selectedOutletId === 'all' || e.outletId === selectedOutletId) && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
+    const logs = dailyClosings.filter(l => (selectedOutletId === 'all' || l.outletId === selectedOutletId) && new Date(l.timestamp) >= start && new Date(l.timestamp) <= end);
+    const prods = productionRecords.filter(pr => (selectedOutletId === 'all' || pr.outletId === selectedOutletId) && new Date(pr.timestamp) >= start && new Date(pr.timestamp) <= end);
+    const burs = purchases.filter(p => (selectedOutletId === 'all' || p.outletId === selectedOutletId) && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
+    const trfs = stockTransfers.filter(t => (selectedOutletId === 'all' || t.fromOutletId === selectedOutletId || t.toOutletId === selectedOutletId) && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
 
     return { txs, exps, logs, prods, burs, trfs, start, end };
   }, [transactions, expenses, dailyClosings, productionRecords, purchases, stockTransfers, selectedOutletId, timeFilter, selectedMonth, selectedYear, specificDate]);
@@ -111,12 +114,41 @@ export const Reports: React.FC = () => {
     };
   }, [filteredSet, categories]);
 
+  const expenseIntelligence = useMemo(() => {
+    const periodExps = filteredSet.exps;
+    const typeStats: Record<string, { name: string, amount: number, count: number }> = {};
+    
+    let totalAuto = 0;
+    let totalManual = 0;
+
+    periodExps.forEach(e => {
+      const isAuto = e.id.startsWith('exp-auto-');
+      if (isAuto) totalAuto += (e.amount || 0);
+      else totalManual += (e.amount || 0);
+
+      const typeId = e.typeId || 'other';
+      let typeName = expenseTypes.find(t => t.id === typeId)?.name || 'Lain-lain';
+      if (typeId === 'purchase-auto') typeName = "BELANJA STOK";
+      
+      if (!typeStats[typeId]) typeStats[typeId] = { name: typeName, amount: 0, count: 0 };
+      typeStats[typeId].amount += (e.amount || 0);
+      typeStats[typeId].count += 1;
+    });
+
+    return {
+      total: totalAuto + totalManual,
+      totalAuto,
+      totalManual,
+      typeData: Object.values(typeStats).sort((a,b) => b.amount - a.amount)
+    };
+  }, [filteredSet, expenseTypes]);
+
   const teamPerformance = useMemo(() => {
     return staff
       .filter(s => selectedOutletId === 'all' || s.assignedOutletIds.includes(selectedOutletId))
       .map(s => {
         const sales = salesIntelligence.staffSales[s.id] ?? 0;
-        const attends = attendance.filter(a => a.staffId === s.id && new Date(a.date) >= filteredSet.start);
+        const attends = attendance.filter(a => a.staffId === s.id && new Date(a.date) >= filteredSet.start && new Date(a.date) <= filteredSet.end);
         const lates = attends.filter(a => a.status === 'LATE').length;
         const discipline = attends.length > 0 ? Math.round(((attends.length - lates) / attends.length) * 100) : 100;
         return { staff: s, sales, discipline, attendCount: attends.length };
@@ -210,19 +242,40 @@ export const Reports: React.FC = () => {
         
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-white p-1 rounded-xl border shadow-sm overflow-x-auto no-scrollbar max-w-full">
-             {(['finance', 'sales', 'inventory', 'production', 'hr', 'logs'] as ReportTab[]).map(t => (
+             {(['finance', 'sales', 'expenses', 'inventory', 'production', 'hr', 'logs'] as ReportTab[]).map(t => (
                <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all whitespace-nowrap ${activeTab === t ? 'bg-orange-500 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}>
-                 {t === 'finance' ? 'Laba Rugi' : t === 'sales' ? 'Sales' : t === 'inventory' ? 'Mutasi Stok' : t === 'production' ? 'Produksi' : t === 'hr' ? 'Tim' : 'Audit Logs'}
+                 {t === 'finance' ? 'Laba Rugi' : t === 'sales' ? 'Sales' : t === 'expenses' ? 'Pengeluaran' : t === 'inventory' ? 'Mutasi Stok' : t === 'production' ? 'Produksi' : t === 'hr' ? 'Tim' : 'Audit Logs'}
                </button>
              ))}
           </div>
 
-          <select className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-[9px] font-black uppercase outline-none text-slate-900" value={timeFilter} onChange={e => setTimeFilter(e.target.value as any)}>
+          <select className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-[9px] font-black uppercase outline-none text-slate-900 shadow-sm" value={timeFilter} onChange={e => setTimeFilter(e.target.value as any)}>
              <option value="day">Hari Ini</option>
-             <option value="week">7 Hari</option>
-             <option value="month">30 Hari</option>
+             <option value="date">Pilih Tanggal</option>
+             <option value="week">7 Hari Terakhir</option>
+             <option value="month">30 Hari Terakhir</option>
              <option value="history">Arsip Bulanan</option>
           </select>
+
+          {timeFilter === 'date' && (
+            <input 
+              type="date" 
+              className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-[10px] font-black uppercase outline-none text-orange-600 shadow-sm" 
+              value={specificDate} 
+              onChange={e => setSpecificDate(e.target.value)} 
+            />
+          )}
+
+          {timeFilter === 'history' && (
+            <div className="flex gap-1">
+              <select className="p-2 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase" value={selectedMonth} onChange={e => setSelectedMonth(parseInt(e.target.value))}>
+                {['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'].map((m, i) => <option key={i} value={i}>{m}</option>)}
+              </select>
+              <select className="p-2 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase" value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))}>
+                {[2024, 2025].map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -312,6 +365,93 @@ export const Reports: React.FC = () => {
             </div>
           )}
 
+          {activeTab === 'expenses' && (
+             <div className="space-y-10 animate-in fade-in duration-500">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                   <div className="bg-white p-8 rounded-[40px] border shadow-sm col-span-1">
+                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Distribution by Category</h4>
+                      <div className="h-64">
+                         <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                               <Pie data={expenseIntelligence.typeData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="amount">
+                                  {expenseIntelligence.typeData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                               </Pie>
+                               <Tooltip formatter={(v: number) => `Rp ${v.toLocaleString()}`} />
+                               <Legend verticalAlign="bottom" height={36} layout="vertical" align="right"/>
+                            </PieChart>
+                         </ResponsiveContainer>
+                      </div>
+                   </div>
+                   <div className="bg-white p-8 rounded-[40px] border shadow-sm col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 flex flex-col justify-between">
+                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Biaya Operasional</p>
+                         <h4 className="text-3xl font-black text-slate-900">Rp {expenseIntelligence.total.toLocaleString()}</h4>
+                         <div className="mt-4 pt-4 border-t border-slate-200 flex justify-between text-[10px] font-bold">
+                            <span className="text-slate-400">Total Transaksi</span>
+                            <span className="text-slate-700">{filteredSet.exps.length} Records</span>
+                         </div>
+                      </div>
+                      <div className="p-6 bg-orange-50 rounded-3xl border border-orange-100 flex flex-col justify-between">
+                         <p className="text-[9px] font-black text-orange-400 uppercase tracking-widest mb-1">Total Belanja Stok (Auto)</p>
+                         <h4 className="text-3xl font-black text-orange-600">Rp {expenseIntelligence.totalAuto.toLocaleString()}</h4>
+                         <div className="mt-4 pt-4 border-t border-orange-200 flex justify-between text-[10px] font-bold">
+                            <span className="text-orange-400">Porsi Biaya</span>
+                            <span className="text-orange-700">{Math.round((expenseIntelligence.totalAuto / (expenseIntelligence.total || 1)) * 100)}%</span>
+                         </div>
+                      </div>
+                   </div>
+                </div>
+
+                <div className="bg-white rounded-[40px] border shadow-sm overflow-hidden border-slate-200">
+                   <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                      <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Detailed Expense Logs</h4>
+                      <span className="bg-slate-100 px-3 py-1 rounded-full text-[8px] font-black uppercase text-slate-500">{filteredSet.exps.length} Entries</span>
+                   </div>
+                   <div className="overflow-x-auto">
+                      <table className="w-full text-left min-w-[800px]">
+                         <thead className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
+                            <tr>
+                               <th className="py-5 px-8">Waktu & Tanggal</th>
+                               <th className="py-5 px-4">Kategori Biaya</th>
+                               <th className="py-5 px-4">Penanggung Jawab</th>
+                               <th className="py-5 px-4">Keterangan / Notes</th>
+                               <th className="py-5 px-8 text-right">Nominal (IDR)</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-100 text-[11px]">
+                            {[...filteredSet.exps].reverse().map(e => {
+                               const isAuto = e.id.startsWith('exp-auto-');
+                               const type = isAuto ? "BELANJA STOK" : (expenseTypes.find(t => t.id === e.typeId)?.name || 'Lain-lain');
+                               return (
+                                  <tr key={e.id} className="hover:bg-slate-50 transition-colors">
+                                     <td className="py-4 px-8 font-bold text-slate-400">
+                                        {new Date(e.timestamp).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                        <span className="block text-[8px] font-black uppercase text-slate-300 mt-0.5">{new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                     </td>
+                                     <td className="py-4 px-4">
+                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${isAuto ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-indigo-50 border-indigo-200 text-indigo-600'}`}>
+                                           {type}
+                                        </span>
+                                     </td>
+                                     <td className="py-4 px-4 font-black text-slate-800 uppercase">{e.staffName}</td>
+                                     <td className="py-4 px-4 italic text-slate-400 max-w-xs truncate" title={e.notes}>{e.notes || '-'}</td>
+                                     <td className={`py-4 px-8 text-right font-black ${isAuto ? 'text-orange-600' : 'text-rose-600'}`}>Rp {(e.amount || 0).toLocaleString()}</td>
+                                  </tr>
+                               );
+                            })}
+                         </tbody>
+                      </table>
+                   </div>
+                   {filteredSet.exps.length === 0 && (
+                     <div className="py-20 text-center opacity-20 flex flex-col items-center">
+                        <span className="text-4xl mb-4">💸</span>
+                        <p className="font-black uppercase text-xs">Tidak ada catatan pengeluaran</p>
+                     </div>
+                   )}
+                </div>
+             </div>
+          )}
+
           {activeTab === 'inventory' && (
              <div className="space-y-6 animate-in fade-in duration-500">
                 <div className="flex justify-between items-center px-4">
@@ -319,7 +459,7 @@ export const Reports: React.FC = () => {
                       <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Stock Ledger Analysis</h3>
                       <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Audit mutasi bahan mentah & produk olahan (WIP)</p>
                    </div>
-                   <button onClick={exportStockToCSV} className="px-5 py-2.5 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-orange-500 transition-all shadow-lg">Export CSV 📥</button>
+                   <button onClick={exportStockToCSV} className="px-5 py-2.5 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-orange-50 transition-all shadow-lg">Export CSV 📥</button>
                 </div>
                 <div className="bg-white rounded-[40px] border shadow-sm overflow-hidden border-slate-200">
                    <div className="overflow-x-auto">
@@ -463,23 +603,89 @@ export const Reports: React.FC = () => {
            <div className="flex flex-col items-center gap-6">
               <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
               <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Shift Audit...</p>
-              <div ref={shiftReportRef} className="bg-white p-12 w-[500px] text-slate-900 rounded-[48px] shadow-2xl">
-                 <div className="text-center border-b-2 border-dashed border-slate-200 pb-10 mb-10">
-                    <div className="w-20 h-20 bg-slate-900 text-white rounded-[32px] flex items-center justify-center font-black text-4xl mx-auto mb-6 shadow-xl">M</div>
-                    <h4 className="text-xl font-black uppercase tracking-tighter">Mozza Boy Street Food</h4>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-2">Verified Shift Audit Report</p>
-                 </div>
-                 <div className="grid grid-cols-2 gap-y-6 mb-10 text-[11px] font-black uppercase text-slate-400">
-                    <div><p className="text-[8px] mb-1">CASHIER PIC</p><p className="text-slate-900">{viewingClosing.staffName}</p></div>
-                    <div className="text-right"><p className="text-[8px] mb-1">DATE / TIME</p><p className="text-slate-900">{new Date(viewingClosing.timestamp).toLocaleString('id-ID')}</p></div>
-                    <div><p className="text-[8px] mb-1">SHIFT TYPE</p><p className="text-slate-900">{viewingClosing.shiftName}</p></div>
-                 </div>
-                 <div className="space-y-1 mb-10">
-                    <FinanceRow label="Opening Cash" value={viewingClosing.openingBalance} />
-                    <FinanceRow label="Cash Sales (+)" value={viewingClosing.totalSalesCash} colorClass="text-emerald-600" />
-                    <FinanceRow label="Expected Drawer Cash" value={((viewingClosing.openingBalance ?? 0) + (viewingClosing.totalSalesCash ?? 0) - (viewingClosing.totalExpenses ?? 0))} isBold isTotal />
-                    <FinanceRow label="Physical Cash" value={viewingClosing.actualCash} isBold colorClass="text-indigo-600" />
-                 </div>
+              
+              <div ref={shiftReportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 w-[450px] text-slate-900">
+                <div className="p-8 border-b-2 border-dashed border-slate-100 text-center">
+                  <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-xl mx-auto mb-4 shadow-xl">M</div>
+                  <h4 className="text-sm font-black text-slate-900 uppercase tracking-tighter">Shift Audit Report</h4>
+                  <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-[0.2em]">{activeOutlet?.name || 'Verified Digital Audit'}</p>
+                </div>
+
+                <div className="p-8 space-y-6">
+                  <div className="grid grid-cols-2 gap-y-4">
+                    <div className="space-y-1">
+                      <p className="text-[7px] font-black text-slate-400 uppercase">Kasir PIC</p>
+                      <p className="text-[10px] font-black text-slate-800 uppercase">{viewingClosing.staffName}</p>
+                    </div>
+                    <div className="space-y-1 text-right">
+                      <p className="text-[7px] font-black text-slate-400 uppercase">Shift</p>
+                      <p className="text-[10px] font-black text-slate-800 uppercase">{viewingClosing.shiftName}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[7px] font-black text-slate-400 uppercase">Waktu Selesai</p>
+                      <p className="text-[10px] font-black text-slate-800 uppercase">{new Date(viewingClosing.timestamp).toLocaleString('id-ID')}</p>
+                    </div>
+                    <div className="space-y-1 text-right">
+                      <p className="text-[7px] font-black text-slate-400 uppercase">Status Audit</p>
+                      <p className="text-[9px] font-black text-emerald-600 uppercase">Finalized ✓</p>
+                    </div>
+                  </div>
+
+                  <div className="h-px bg-slate-50 w-full"></div>
+
+                  <div className="space-y-3">
+                    <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest">Financial Summary</p>
+                    <div className="space-y-1">
+                      <FinanceRow label="Modal Awal (Tunai)" value={viewingClosing.openingBalance} />
+                      <FinanceRow label="Sales Tunai (+)" value={viewingClosing.totalSalesCash} colorClass="text-emerald-600" />
+                      <FinanceRow label="Biaya Operasional (-)" value={viewingClosing.totalExpenses} isNegative />
+                      <FinanceRow label="Sales Digital (QRIS)" value={viewingClosing.totalSalesQRIS} colorClass="text-blue-600" />
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900 rounded-3xl p-5 text-white">
+                    <div className="flex justify-between items-center opacity-60 mb-1">
+                      <p className="text-[8px] font-black uppercase">Grand Total Omset</p>
+                      <p className="text-[8px] font-black uppercase">Tunai + QRIS</p>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <p className="text-xl font-black tracking-tighter">Rp {((viewingClosing.totalSalesCash ?? 0) + (viewingClosing.totalSalesQRIS ?? 0)).toLocaleString()}</p>
+                      <span className="text-[7px] bg-white/20 px-2 py-0.5 rounded font-bold uppercase tracking-widest">Shift Total</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="text-[8px] font-black text-slate-400 uppercase">Uang Seharusnya Di Laci</p>
+                      <p className="text-[10px] font-black text-slate-600">Rp {((viewingClosing.openingBalance ?? 0) + (viewingClosing.totalSalesCash ?? 0) - (viewingClosing.totalExpenses ?? 0)).toLocaleString()}</p>
+                    </div>
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="text-[8px] font-black text-slate-400 uppercase">Input Uang Fisik</p>
+                      <p className="text-sm font-black text-slate-900">Rp {(viewingClosing.actualCash ?? 0).toLocaleString()}</p>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-white">
+                      <p className="text-[8px] font-black text-slate-400 uppercase">Discrepancy (Selisih)</p>
+                      <p className={`text-xs font-black ${(viewingClosing.discrepancy ?? 0) === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {(viewingClosing.discrepancy ?? 0) === 0 ? 'MATCH ✓' : `Rp ${(viewingClosing.discrepancy ?? 0).toLocaleString()}`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {viewingClosing.notes && (
+                    <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
+                      <p className="text-[7px] font-black text-orange-400 uppercase mb-1">Catatan Kasir:</p>
+                      <p className="text-[10px] font-medium text-orange-800 italic">"{viewingClosing.notes}"</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-8 bg-slate-900 text-center">
+                  <p className="text-[7px] font-black text-slate-500 uppercase tracking-[0.4em]">Mozza Boy Smart OS • Audit Archive</p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                 <button onClick={() => setViewingClosing(null)} className="px-8 py-3 bg-white/10 text-white rounded-full font-black text-[10px] uppercase">Tutup Preview</button>
               </div>
            </div>
         </div>
