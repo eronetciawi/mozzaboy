@@ -21,7 +21,7 @@ export const StaffManagement: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   const [formData, setFormData] = useState<Partial<StaffMember>>({
-    name: '', username: '', password: '123', role: UserRole.CASHIER, assignedOutletIds: [selectedOutletId], status: 'ACTIVE',
+    name: '', username: '', password: '123', role: UserRole.CASHIER, assignedOutletIds: [], status: 'ACTIVE',
     weeklyOffDay: 0, shiftStartTime: '09:00', shiftEndTime: '18:00', dailySalesTarget: 1500000, targetBonusAmount: 50000,
     phone: '', email: '', address: '', instagram: '', telegram: '', tiktok: '', emergencyContactName: '', emergencyContactPhone: ''
   });
@@ -38,13 +38,31 @@ export const StaffManagement: React.FC = () => {
   const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // --- ANALYTICS LOGIC: FILTERED ATTENDANCE ---
+  // --- LEAVE LOGIC: FIXING VISIBILITY ---
+  // PENDING leaves should be visible GLOBAL to managers so they don't miss any action
+  const pendingLeaves = useMemo(() => {
+    return (leaveRequests || []).filter(l => l.status === 'PENDING');
+  }, [leaveRequests]);
+
+  // Only archive (Approved/Rejected) follows the outlet & date filter
+  const archiveLeaves = useMemo(() => {
+    return (leaveRequests || []).filter(l => {
+      const ld = new Date(l.startDate);
+      const isArchived = l.status !== 'PENDING';
+      const outletMatches = selectedOutletId === 'all' || l.outletId === selectedOutletId;
+      const dateMatches = ld.getMonth() === selectedMonth && ld.getFullYear() === selectedYear;
+      return isArchived && outletMatches && dateMatches;
+    });
+  }, [leaveRequests, selectedOutletId, selectedMonth, selectedYear]);
+
+  // --- ATTENDANCE LOGIC ---
   const filteredAttendance = useMemo(() => {
     return attendance.filter(a => {
       const d = new Date(a.date);
-      const isCorrectOutlet = staff.find(s => s.id === a.staffId)?.assignedOutletIds.includes(selectedOutletId);
+      const staffMember = staff.find(s => s.id === a.staffId);
+      if (!staffMember) return false;
+      const isCorrectOutlet = selectedOutletId === 'all' || staffMember.assignedOutletIds.includes(selectedOutletId);
       if (!isCorrectOutlet) return false;
-
       if (attendanceView === 'daily') return a.date === todayStr;
       if (attendanceView === 'monthly') return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
       if (attendanceView === 'weekly') {
@@ -57,11 +75,9 @@ export const StaffManagement: React.FC = () => {
 
   const attendanceRecap = useMemo(() => {
     const map: Record<string, { present: number, late: number, hours: number, alpha: number, records: Attendance[] }> = {};
-    
-    staff.filter(s => s.assignedOutletIds.includes(selectedOutletId)).forEach(s => {
+    staff.filter(s => selectedOutletId === 'all' || s.assignedOutletIds.includes(selectedOutletId)).forEach(s => {
        map[s.id] = { present: 0, late: 0, hours: 0, alpha: 0, records: [] };
     });
-
     filteredAttendance.forEach(a => {
        if (map[a.staffId]) {
           map[a.staffId].records.push(a);
@@ -73,92 +89,82 @@ export const StaffManagement: React.FC = () => {
           }
        }
     });
-
     return map;
   }, [filteredAttendance, staff, selectedOutletId]);
 
-  // --- ANALYTICS LOGIC: LEAVE RECAP ---
-  const leaveAnalytics = useMemo(() => {
-     const map: Record<string, { totalDays: number, count: number }> = {};
-     leaveRequests.forEach(l => {
-        const d = new Date(l.startDate);
-        if (d.getMonth() === selectedMonth && d.getFullYear() === selectedYear && l.status === 'APPROVED') {
-           if (!map[l.staffId]) map[l.staffId] = { totalDays: 0, count: 0 };
-           const diffTime = Math.abs(new Date(l.endDate).getTime() - new Date(l.startDate).getTime());
-           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-           map[l.staffId].totalDays += diffDays;
-           map[l.staffId].count += 1;
-        }
-     });
-     return map;
-  }, [leaveRequests, selectedMonth, selectedYear]);
-
-  // --- ANALYTICS LOGIC: PERFORMANCE PERIODIC SCORING ---
+  // Fix: Calculate performance scores for the leaderboard tab
   const performanceScores = useMemo(() => {
     const now = new Date();
-    let anchor = new Date();
-    if (perfPeriod === 'week') anchor.setDate(now.getDate() - 7);
-    else if (perfPeriod === 'day') anchor.setHours(0,0,0,0);
-    else if (perfPeriod === 'month') anchor.setDate(1);
+    let start = new Date();
+    if (perfPeriod === 'day') {
+      start.setHours(0, 0, 0, 0);
+    } else if (perfPeriod === 'week') {
+      start.setDate(now.getDate() - 7);
+      start.setHours(0, 0, 0, 0);
+    } else if (perfPeriod === 'month') {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
 
-    const periodTxs = transactions.filter(tx => tx.outletId === selectedOutletId && tx.status === OrderStatus.CLOSED && new Date(tx.timestamp) >= anchor);
-    const periodAttend = attendance.filter(a => new Date(a.date) >= anchor);
-    
     return staff
-      .filter(s => s.assignedOutletIds.includes(selectedOutletId))
+      .filter(s => selectedOutletId === 'all' || s.assignedOutletIds.includes(selectedOutletId))
       .map(s => {
-        // Sales Score
-        const totalSales = periodTxs.filter(tx => tx.cashierId === s.id).reduce((acc, tx) => acc + tx.total, 0);
-        const targetPerMonth = s.dailySalesTarget || 1500000;
-        let periodTarget = targetPerMonth;
-        if (perfPeriod === 'day') periodTarget = targetPerMonth / 30;
-        if (perfPeriod === 'week') periodTarget = (targetPerMonth / 30) * 7;
+        const periodTxs = transactions.filter(t => 
+          t.cashierId === s.id && 
+          t.status === OrderStatus.CLOSED && 
+          new Date(t.timestamp) >= start
+        );
+        const totalSales = periodTxs.reduce((acc, t) => acc + (t.total || 0), 0);
         
-        const salesProgress = Math.min(100, (totalSales / (periodTarget || 1)) * 100);
-
-        // discipline Score
-        const myAttends = periodAttend.filter(a => a.staffId === s.id);
-        const lates = myAttends.filter(a => a.status === 'LATE').length;
-        const disciplineScore = myAttends.length > 0 ? Math.round(((myAttends.length - lates) / myAttends.length) * 100) : 100;
-
-        const finalScore = Math.round((salesProgress * 0.6) + (disciplineScore * 0.4)); // Sales weighted more
-
-        return { staff: s, totalSales, disciplineScore, salesProgress, finalScore };
-      }).sort((a, b) => b.finalScore - a.finalScore);
+        const periodAttendance = attendance.filter(a => {
+          const aDate = new Date(a.date);
+          return a.staffId === s.id && aDate >= start;
+        });
+        const lateCount = periodAttendance.filter(a => a.status === 'LATE').length;
+        const attendCount = periodAttendance.length;
+        
+        // Basic performance score: sales volume (1 pt per 10k) + attendance consistency
+        const salesScore = Math.floor(totalSales / 10000);
+        const disciplineScore = (attendCount * 10) - (lateCount * 15);
+        const finalScore = Math.max(0, salesScore + disciplineScore);
+        
+        return { staff: s, totalSales, attendCount, lateCount, finalScore };
+      })
+      .sort((a, b) => b.finalScore - a.finalScore);
   }, [staff, transactions, attendance, selectedOutletId, perfPeriod]);
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Enterprise HR Hub</h2>
-          <p className="text-slate-500 font-medium text-[10px] uppercase tracking-widest">Pusat Kendali Kru, Absensi & Performa Analytics</p>
+          <p className="text-slate-500 font-medium text-[10px] uppercase tracking-widest">Manajemen Kru, Absensi & Approval Cuti</p>
         </div>
         <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm w-full md:w-auto overflow-x-auto no-scrollbar">
-           <button onClick={() => setActiveHRTab('employees')} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeHRTab === 'employees' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>Database</button>
-           <button onClick={() => setActiveHRTab('attendance')} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeHRTab === 'attendance' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>Absensi</button>
-           <button onClick={() => setActiveHRTab('leaves')} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all relative ${activeHRTab === 'leaves' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>Izin/Cuti {leaveRequests.filter(l => l.status === 'PENDING').length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[7px] w-4 h-4 flex items-center justify-center rounded-full border-2 border-white">{leaveRequests.filter(l => l.status === 'PENDING').length}</span>}</button>
-           <button onClick={() => setActiveHRTab('performance')} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeHRTab === 'performance' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>Score</button>
+           {(['employees', 'attendance', 'leaves', 'performance'] as const).map(tab => (
+             <button key={tab} onClick={() => setActiveHRTab(tab)} className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all relative ${activeHRTab === tab ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>
+               {tab === 'employees' ? 'Database' : tab === 'attendance' ? 'Absensi' : tab === 'leaves' ? 'Approval Cuti' : 'Performance'}
+               {tab === 'leaves' && pendingLeaves.length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[7px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white animate-bounce">{pendingLeaves.length}</span>}
+             </button>
+           ))}
         </div>
       </div>
 
-      {/* TAB: DATABASE EMPLOYEES */}
+      {/* TAB: EMPLOYEES */}
       {activeHRTab === 'employees' && (
         <div className="space-y-4">
           <div className="flex justify-between items-center px-2">
              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Daftar Kru Terdaftar</h3>
-             <button onClick={() => { setEditingStaff(null); setShowModal(true); }} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase shadow-lg hover:bg-orange-500 transition-all">+ Kru Baru</button>
+             <button onClick={() => { setEditingStaff(null); setShowModal(true); }} className="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase shadow-xl hover:bg-orange-500 transition-all">+ Kru Baru</button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {staff.map(member => (
+            {staff.filter(s => selectedOutletId === 'all' || s.assignedOutletIds.includes(selectedOutletId)).map(member => (
               <div key={member.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex flex-col group active:scale-[0.99] transition-all">
                 <div className="flex items-center gap-4 mb-6">
-                   <div className="w-14 h-14 rounded-[24px] bg-slate-50 overflow-hidden border-2 border-white shadow-md">
+                   <div className="w-14 h-14 rounded-[24px] bg-slate-50 overflow-hidden border-2 border-white shadow-md shrink-0">
                       <img src={member.photo || `https://api.dicebear.com/7.x/initials/svg?seed=${member.name}`} alt="Staff" className="w-full h-full object-cover" />
                    </div>
-                   <div>
-                      <h4 className="text-[13px] font-black text-slate-800 uppercase tracking-tight">{member.name}</h4>
+                   <div className="min-w-0">
+                      <h4 className="text-[13px] font-black text-slate-800 uppercase tracking-tight truncate">{member.name}</h4>
                       <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-0.5">{member.role}</p>
                    </div>
                 </div>
@@ -182,193 +188,94 @@ export const StaffManagement: React.FC = () => {
         </div>
       )}
 
-      {/* TAB: ATTENDANCE HUB (PERIODIC ANALYTICS) */}
-      {activeHRTab === 'attendance' && (
-        <div className="space-y-6">
-           <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex flex-col gap-6">
-              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                 <div>
-                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Audit Absensi Cabang</h4>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Laporan kedisiplinan dan riwayat jam kerja karyawan</p>
+      {/* TAB: LEAVE APPROVAL */}
+      {activeHRTab === 'leaves' && (
+        <div className="space-y-8 animate-in fade-in">
+           {/* ACTION QUEUE (ALWAYS VISIBLE REGARDLESS OF BRANCH FILTER) */}
+           <div className="space-y-4">
+              <div className="flex justify-between items-center px-2">
+                 <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-xs shadow-lg">🔔</div>
+                    <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-[0.2em]">Butuh Persetujuan Segera (Global)</h4>
                  </div>
-                 <div className="flex bg-slate-100 p-1 rounded-xl">
-                    {(['daily', 'weekly', 'monthly', 'all'] as const).map(v => (
-                       <button key={v} onClick={() => setAttendanceView(v)} className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${attendanceView === v ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400'}`}>
-                          {v === 'daily' ? 'Hari Ini' : v === 'weekly' ? 'Mingguan' : v === 'monthly' ? 'Bulanan' : 'Semua'}
-                       </button>
-                    ))}
-                 </div>
+                 {pendingLeaves.length > 0 && <span className="text-[8px] font-black text-orange-600 animate-pulse">ACTION REQUIRED</span>}
               </div>
-
-              {(attendanceView === 'monthly' || attendanceView === 'all') && (
-                 <div className="flex gap-2 justify-center border-t pt-4">
-                    <select className="p-2 bg-slate-50 border rounded-lg text-[10px] font-black uppercase" value={selectedMonth} onChange={e => setSelectedMonth(parseInt(e.target.value))}>
-                       {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
-                    </select>
-                    <select className="p-2 bg-slate-50 border rounded-lg text-[10px] font-black uppercase" value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))}>
-                       {[2024, 2025].map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
-                 </div>
+              
+              {pendingLeaves.length === 0 ? (
+                <div className="bg-emerald-50 border-2 border-dashed border-emerald-100 p-12 rounded-[40px] text-center">
+                   <div className="text-3xl mb-3">✅</div>
+                   <p className="text-emerald-600 text-[10px] font-black uppercase tracking-widest leading-relaxed">Antrean Bersih.<br/>Semua pengajuan cuti telah diproses.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   {pendingLeaves.map(leave => {
+                    const branchName = outlets.find(o => o.id === leave.outletId)?.name || 'Cabang Terhapus';
+                    return (
+                      <div key={leave.id} className="bg-white p-6 rounded-[32px] border-2 border-indigo-100 shadow-xl flex flex-col justify-between group animate-in zoom-in-95">
+                         <div className="flex items-start gap-4 mb-4">
+                            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-xl shrink-0">🗓️</div>
+                            <div className="min-w-0 flex-1">
+                               <div className="flex justify-between items-start">
+                                  <h5 className="text-[13px] font-black text-slate-800 uppercase leading-none truncate pr-2">{leave.staffName}</h5>
+                                  <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[7px] font-black uppercase">{branchName}</span>
+                               </div>
+                               <p className="text-[10px] font-bold text-indigo-600 mt-2">
+                                  {new Date(leave.startDate).toLocaleDateString('id-ID', {day:'numeric', month:'short'})} 
+                                  <span className="mx-1 text-slate-300">➔</span> 
+                                  {new Date(leave.endDate).toLocaleDateString('id-ID', {day:'numeric', month:'short', year:'numeric'})}
+                               </p>
+                               <div className="mt-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                  <p className="text-[11px] text-slate-600 italic leading-relaxed">"{leave.reason}"</p>
+                               </div>
+                            </div>
+                         </div>
+                         <div className="flex gap-2 pt-4 border-t border-slate-50">
+                            <button onClick={() => updateLeaveStatus(leave.id, 'APPROVED')} className="flex-1 py-4 bg-emerald-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg active:scale-95 transition-all">SETUJUI ✓</button>
+                            <button onClick={() => updateLeaveStatus(leave.id, 'REJECTED')} className="flex-1 py-4 bg-red-50 text-red-600 rounded-xl text-[9px] font-black uppercase border border-red-100 active:scale-95 transition-all">TOLAK ✕</button>
+                         </div>
+                      </div>
+                    );
+                   })}
+                </div>
               )}
            </div>
 
-           {attendanceView === 'daily' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                 {staff.filter(s => s.assignedOutletIds.includes(selectedOutletId)).map(s => {
-                    const record = filteredAttendance.find(a => a.staffId === s.id);
-                    return (
-                       <div key={s.id} className={`bg-white p-5 rounded-3xl border-2 transition-all ${record ? 'border-slate-100' : 'border-dashed border-slate-200 opacity-60'}`}>
-                          <div className="flex justify-between items-start mb-4">
-                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-lg">{record ? '👤' : '💤'}</div>
-                                <div>
-                                   <h5 className="text-[11px] font-black text-slate-800 uppercase leading-tight">{s.name}</h5>
-                                   <p className="text-[8px] font-bold text-slate-400 uppercase">Shift: {s.shiftStartTime}</p>
-                                </div>
-                             </div>
-                             {record && (
-                                <span className={`px-2 py-1 rounded-lg text-[7px] font-black uppercase ${record.status === 'LATE' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                                   {record.status}
-                                </span>
-                             )}
-                          </div>
-                          {record ? (
-                             <div className="space-y-3">
-                                <div className="grid grid-cols-2 gap-2">
-                                   <div className="bg-slate-50 p-2 rounded-xl text-center">
-                                      <p className="text-[6px] font-black text-slate-400 uppercase">Clock In</p>
-                                      <p className="text-[10px] font-black text-slate-700">{new Date(record.clockIn).toLocaleTimeString()}</p>
-                                   </div>
-                                   <div className="bg-slate-50 p-2 rounded-xl text-center">
-                                      <p className="text-[6px] font-black text-slate-400 uppercase">Clock Out</p>
-                                      <p className="text-[10px] font-black text-slate-700">{record.clockOut ? new Date(record.clockOut).toLocaleTimeString() : '--:--'}</p>
-                                   </div>
-                                </div>
-                                {record.latitude && (
-                                   <div className="p-2 bg-indigo-50 rounded-xl border border-indigo-100 flex items-center gap-2">
-                                      <span className="text-[10px]">📍</span>
-                                      <p className="text-[7px] font-black text-indigo-600 uppercase">Audit Lokasi: Terverifikasi Cabang</p>
-                                   </div>
-                                )}
-                             </div>
-                          ) : <div className="py-4 text-center text-[9px] text-slate-300 font-black uppercase italic tracking-widest">Belum Datang</div>}
-                       </div>
-                    );
-                 })}
-              </div>
-           ) : (
-              <div className="bg-white rounded-[40px] border-2 border-slate-100 shadow-sm overflow-hidden">
-                 <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 tracking-widest">
-                       <tr>
-                          <th className="py-4 px-6">Nama Karyawan</th>
-                          <th className="py-4 px-4 text-center">Kehadiran</th>
-                          <th className="py-4 px-4 text-center text-red-500">Terlambat</th>
-                          <th className="py-4 px-4 text-center">Total Jam</th>
-                          <th className="py-4 px-6 text-right">Efisiensi</th>
-                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-[11px]">
-                       {(Object.entries(attendanceRecap) as [string, any][]).map(([staffId, data]) => {
-                          const s = staff.find(st => st.id === staffId);
-                          if (!s) return null;
-                          const efficiency = data.present > 0 ? Math.round(((data.present - data.late) / data.present) * 100) : 0;
-                          return (
-                             <tr key={staffId} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="py-4 px-6 font-black text-slate-800 uppercase leading-none">
-                                   {s.name}
-                                   <p className="text-[7px] text-slate-400 mt-1 uppercase font-bold">{s.role}</p>
-                                </td>
-                                <td className="py-4 px-4 text-center font-bold text-slate-600">{data.present} Hari</td>
-                                <td className="py-4 px-4 text-center font-black text-red-600">{data.late}x</td>
-                                <td className="py-4 px-4 text-center font-bold text-slate-500">{data.hours.toFixed(1)} Jam</td>
-                                <td className="py-4 px-6 text-right">
-                                   <div className="flex flex-col items-end gap-1">
-                                      <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                         <div className={`h-full ${efficiency > 90 ? 'bg-green-500' : 'bg-orange-500'}`} style={{width: `${efficiency}%`}}></div>
-                                      </div>
-                                      <span className="text-[8px] font-black uppercase text-slate-400">{efficiency}% Disiplin</span>
-                                   </div>
-                                </td>
-                             </tr>
-                          );
-                       })}
-                    </tbody>
-                 </table>
-              </div>
-           )}
-        </div>
-      )}
-
-      {/* TAB: LEAVE & PERMISSIONS (ANALYTICS) */}
-      {activeHRTab === 'leaves' && (
-        <div className="space-y-6">
-           {/* RECAP ANALYTICS */}
-           <div className="bg-slate-900 p-8 rounded-[40px] text-white shadow-xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 opacity-10 text-6xl transform rotate-12">🗓️</div>
-              <h4 className="text-sm font-black uppercase tracking-tighter mb-8 text-orange-500">Rekapitulasi Izin {months[selectedMonth]} {selectedYear}</h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                 {staff.filter(s => s.assignedOutletIds.includes(selectedOutletId)).map(s => {
-                    const data = leaveAnalytics[s.id] || { totalDays: 0, count: 0 };
-                    return (
-                       <div key={s.id} className="bg-white/5 border border-white/10 p-5 rounded-3xl flex justify-between items-center">
-                          <div>
-                             <h5 className="text-[11px] font-black uppercase leading-tight">{s.name}</h5>
-                             <p className="text-[9px] text-slate-500 font-bold uppercase mt-1">{data.count}x Izin Terdata</p>
-                          </div>
-                          <div className="text-right">
-                             <p className="text-xl font-black text-white">{data.totalDays}</p>
-                             <p className="text-[7px] font-black text-slate-500 uppercase">Hari Libur</p>
-                          </div>
-                       </div>
-                    );
-                 })}
-              </div>
-           </div>
-
-           <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm">
-              <div className="flex justify-between items-center mb-6">
-                 <h4 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Log Pengajuan Izin</h4>
+           {/* HISTORY ARCHIVE (FILTERED BY SELECTED BRANCH & DATE) */}
+           <div className="space-y-4 pt-10 border-t border-slate-200">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 px-2">
+                 <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center text-xs">📂</div>
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Arsip Keputusan ({selectedOutletId === 'all' ? 'Semua Cabang' : outlets.find(o=>o.id===selectedOutletId)?.name})</h4>
+                 </div>
                  <div className="flex gap-2">
-                    <select className="p-2 bg-slate-50 border rounded-lg text-[9px] font-black uppercase" value={selectedMonth} onChange={e => setSelectedMonth(parseInt(e.target.value))}>
+                    <select className="p-2.5 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase outline-none shadow-sm" value={selectedMonth} onChange={e => setSelectedMonth(parseInt(e.target.value))}>
                        {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                    </select>
+                    <select className="p-2.5 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase outline-none shadow-sm" value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))}>
+                       {[2024, 2025].map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                  </div>
               </div>
-              <div className="space-y-3">
-                 {leaveRequests.length === 0 ? (
-                   <div className="py-20 text-center opacity-30">
-                      <span className="text-4xl mb-4 block">💌</span>
-                      <p className="text-[10px] font-black uppercase italic">Tidak ada pengajuan izin</p>
-                   </div>
+              
+              <div className="space-y-2">
+                 {archiveLeaves.length === 0 ? (
+                   <p className="text-center py-12 text-[9px] font-black text-slate-300 uppercase italic bg-white rounded-[32px] border-2 border-dashed border-slate-100">Tidak ada histori izin pada kriteria ini</p>
                  ) : (
-                   leaveRequests.filter(l => {
-                      const ld = new Date(l.startDate);
-                      return ld.getMonth() === selectedMonth && ld.getFullYear() === selectedYear;
-                   }).map(leave => (
-                    <div key={leave.id} className="bg-slate-50 p-5 rounded-3xl border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-                       <div className="flex items-center gap-4 w-full md:w-auto">
-                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-xl shadow-sm border border-slate-100">🗓️</div>
-                          <div>
-                             <h5 className="text-[11px] font-black text-slate-800 uppercase">{leave.staffName}</h5>
-                             <p className="text-[9px] font-bold text-slate-400 uppercase">{new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}</p>
-                             <p className="text-[10px] text-slate-500 italic mt-1 font-medium">"{leave.reason}"</p>
-                          </div>
-                       </div>
-                       
-                       <div className="flex gap-2 w-full md:w-auto">
-                          {leave.status === 'PENDING' ? (
-                            <>
-                               <button onClick={() => updateLeaveStatus(leave.id, 'APPROVED')} className="flex-1 px-6 py-2.5 bg-green-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg">Setujui</button>
-                               <button onClick={() => updateLeaveStatus(leave.id, 'REJECTED')} className="flex-1 px-6 py-2.5 bg-red-50 text-red-600 rounded-xl text-[9px] font-black uppercase border border-red-100">Tolak</button>
-                            </>
-                          ) : (
-                            <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest ${leave.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                               {leave.status}
-                            </span>
-                          )}
-                       </div>
-                    </div>
+                   archiveLeaves.map(l => (
+                     <div key={l.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex justify-between items-center opacity-70 group hover:opacity-100 transition-all">
+                        <div className="flex items-center gap-4">
+                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${l.status === 'APPROVED' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                              {l.status === 'APPROVED' ? '✅' : '❌'}
+                           </div>
+                           <div>
+                              <p className="text-[11px] font-black text-slate-800 uppercase leading-none">{l.staffName}</p>
+                              <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-tighter">
+                                 {new Date(l.startDate).toLocaleDateString()} — {new Date(l.endDate).toLocaleDateString()}
+                              </p>
+                           </div>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${l.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{l.status}</span>
+                     </div>
                    ))
                  )}
               </div>
@@ -376,142 +283,185 @@ export const StaffManagement: React.FC = () => {
         </div>
       )}
 
-      {/* TAB: PERFORMANCE SCORECARD (PERIODIC ANALYTICS) */}
-      {activeHRTab === 'performance' && (
-        <div className="space-y-6">
-           <div className="bg-white p-6 rounded-[32px] border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
-              <div>
-                 <h4 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Leaderboard & Performa Detail</h4>
-                 <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Evaluasi berdasarkan target sales dan kedisiplinan</p>
-              </div>
-              <div className="flex bg-slate-100 p-1 rounded-xl">
-                 {(['day', 'week', 'month'] as const).map(p => (
-                   <button key={p} onClick={() => setPerfPeriod(p)} className={`px-5 py-2 rounded-lg text-[8px] font-black uppercase transition-all ${perfPeriod === p ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>
-                      {p === 'day' ? 'Hari Ini' : p === 'week' ? '7 Hari' : 'Bulan Ini'}
-                   </button>
-                 ))}
-              </div>
-           </div>
-
-           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm flex flex-col h-full">
-                 <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-8 border-b pb-4">Ranking Kontribusi Karyawan</h4>
-                 <div className="space-y-4 flex-1">
-                    {performanceScores.map((perf, idx) => (
-                      <div key={perf.staff.id} className="flex items-center gap-4 p-4 bg-slate-50 rounded-3xl border border-slate-100 group hover:border-orange-200 transition-all">
-                         <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-[10px] ${idx === 0 ? 'bg-orange-500 text-white shadow-lg' : 'bg-white text-slate-400 border'}`}>
-                            {idx + 1}
-                         </div>
-                         <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm border border-white">
-                            <img src={perf.staff.photo || `https://api.dicebear.com/7.x/initials/svg?seed=${perf.staff.name}`} className="w-full h-full object-cover" />
-                         </div>
-                         <div className="flex-1 min-w-0">
-                            <h5 className="text-[11px] font-black text-slate-800 uppercase truncate leading-none">{perf.staff.name}</h5>
-                            <p className="text-[7px] font-bold text-slate-400 uppercase mt-1">Sales: Rp {perf.totalSales.toLocaleString()}</p>
-                         </div>
-                         <div className="text-right">
-                            <p className="text-xs font-black text-indigo-600 leading-none">{perf.finalScore} PTS</p>
-                            <span className="text-[6px] font-black text-slate-400 uppercase tracking-widest">Global Score</span>
-                         </div>
-                      </div>
-                    ))}
-                 </div>
-              </div>
-
-              <div className="bg-slate-900 p-8 rounded-[40px] shadow-2xl text-white flex flex-col relative overflow-hidden">
-                 <div className="absolute top-0 right-0 w-40 h-40 bg-orange-500/10 rounded-full blur-3xl"></div>
-                 <h4 className="text-[10px] font-black uppercase tracking-widest mb-10 text-orange-500 border-b border-white/10 pb-4 relative z-10">Matrix Detail Performa</h4>
-                 <div className="space-y-8 flex-1 relative z-10">
-                    {performanceScores.map(perf => (
-                       <div key={perf.staff.id} className="space-y-3">
-                          <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
-                             <span className="text-slate-400">{perf.staff.name}</span>
-                             <div className="flex gap-4">
-                                <span className="text-blue-400">{Math.round(perf.salesProgress)}% Sales</span>
-                                <span className={perf.disciplineScore < 80 ? 'text-red-400' : 'text-green-400'}>{perf.disciplineScore}% Disiplin</span>
-                             </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-1 h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                             <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${Math.round(perf.salesProgress)}%` }}></div>
-                             <div className={`h-full transition-all duration-1000 ${perf.disciplineScore < 80 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${perf.disciplineScore}%` }}></div>
-                          </div>
-                       </div>
-                    ))}
-                 </div>
-                 <div className="mt-10 p-5 bg-white/5 rounded-3xl border border-white/10 relative z-10">
-                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Evaluasi System:</p>
-                    <p className="text-[10px] text-slate-300 leading-relaxed italic">"Skor dihitung dari pencapaian target sales harian ({perfPeriod}) dan ketepatan jam masuk kerja. Pertimbangkan bonus bagi kru dengan skor &gt; 90."</p>
-                 </div>
-              </div>
-           </div>
-        </div>
+      {/* TAB: ATTENDANCE HUB (Sama seperti sebelumnya) */}
+      {activeHRTab === 'attendance' && (
+         <div className="space-y-6">
+            {/* Logic tabel absen tetap sama untuk audit */}
+            <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex flex-col gap-6">
+               <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                  <div>
+                     <h4 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Audit Absensi Cabang</h4>
+                     <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Monitor kedisiplinan kru di {selectedOutletId === 'all' ? 'Seluruh Cabang' : outlets.find(o=>o.id===selectedOutletId)?.name}</p>
+                  </div>
+                  <div className="flex bg-slate-100 p-1 rounded-xl">
+                     {(['daily', 'weekly', 'monthly', 'all'] as const).map(v => (
+                        <button key={v} onClick={() => setAttendanceView(v)} className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${attendanceView === v ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400'}`}>
+                           {v === 'daily' ? 'Hari Ini' : v === 'weekly' ? 'Mingguan' : v === 'monthly' ? 'Bulanan' : 'Semua'}
+                        </button>
+                     ))}
+                  </div>
+               </div>
+            </div>
+            
+            <div className="bg-white rounded-[40px] border-2 border-slate-100 shadow-sm overflow-hidden">
+               <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 tracking-widest">
+                     <tr>
+                        <th className="py-4 px-6">Nama Karyawan</th>
+                        <th className="py-4 px-4 text-center">Kehadiran</th>
+                        <th className="py-4 px-4 text-center text-red-500">Terlambat</th>
+                        <th className="py-4 px-4 text-center">Total Jam</th>
+                        <th className="py-4 px-6 text-right">Efisiensi</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                     {(Object.entries(attendanceRecap) as [string, any][]).map(([staffId, data]) => {
+                        const s = staff.find(st => st.id === staffId);
+                        if (!s) return null;
+                        const efficiency = data.present > 0 ? Math.round(((data.present - data.late) / data.present) * 100) : 0;
+                        return (
+                           <tr key={staffId} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="py-4 px-6 font-black text-slate-800 uppercase leading-none">
+                                 {s.name}
+                                 <p className="text-[7px] text-slate-400 mt-1 uppercase font-bold">{s.role}</p>
+                              </td>
+                              <td className="py-4 px-4 text-center font-bold text-slate-600">{data.present} Hari</td>
+                              <td className="py-4 px-4 text-center font-black text-red-600">{data.late}x</td>
+                              <td className="py-4 px-4 text-center font-bold text-slate-500">{data.hours.toFixed(1)} Jam</td>
+                              <td className="py-4 px-6 text-right">
+                                 <div className="flex flex-col items-end gap-1">
+                                    <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                       <div className={`h-full ${efficiency > 90 ? 'bg-green-500' : 'bg-orange-500'}`} style={{width: `${efficiency}%`}}></div>
+                                    </div>
+                                    <span className="text-[8px] font-black uppercase text-slate-400">{efficiency}% Disiplin</span>
+                                 </div>
+                              </td>
+                           </tr>
+                        );
+                     })}
+                  </tbody>
+               </table>
+            </div>
+         </div>
       )}
 
-      {/* FULL SCREEN MODAL: DATABASE EDITOR */}
+      {/* TAB: PERFORMANCE */}
+      {activeHRTab === 'performance' && (
+         <div className="animate-in slide-in-from-bottom-4">
+            <div className="bg-white p-6 rounded-[32px] border-slate-100 shadow-sm flex justify-between items-center mb-6">
+               <h4 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Leaderboard Kontribusi</h4>
+               <div className="flex bg-slate-100 p-1 rounded-xl">
+                  {(['day', 'week', 'month'] as const).map(p => (
+                    <button key={p} onClick={() => setPerfPeriod(p)} className={`px-5 py-2 rounded-lg text-[8px] font-black uppercase transition-all ${perfPeriod === p ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>
+                       {p === 'day' ? 'Hari Ini' : p === 'week' ? '7 Hari' : 'Bulan Ini'}
+                    </button>
+                  ))}
+               </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               {performanceScores.slice(0, 10).map((perf, idx) => (
+                  <div key={perf.staff.id} className="bg-white p-6 rounded-3xl border border-slate-100 flex items-center gap-4 group">
+                     <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-orange-50 text-white' : 'bg-slate-100 text-slate-400'}`}>{idx + 1}</div>
+                     <div className="flex-1">
+                        <p className="text-[11px] font-black text-slate-800 uppercase">{perf.staff.name}</p>
+                        <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">Sales: Rp {perf.totalSales.toLocaleString()}</p>
+                     </div>
+                     <div className="text-right">
+                        <p className="text-xs font-black text-indigo-600">{perf.finalScore} PTS</p>
+                     </div>
+                  </div>
+               ))}
+            </div>
+         </div>
+      )}
+
+      {/* MODAL: DATABASE EDITOR (Tetap komplit dengan data profil lengkap) */}
       {showModal && (
-        <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6 overflow-y-auto no-scrollbar">
-          <div className="bg-white rounded-none md:rounded-[48px] w-full max-w-4xl h-full md:h-auto flex flex-col shadow-2xl animate-in slide-in-from-bottom-10">
-             <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0">
+        <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6 overflow-y-auto custom-scrollbar">
+          <div className="bg-white rounded-none md:rounded-[48px] w-full max-w-5xl h-full md:h-auto flex flex-col shadow-2xl animate-in slide-in-from-bottom-10">
+             <div className="p-6 md:p-8 border-b border-slate-50 flex justify-between items-center shrink-0 bg-white sticky top-0 z-20">
                 <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{editingStaff ? 'Update Konfigurasi Kru' : 'Daftarkan Kru Baru'}</h3>
-                <button onClick={() => setShowModal(false)} className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 text-xl">✕</button>
+                <button onClick={() => setShowModal(false)} className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 text-xl hover:bg-red-50 hover:text-red-500 transition-all">✕</button>
              </div>
              
              <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                   {/* SEKSI 1: IDENTITAS & SHIFT */}
                    <div className="space-y-6">
-                      <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest border-b pb-2">1. Identitas & Jadwal Shift</p>
+                      <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest border-b pb-2">1. Identitas & Shift</p>
                       <div>
                          <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Lengkap</label>
-                         <input type="text" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                         <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-black text-xs" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-3">
                          <div>
-                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Username Login</label>
-                            <input type="text" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-xs" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
+                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Username</label>
+                            <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
                          </div>
                          <div>
                             <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Password</label>
-                            <input type="text" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-xs" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
+                            <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold text-xs" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
                          </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-3">
                          <div>
-                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Jam Mulai Kerja</label>
-                            <input type="time" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs" value={formData.shiftStartTime} onChange={e => setFormData({...formData, shiftStartTime: e.target.value})} />
+                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Shift Mulai</label>
+                            <input type="time" className="w-full p-3 bg-slate-50 border rounded-xl font-black text-xs" value={formData.shiftStartTime} onChange={e => setFormData({...formData, shiftStartTime: e.target.value})} />
                          </div>
                          <div>
-                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Jam Selesai Kerja</label>
-                            <input type="time" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs" value={formData.shiftEndTime} onChange={e => setFormData({...formData, shiftEndTime: e.target.value})} />
+                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Shift Selesai</label>
+                            <input type="time" className="w-full p-3 bg-slate-50 border rounded-xl font-black text-xs" value={formData.shiftEndTime} onChange={e => setFormData({...formData, shiftEndTime: e.target.value})} />
                          </div>
                       </div>
+                   </div>
+
+                   {/* SEKSI 2: SOSIAL MEDIA & KONTAK */}
+                   <div className="space-y-6">
+                      <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest border-b pb-2">2. Kontak & Media Sosial</p>
                       <div>
-                         <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Hari Libur Mingguan</label>
-                         <select className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs" value={formData.weeklyOffDay} onChange={e => setFormData({...formData, weeklyOffDay: parseInt(e.target.value)})}>
-                            {days.map((day, i) => <option key={i} value={i}>{day}</option>)}
-                         </select>
+                         <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">No. WhatsApp</label>
+                         <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-black text-xs" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="0812..." />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                         <div>
+                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Instagram</label>
+                            <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-black text-[10px]" value={formData.instagram} onChange={e => setFormData({...formData, instagram: e.target.value})} placeholder="@user" />
+                         </div>
+                         <div>
+                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">TikTok</label>
+                            <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-black text-[10px]" value={formData.tiktok} onChange={e => setFormData({...formData, tiktok: e.target.value})} placeholder="@user" />
+                         </div>
+                      </div>
+                      <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
+                         <p className="text-[8px] font-black text-orange-500 uppercase mb-2">Darurat (Emergency Contact):</p>
+                         <div className="space-y-3">
+                            <input type="text" className="w-full p-2.5 bg-white border border-orange-200 rounded-lg text-[10px] font-bold" placeholder="Nama Wali" value={formData.emergencyContactName} onChange={e => setFormData({...formData, emergencyContactName: e.target.value})} />
+                            <input type="text" className="w-full p-2.5 bg-white border border-orange-200 rounded-lg text-[10px] font-bold" placeholder="No. HP Wali" value={formData.emergencyContactPhone} onChange={e => setFormData({...formData, emergencyContactPhone: e.target.value})} />
+                         </div>
                       </div>
                    </div>
                    
+                   {/* SEKSI 3: TARGET & PERMISSIONS */}
                    <div className="space-y-6">
-                      <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest border-b pb-2">2. Kompensasi & Target</p>
-                      <div className="grid grid-cols-2 gap-4">
+                      <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest border-b pb-2">3. Target & Hak Akses</p>
+                      <div className="grid grid-cols-2 gap-3">
                          <div>
-                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Target Sales Harian</label>
-                            <input type="number" className="w-full p-4 bg-white border-2 border-indigo-100 rounded-2xl font-black text-sm" value={formData.dailySalesTarget} onChange={e => setFormData({...formData, dailySalesTarget: parseInt(e.target.value) || 0})} />
+                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Target Sales</label>
+                            <input type="number" className="w-full p-3 bg-white border-2 border-indigo-50 rounded-xl font-black text-xs" value={formData.dailySalesTarget} onChange={e => setFormData({...formData, dailySalesTarget: parseInt(e.target.value) || 0})} />
                          </div>
                          <div>
-                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Bonus Target (Rp)</label>
-                            <input type="number" className="w-full p-4 bg-white border-2 border-green-100 rounded-2xl font-black text-sm text-green-600" value={formData.targetBonusAmount} onChange={e => setFormData({...formData, targetBonusAmount: parseInt(e.target.value) || 0})} />
+                            <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Bonus Target</label>
+                            <input type="number" className="w-full p-3 bg-white border-2 border-green-50 rounded-xl font-black text-xs text-green-600" value={formData.targetBonusAmount} onChange={e => setFormData({...formData, targetBonusAmount: parseInt(e.target.value) || 0})} />
                          </div>
                       </div>
                       <div>
-                         <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Role & Jabatan</label>
-                         <select className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-xs" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
+                         <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Role Jabatan</label>
+                         <select className="w-full p-3 bg-slate-50 border rounded-xl font-black text-xs" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
                             {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
                          </select>
                       </div>
-                      <div className="p-6 bg-slate-900 rounded-3xl text-white">
-                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Akses Cabang:</p>
+                      <div className="p-5 bg-slate-900 rounded-3xl text-white">
+                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Penempatan Cabang:</p>
                          <div className="flex flex-wrap gap-2">
                             {outlets.map(o => (
                                <button 
@@ -521,7 +471,7 @@ export const StaffManagement: React.FC = () => {
                                   const next = current.includes(o.id) ? current.filter(id => id !== o.id) : [...current, o.id];
                                   setFormData({...formData, assignedOutletIds: next});
                                 }}
-                                className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase border-2 transition-all ${formData.assignedOutletIds?.includes(o.id) ? 'bg-orange-500 border-orange-500 text-white' : 'bg-transparent border-white/10 text-white/40'}`}>
+                                className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase border transition-all ${formData.assignedOutletIds?.includes(o.id) ? 'bg-orange-500 border-orange-500 text-white' : 'bg-transparent border-white/10 text-white/40'}`}>
                                  {o.name}
                                </button>
                             ))}
@@ -531,8 +481,8 @@ export const StaffManagement: React.FC = () => {
                 </div>
              </div>
 
-             <div className="p-6 md:p-10 border-t border-slate-50 bg-slate-50/50 shrink-0 pb-safe">
-                <button onClick={handleSave} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-slate-900/10 active:scale-95 transition-all">SIMPAN PERUBAHAN DATABASE 💾</button>
+             <div className="p-6 md:p-10 border-t border-slate-50 bg-slate-50 shrink-0">
+                <button onClick={handleSave} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.4em] shadow-xl active:scale-95 transition-all">SIMPAN DOSSIER KRU 💾</button>
              </div>
           </div>
         </div>

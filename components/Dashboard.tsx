@@ -18,7 +18,7 @@ const CompactMetric: React.FC<{ label: string; value: string; color: string; ico
 export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ setActiveTab }) => {
   const { 
     selectedOutletId, outlets, 
-    currentUser, transactions, expenses, attendance, filteredTransactions 
+    currentUser, transactions, expenses, attendance, filteredTransactions, leaveRequests = []
   } = useApp();
   
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -26,11 +26,23 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
 
   const isExecutive = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
   const isGlobalView = selectedOutletId === 'all' && isExecutive;
+  
+  // Tanggal lokal yang konsisten
   const todayStr = new Date().toLocaleDateString('en-CA');
+
+  // Notifikasi untuk Owner/Manager
+  const pendingLeaves = useMemo(() => 
+    leaveRequests.filter(l => l.status === 'PENDING'), 
+    [leaveRequests]
+  );
 
   const myPresenceToday = useMemo(() => {
      if (isExecutive) return true;
-     return attendance.find(a => a.staffId === currentUser?.id && a.date === todayStr);
+     // Pengecekan record absensi sesuai staffId dan tanggal lokal hari ini (string compare)
+     return (attendance || []).some(a => {
+        const recordDate = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
+        return a.staffId === currentUser?.id && recordDate === todayStr;
+     });
   }, [attendance, currentUser, todayStr, isExecutive]);
 
   const summary = useMemo(() => {
@@ -87,23 +99,39 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         </div>
       </div>
 
-      {/* 1. STATUS ABSENSI BAR */}
-      <div className={`mb-8 p-6 rounded-[40px] border-2 flex flex-col md:flex-row items-center justify-between gap-6 transition-all ${myPresenceToday ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100 animate-pulse'}`}>
-         <div className="flex items-center gap-5">
-            <div className={`w-14 h-14 rounded-[24px] flex items-center justify-center text-2xl shadow-inner ${myPresenceToday ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
-               {myPresenceToday ? '✅' : '⚠️'}
+      {/* 0. NOTIFIKASI IZIN/CUTI (HANYA OWNER/MGR) */}
+      {isExecutive && pendingLeaves.length > 0 && (
+         <div className="mb-6 p-5 bg-indigo-600 rounded-[32px] text-white flex items-center justify-between shadow-xl shadow-indigo-200 animate-in slide-in-from-top-4">
+            <div className="flex items-center gap-4">
+               <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-xl animate-pulse">✉️</div>
+               <div>
+                  <h4 className="text-[11px] font-black uppercase tracking-widest leading-none mb-1">Persetujuan Diperlukan</h4>
+                  <p className="text-[13px] font-bold">Ada {pendingLeaves.length} pengajuan cuti kru yang menunggu keputusan.</p>
+               </div>
             </div>
-            <div>
-               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1.5">Status Kehadiran Hari Ini</p>
-               <h4 className={`text-sm font-black uppercase ${myPresenceToday ? 'text-emerald-700' : 'text-rose-700'}`}>
-                  {myPresenceToday ? 'Tugas Aktif: Akses POS Terbuka ✓' : 'Wajib Absen Masuk Untuk Mulai Jualan!'}
-               </h4>
-            </div>
+            <button onClick={() => setActiveTab?.('staff')} className="px-6 py-2.5 bg-white text-indigo-600 rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all">PROSES SEKARANG ➔</button>
          </div>
-         {!myPresenceToday && (
-            <button onClick={() => setActiveTab?.('attendance')} className="w-full md:w-auto px-12 py-4 bg-rose-600 text-white rounded-[24px] font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 transition-all">ABSEN SEKARANG ➔</button>
-         )}
-      </div>
+      )}
+
+      {/* 1. STATUS ABSENSI BAR */}
+      {!isExecutive && (
+        <div className={`mb-8 p-6 rounded-[40px] border-2 flex flex-col md:flex-row items-center justify-between gap-6 transition-all ${myPresenceToday ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100 animate-pulse'}`}>
+           <div className="flex items-center gap-5">
+              <div className={`w-14 h-14 rounded-[24px] flex items-center justify-center text-2xl shadow-inner ${myPresenceToday ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                 {myPresenceToday ? '✅' : '⚠️'}
+              </div>
+              <div>
+                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1.5">Status Kehadiran Hari Ini</p>
+                 <h4 className={`text-sm font-black uppercase ${myPresenceToday ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {myPresenceToday ? 'Tugas Aktif: Akses POS Terbuka ✓' : 'Wajib Absen Masuk Untuk Mulai Jualan!'}
+                 </h4>
+              </div>
+           </div>
+           {!myPresenceToday && (
+              <button onClick={() => setActiveTab?.('attendance')} className="w-full md:w-auto px-12 py-4 bg-rose-600 text-white rounded-[24px] font-black text-[11px] uppercase tracking-widest shadow-xl active:scale-95 transition-all">ABSEN SEKARANG ➔</button>
+           )}
+        </div>
+      )}
 
       {/* 2. RINGKASAN METRIK */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-10">

@@ -281,9 +281,10 @@ export const ExpenseManagement: React.FC = () => {
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-3 ml-1">Nominal (Rp)</label>
                 <input 
                   type="number" 
-                  onFocus={e => e.target.select()}
+                  inputMode="numeric"
+                  onFocus={e => e.currentTarget.select()}
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-xl text-red-600 focus:border-orange-500 outline-none"
-                  value={newExpense.amount}
+                  value={newExpense.amount === 0 ? "" : newExpense.amount}
                   onChange={e => setNewExpense({...newExpense, amount: parseInt(e.target.value) || 0})}
                   placeholder="0"
                 />

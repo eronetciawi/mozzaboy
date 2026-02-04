@@ -50,7 +50,7 @@ export const ClosingManagement: React.FC = () => {
   }, [transactions, expenses, dailyClosings, selectedOutletId, currentUser, actualCash, shiftName, todayStr]);
 
   const handleExecute = async (overrider?: string) => {
-    await performClosing(actualCash, overrider ? `${notes} (Overriden by ${overrider})` : notes, calc.opening, shiftName);
+    await performClosing(actualCash, overrider ? `${notes} (Disetujui oleh: ${overrider})` : notes, calc.opening, shiftName);
     setShowConfirm(false); setShowApproval(false);
   };
 
@@ -64,7 +64,7 @@ export const ClosingManagement: React.FC = () => {
   };
 
   const isEarly = useMemo(() => {
-    if (currentUser?.role === UserRole.OWNER) return false;
+    if (currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER) return false;
     const now = new Date();
     const [eh, em] = (currentUser?.shiftEndTime || '18:00').split(':').map(Number);
     const endToday = new Date(); endToday.setHours(eh, em, 0, 0);
@@ -112,7 +112,6 @@ export const ClosingManagement: React.FC = () => {
 
                  <div className="h-px bg-slate-50 w-full"></div>
 
-                 {/* FINANCIAL BREAKDOWN */}
                  <div className="space-y-3">
                     <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest">Financial Summary</p>
                     <div className="space-y-2">
@@ -135,7 +134,6 @@ export const ClosingManagement: React.FC = () => {
                     </div>
                  </div>
 
-                 {/* TOTAL SECTION */}
                  <div className="bg-slate-900 rounded-3xl p-5 text-white">
                     <div className="flex justify-between items-center opacity-60 mb-1">
                        <p className="text-[8px] font-black uppercase">Grand Total Omset</p>
@@ -147,7 +145,6 @@ export const ClosingManagement: React.FC = () => {
                     </div>
                  </div>
 
-                 {/* CASH RECONCILIATION */}
                  <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
                     <div className="flex justify-between items-center mb-1">
                        <p className="text-[8px] font-black text-slate-400 uppercase">Uang Seharusnya Di Laci</p>
@@ -164,13 +161,6 @@ export const ClosingManagement: React.FC = () => {
                        </p>
                     </div>
                  </div>
-
-                 {myClosing.notes && (
-                    <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                       <p className="text-[7px] font-black text-orange-400 uppercase mb-1">Catatan Kasir:</p>
-                       <p className="text-[10px] font-medium text-orange-800 italic">"{myClosing.notes}"</p>
-                    </div>
-                 )}
               </div>
 
               <div className="p-8 bg-slate-900 text-center">
@@ -193,7 +183,6 @@ export const ClosingManagement: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden font-sans">
-      {/* 1. TIGHT HEADER */}
       <div className="bg-white border-b px-4 py-2 shrink-0 flex justify-between items-center z-20">
          <div className="flex items-center gap-2">
             <h2 className="text-[10px] font-black text-slate-900 uppercase">Audit Kasir</h2>
@@ -202,7 +191,6 @@ export const ClosingManagement: React.FC = () => {
          <p className="text-[8px] font-bold text-slate-400 uppercase">{activeOutlet?.name}</p>
       </div>
 
-      {/* 2. SLIM METRICS BAR */}
       <div className="flex bg-white border-b px-4 py-3 gap-6 overflow-x-auto no-scrollbar shrink-0 shadow-sm">
          <div className="flex flex-col min-w-fit">
             <span className="text-[7px] font-black text-slate-400 uppercase">Modal</span>
@@ -222,7 +210,6 @@ export const ClosingManagement: React.FC = () => {
          </div>
       </div>
 
-      {/* 3. CORE AREA */}
       <div className="flex-1 flex flex-col p-3 md:p-6 overflow-hidden">
          <div className="bg-white rounded-[32px] border-2 border-slate-100 shadow-lg p-5 flex flex-col justify-center flex-1 min-h-0">
             <div className="text-center mb-4 shrink-0">
@@ -241,9 +228,11 @@ export const ClosingManagement: React.FC = () => {
                   <div className="relative">
                      <span className="absolute left-5 top-1/2 -translate-y-1/2 text-xl font-black text-slate-200">Rp</span>
                      <input 
-                       type="number" onFocus={e => e.target.select()}
+                       type="number" 
+                       inputMode="numeric"
+                       onFocus={e => e.currentTarget.select()}
                        className={`w-full p-4 pl-12 bg-slate-50 border-2 rounded-[24px] text-2xl font-black text-center outline-none transition-all ${(calc.diff ?? 0) !== 0 && actualCash > 0 ? 'border-rose-200 text-rose-600' : 'border-slate-100 text-slate-900 focus:border-orange-500'}`}
-                       value={actualCash || ''}
+                       value={actualCash === 0 ? "" : actualCash}
                        onChange={e => setActualCash(parseInt(e.target.value) || 0)}
                        placeholder="0"
                      />
@@ -261,7 +250,6 @@ export const ClosingManagement: React.FC = () => {
             </div>
          </div>
 
-         {/* 4. FOOTER ACTION */}
          <div className="mt-4 shrink-0 space-y-2 pb-safe">
             <button 
                disabled={isSaving || actualCash <= 0}
@@ -273,14 +261,13 @@ export const ClosingManagement: React.FC = () => {
          </div>
       </div>
 
-      {/* MODALS */}
       {showConfirm && (
          <div className="fixed inset-0 z-[500] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
             <div className="bg-white rounded-[32px] w-full max-w-xs p-8 text-center shadow-2xl animate-in zoom-in-95">
                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter mb-4">Kirim Laporan?</h3>
                <p className="text-slate-500 text-[8px] mb-8 uppercase font-bold tracking-widest leading-relaxed">Data akan dikirim langsung ke Owner dan tidak bisa diubah.</p>
                <div className="flex flex-col gap-2">
-                  <button onClick={() => handleExecute()} className="w-full py-4 bg-orange-500 text-white rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95">YA, KIRIM 🚀</button>
+                  <button onClick={() => handleExecute()} className="w-full py-4 bg-orange-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95">YA, KIRIM 🚀</button>
                   <button onClick={() => setShowConfirm(false)} className="w-full py-2 text-slate-400 font-black uppercase text-[8px]">BATAL</button>
                </div>
             </div>
@@ -293,17 +280,42 @@ export const ClosingManagement: React.FC = () => {
                <div className="text-center mb-6">
                   <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center text-xl mx-auto mb-3">🔑</div>
                   <h3 className="text-sm font-black text-slate-800 uppercase">Otorisasi Diperlukan</h3>
-                  <p className="text-rose-500 text-[7px] font-black uppercase mt-1">{isEarly ? 'TUTUP DINI' : 'SELISIH UANG TERDETEKSI'}</p>
+                  
+                  {/* DETAILED NOTIFICATION BOX */}
+                  <div className="mt-4 p-4 bg-rose-50 rounded-2xl border border-rose-100 text-left space-y-3">
+                    {isEarly && (
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-black text-rose-600 uppercase tracking-wider">⚠️ PELANGGARAN JAM SHIFT</p>
+                        <p className="text-[10px] font-bold text-rose-800 leading-tight">
+                          Outlet tidak bisa ditutup sebelum jadwal shift berakhir pkl {currentUser?.shiftEndTime}. Saat ini masih dalam jam kerja.
+                        </p>
+                      </div>
+                    )}
+                    
+                    {calc.diff !== 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-black text-rose-600 uppercase tracking-wider">⚠️ SELISIH UANG TUNAI</p>
+                        <div className="flex justify-between items-center">
+                          <p className="text-[10px] font-bold text-rose-800">Jumlah Selisih:</p>
+                          <p className="text-[10px] font-black text-rose-900">Rp {Math.abs(calc.diff).toLocaleString()}</p>
+                        </div>
+                        <p className="text-[8px] font-black uppercase text-rose-600 italic">
+                          Keterangan: Uang {calc.diff < 0 ? 'KURANG (Defisit)' : 'LEBIH (Surplus)'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
                </div>
+
                <div className="space-y-3">
-                  <input type="text" placeholder="ID Manager" className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none text-[10px] focus:border-indigo-500" value={auth.u} onChange={e=>setAuth({...auth, u: e.target.value})} />
-                  <input type="password" placeholder="Passkey" className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none text-[10px] focus:border-indigo-500" value={auth.p} onChange={e=>setAuth({...auth, p: e.target.value})} />
+                  <input type="text" placeholder="ID Manager" className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none text-[10px] focus:border-indigo-500 text-slate-900" value={auth.u} onChange={e=>setAuth({...auth, u: e.target.value})} />
+                  <input type="password" placeholder="Passkey" className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none text-[10px] focus:border-indigo-500 text-slate-900" value={auth.p} onChange={e=>setAuth({...auth, p: e.target.value})} />
                   {error && <p className="text-[7px] font-black text-red-600 uppercase text-center">{error}</p>}
                   <button onClick={() => {
                      const mgr = staff.find(s => s.username === auth.u && s.password === auth.p && (s.role === UserRole.OWNER || s.role === UserRole.MANAGER));
                      if (mgr) handleExecute(mgr.name); else setError('KREDENSIAL SALAH!');
-                  }} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase shadow-xl tracking-widest">VERIFIKASI 🔓</button>
-                  <button onClick={() => { setShowApproval(false); setError(''); }} className="w-full py-1 text-slate-300 font-black text-[8px] uppercase tracking-widest text-center">Batal</button>
+                  }} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase shadow-xl tracking-widest">VERIFIKASI MANAGER 🔓</button>
+                  <button onClick={() => { setShowApproval(false); setError(''); }} className="w-full py-1 text-slate-300 font-black text-[8px] uppercase tracking-widest text-center">Batalkan Proses</button>
                </div>
             </div>
          </div>

@@ -23,24 +23,30 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [memberQuery, setMemberQuery] = useState('');
   const [redeemPoints, setRedeemPoints] = useState(0);
+  
+  // Toast States
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [showAttendanceToast, setShowAttendanceToast] = useState(false);
 
-  // FIX: Menggunakan toLocaleDateString('en-CA') agar konsisten dengan waktu lokal (YYYY-MM-DD)
   const isClockedInToday = useMemo(() => {
     if (!currentUser) return true;
     const todayStr = new Date().toLocaleDateString('en-CA');
-    return (attendance || []).some(a => a.staffId === currentUser.id && a.date === todayStr);
+    
+    // Logika pengecekan yang lebih tangguh untuk memastikan record attendance ditemukan
+    return (attendance || []).some(a => {
+       const recordDate = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
+       return a.staffId === currentUser.id && recordDate === todayStr;
+    });
   }, [attendance, currentUser]);
 
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return false;
     const todayStr = new Date().toLocaleDateString('en-CA');
-    return (dailyClosings || []).some(c => 
-      c.outletId === selectedOutletId && 
-      c.staffId === currentUser.id && 
-      new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
-    );
+    return (dailyClosings || []).some(c => {
+      const closingDate = typeof c.timestamp === 'string' ? new Date(c.timestamp).toLocaleDateString('en-CA') : c.timestamp.toLocaleDateString('en-CA');
+      return c.outletId === selectedOutletId && c.staffId === currentUser.id && closingDate === todayStr;
+    });
   }, [dailyClosings, selectedOutletId, currentUser]);
 
   const checkStock = (p: Product): boolean => {
@@ -86,8 +92,10 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
   const handleCheckout = async (method: PaymentMethod) => {
     if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
+    
     if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
-       return alert("Wajib Absen Masuk Terlebih Dahulu!");
+       setShowAttendanceToast(true);
+       return;
     }
     
     try {
@@ -97,7 +105,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
       setMobileView('menu');
       setShowSuccessToast(true);
     } catch (err) {
-      alert("Terjadi kesalahan saat memproses pembayaran. Silakan coba lagi.");
+      alert("Terjadi kesalahan saat memproses pembayaran.");
     }
   };
 
@@ -108,9 +116,17 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     }
   }, [showSuccessToast]);
 
+  useEffect(() => {
+    if (showAttendanceToast) {
+      const timer = setTimeout(() => setShowAttendanceToast(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showAttendanceToast]);
+
   return (
     <div className="h-full flex flex-col md:flex-row overflow-hidden bg-white relative">
       
+      {/* SUCCESS TOAST */}
       {showSuccessToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-slate-900 text-white px-8 py-3 rounded-2xl shadow-2xl flex items-center gap-4 border border-white/10">
@@ -123,8 +139,21 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       )}
 
+      {/* ATTENDANCE WARNING TOAST */}
+      {showAttendanceToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500 w-full max-w-sm px-4">
+           <div className="bg-rose-600 text-white px-6 py-4 rounded-[28px] shadow-2xl flex items-center gap-4 border-2 border-rose-400">
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl shrink-0 animate-bounce">⚠️</div>
+              <div>
+                 <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">Akses Kasir Terkunci</p>
+                 <p className="text-[11px] font-bold text-rose-100 uppercase leading-tight">Wajib Absen Masuk Terlebih Dahulu di Menu Portal!</p>
+              </div>
+           </div>
+        </div>
+      )}
+
       <div className={`flex-1 flex flex-col min-w-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
-        <div className="px-4 py-3 md:px-6 md:py-4 bg-white border-b border-slate-100 shrink-0 z-20 space-y-3">
+        <div className="px-4 py-3 md:px-6 md:py-4 bg-white border-b border-slate-100 shrink-0 z-20 space-y-4">
           <div className="flex gap-2 items-center">
             <div className="relative flex-1">
               <input 
@@ -152,16 +181,27 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             </div>
           </div>
           
-          <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-            <button onClick={() => setSelectedCategory('all')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase whitespace-nowrap transition-all border-2 ${selectedCategory === 'all' ? 'bg-orange-500 border-orange-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}>Semua</button>
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            <button 
+              onClick={() => setSelectedCategory('all')} 
+              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[8px] md:text-[9px] font-black uppercase transition-all border-2 ${selectedCategory === 'all' ? 'bg-orange-500 border-orange-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+            >
+              Semua
+            </button>
             {categories.map(cat => (
-              <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase whitespace-nowrap transition-all border-2 ${selectedCategory === cat.id ? 'bg-orange-500 border-orange-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}>{cat.name}</button>
+              <button 
+                key={cat.id} 
+                onClick={() => setSelectedCategory(cat.id)} 
+                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[8px] md:text-[9px] font-black uppercase transition-all border-2 ${selectedCategory === cat.id ? 'bg-orange-500 border-orange-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+              >
+                {cat.name}
+              </button>
             ))}
           </div>
         </div>
 
         <div className="flex-1 bg-slate-50/50 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-32 md:pb-6 touch-pan-y">
-           <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 md:gap-4">
+           <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 md:gap-4">
             {filteredProducts.map(product => {
               const inStock = checkStock(product);
               const displayPrice = getPrice(product);
@@ -170,7 +210,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                   key={product.id} 
                   disabled={!inStock || isShiftClosed}
                   onClick={() => addToCart(product)} 
-                  className={`bg-white rounded-2xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm ${(!inStock || isShiftClosed) ? 'opacity-40 border-slate-200 grayscale' : 'border-white hover:border-orange-500 hover:shadow-xl hover:-translate-y-1'}`}
+                  className={`bg-white rounded-xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm ${(!inStock || isShiftClosed) ? 'opacity-40 border-slate-200 grayscale' : 'border-white hover:border-orange-500 hover:shadow-xl hover:-translate-y-1'}`}
                 >
                   <div className="aspect-square w-full overflow-hidden bg-slate-100 relative shrink-0">
                     <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
@@ -183,9 +223,9 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                       <div className="absolute top-2 right-2 bg-indigo-600 text-white text-[6px] md:text-[8px] font-black px-1.5 py-0.5 rounded-lg shadow-lg uppercase">Paket</div>
                     )}
                   </div>
-                  <div className="p-2.5 md:p-3 flex-1 flex flex-col justify-center">
-                    <h5 className="font-extrabold text-slate-800 text-[9px] md:text-[11px] uppercase leading-tight line-clamp-2">{product.name}</h5>
-                    <p className={`text-[10px] md:text-[13px] font-black font-mono tracking-tighter mt-1 ${(!inStock || isShiftClosed) ? 'text-slate-300' : 'text-orange-600'}`}>
+                  <div className="p-2 md:p-3 flex-1 flex flex-col justify-center">
+                    <h5 className="font-extrabold text-slate-800 text-[8px] md:text-[11px] uppercase leading-tight line-clamp-2">{product.name}</h5>
+                    <p className={`text-[9px] md:text-[13px] font-black font-mono tracking-tighter mt-1 ${(!inStock || isShiftClosed) ? 'text-slate-300' : 'text-orange-600'}`}>
                       Rp {(displayPrice).toLocaleString()}
                     </p>
                   </div>
@@ -198,7 +238,16 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
       {mobileView === 'menu' && cart.length > 0 && (
         <div className="md:hidden fixed bottom-20 left-0 right-0 px-4 z-[60] animate-in slide-in-from-bottom-5">
-          <button onClick={() => setMobileView('cart')} className="w-full bg-slate-900 text-white rounded-2xl p-4 shadow-2xl flex justify-between items-center active:scale-95">
+          <button 
+            onClick={() => {
+              if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
+                  setShowAttendanceToast(true);
+              } else {
+                  setMobileView('cart');
+              }
+            }}
+            className="w-full bg-slate-900 text-white rounded-2xl p-4 shadow-2xl flex justify-between items-center active:scale-95"
+          >
             <div className="flex items-center gap-3">
                <div className="w-9 h-9 bg-orange-500 text-white rounded-xl flex items-center justify-center font-black text-sm">{totalQty}</div>
                <p className="text-sm font-black tracking-tight">Rp {total.toLocaleString()}</p>
@@ -262,7 +311,13 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           </div>
           <button
             disabled={cart.length === 0 || isShiftClosed}
-            onClick={() => setShowCheckout(true)}
+            onClick={() => {
+              if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
+                  setShowAttendanceToast(true);
+              } else {
+                  setShowCheckout(true);
+              }
+            }}
             className="w-full py-5 bg-orange-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-xl shadow-orange-500/20 hover:bg-orange-500 active:scale-95 disabled:opacity-30 transition-all"
           >
             {isShiftClosed ? 'SHIFT CLOSED' : `PROSES BAYAR ➔`}

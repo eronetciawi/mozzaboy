@@ -8,13 +8,14 @@ import {
   MembershipTier, BulkDiscountRule, InventoryItemType, ProductionRecord, Attendance, LeaveRequest,
   MenuSimulation, LoyaltyConfig, WIPRecipe
 } from './types';
-import { PRODUCTS, CATEGORIES, INVENTORY_ITEMS, OUTLETS, INITIAL_STAFF } from './constants';
+import { PRODUCTS, INVENTORY_ITEMS, OUTLETS, INITIAL_STAFF } from './constants';
 
 const DEFAULT_SUPABASE_URL = 'https://qpawptimafvxhppeuqel.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwYXdwdGltYWZ2eGhwcGV1cWVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3OTkxMDAsImV4cCI6MjA4NTM3NTEwMH0.DJPEQFZAdDIw8W167w8BmyAX2g8KAkKKnQI9Y06oxtw';
 
 const STORAGE_USER_KEY = 'mozzaboy_session_user';
 const STORAGE_OUTLET_KEY = 'mozzaboy_active_outlet';
+const STORAGE_CAT_ORDER_KEY = 'mozzaboy_category_order';
 
 export const getPermissionsByRole = (role: UserRole): Permissions => {
   switch (role) {
@@ -28,6 +29,9 @@ export const getPermissionsByRole = (role: UserRole): Permissions => {
       return { canAccessReports: false, canManageStaff: false, canManageMenu: false, canManageInventory: false, canProcessSales: false, canVoidTransactions: false, canManageSettings: false };
   }
 };
+
+// Helper untuk tanggal lokal yang konsisten YYYY-MM-DD
+export const getTodayDateString = () => new Date().toLocaleDateString('en-CA');
 
 interface SupabaseConfig {
   url: string;
@@ -136,6 +140,7 @@ interface AppActions {
   addCategory: (name: string) => Promise<void>;
   updateCategory: (id: string, name: string) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
+  reorderCategories: (newList: Category[]) => Promise<void>;
 }
 
 const AppContext = createContext<(AppState & AppActions) | undefined>(undefined);
@@ -147,9 +152,16 @@ const hydrateDates = (obj: any): any => {
     const newObj: any = {};
     for (const key in obj) {
       const val = obj[key];
-      if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}(T|\s)\d{2}:\d{2}:\d{2}/.test(val)) {
-        newObj[key] = new Date(val);
-      } else if (typeof val === 'object') {
+      // CRITICAL: Jangan hidrat kolom 'date' (YYYY-MM-DD) agar tetap string murni
+      if (key === 'date') {
+        newObj[key] = val;
+        continue;
+      }
+      // Hanya ubah string yang memiliki "T" (ISO timestamp) menjadi Date
+      if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
+        const d = new Date(val);
+        newObj[key] = isNaN(d.getTime()) ? val : d;
+      } else if (typeof val === 'object' && val !== null) {
         newObj[key] = hydrateDates(val);
       } else {
         newObj[key] = val;
@@ -167,7 +179,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isSaving, setIsSaving] = useState(false);
   const isFirstLoadRef = useRef(true);
   
-  // STOCK PROTECTION: Mengunci nilai stok lokal item tertentu agar tidak tertimpa cloud sementara waktu
   const stockShieldRef = useRef<Map<string, { qty: number, expiry: number }>>(new Map());
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -205,7 +216,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setOrderCart] = useState<CartItem[]>([]);
   const [connectedPrinter, setConnectedPrinter] = useState<any>(null);
   const [loginTime, setLoginTime] = useState<Date | null>(null);
 
@@ -219,14 +230,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchFromCloud = async () => {
     if (!supabase) return; 
-    
-    // Tampilkan loading screen HANYA pada boot pertama aplikasi
     if (isFirstLoadRef.current) setIsInitialLoading(true);
     
     try {
       const results = await Promise.allSettled([
         supabase.from('products').select('*'),
-        supabase.from('categories').select('*'),
+        supabase.from('categories').select('*'), 
         supabase.from('inventory').select('*'),
         supabase.from('outlets').select('*'),
         supabase.from('staff').select('*'),
@@ -250,24 +259,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const data = results.map(r => r.status === 'fulfilled' ? r.value.data : null);
 
-      if (data[0]) setProducts(hydrateDates(data[0]));
-      if (data[1]) setCategories(hydrateDates(data[1]));
-      
-      // LOGIKA MERGE INVENTORY: Prioritaskan Stok Terlindungi (Anti-Revert)
+      if (data[0]) setProducts(data[0].length > 0 ? hydrateDates(data[0]) : PRODUCTS);
+      if (data[1]) setCategories(hydrateDates(data[1]).sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0)));
       if (data[2]) {
         const cloudInv = hydrateDates(data[2]);
         const now = Date.now();
         const mergedInv = cloudInv.map((item: InventoryItem) => {
            const shield = stockShieldRef.current.get(item.id);
-           if (shield && now < shield.expiry) {
-              return { ...item, quantity: shield.qty }; 
-           }
+           if (shield && now < shield.expiry) return { ...item, quantity: shield.qty }; 
            if (shield && now >= shield.expiry) stockShieldRef.current.delete(item.id);
            return item;
         });
         setInventory(mergedInv);
       }
-
       if (data[3]) setOutlets(data[3].length > 0 ? hydrateDates(data[3]) : OUTLETS);
       if (data[4]) setStaff(data[4].length > 0 ? hydrateDates(data[4]) : INITIAL_STAFF);
       if (data[5]) setAttendance(hydrateDates(data[5]));
@@ -306,30 +310,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data) {
          const mapped = hydrateDates(data);
          if (mapped.status === 'INACTIVE') return { success: false, message: "Akses dinonaktifkan." };
-         setCurrentUser(mapped);
-         setIsAuthenticated(true);
+         setCurrentUser(mapped); setIsAuthenticated(true);
          localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(mapped));
          const oid = mapped.assignedOutletIds[0] || 'out1';
-         setSelectedOutletId(oid);
-         localStorage.setItem(STORAGE_OUTLET_KEY, oid);
+         setSelectedOutletId(oid); localStorage.setItem(STORAGE_OUTLET_KEY, oid);
          return { success: true };
       }
       return { success: false, message: "Kredensial salah." };
     },
     logout: () => { setIsAuthenticated(false); setCurrentUser(null); localStorage.removeItem(STORAGE_USER_KEY); },
     switchOutlet: (id) => { setSelectedOutletId(id); localStorage.setItem(STORAGE_OUTLET_KEY, id); },
-    addToCart: (p) => setCart(prev => {
+    addToCart: (p) => setOrderCart(prev => {
       const ex = prev.find(i => i.product.id === p.id);
       if (ex) return prev.map(i => i.product.id === p.id ? { ...i, quantity: i.quantity + 1 } : i);
       return [...prev, { product: p, quantity: 1 }];
     }),
-    updateCartQuantity: (pid, delta) => setCart(prev => prev.map(i => i.product.id === pid ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0)),
-    removeFromCart: (pid) => setCart(prev => prev.filter(i => i.product.id !== pid)),
-    clearCart: () => setCart([]),
+    updateCartQuantity: (pid, delta) => setOrderCart(prev => prev.map(i => i.product.id === pid ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0)),
+    removeFromCart: (pid) => setOrderCart(prev => prev.filter(i => i.product.id !== pid)),
+    clearCart: () => setOrderCart([]),
     checkout: async (method, redeem = 0, memberDisc = 0, bulkDisc = 0) => {
       if (!supabase || selectedOutletId === 'all') return;
       setIsSaving(true);
-      
       try {
         let subtotal = 0; let totalCost = 0;
         cart.forEach(i => {
@@ -341,16 +342,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
            }, 0);
            totalCost += itemCost * i.quantity;
         });
-
         const total = Math.max(0, subtotal - memberDisc - bulkDisc - (redeem * loyaltyConfig.redemptionValuePerPoint));
-        
         const txPayload = {
           id: `TX-${Date.now()}`, outletId: selectedOutletId, customerId: selectedCustomerId || null, 
           items: cart, subtotal, total, totalCost, paymentMethod: method, status: OrderStatus.CLOSED, 
           timestamp: new Date().toISOString(), cashierId: currentUser?.id, cashierName: currentUser?.name,
           pointsEarned: Math.floor(total/1000), pointsRedeemed: redeem
         };
-        
         const updates: { id: string, newQty: number }[] = [];
         const processDeduction = (p: Product, mult: number) => {
            if (p.isCombo && p.comboItems) {
@@ -360,47 +358,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               });
            } else {
               (p.bom || []).forEach(b => {
-                 const item = inventory.find(inv => inv.outletId === selectedOutletId && inv.id === b.inventoryItemId);
-                 if (item) updates.push({ id: item.id, newQty: (item.quantity || 0) - (b.quantity * mult) });
+                 const template = inventory.find(inv => inv.id === b.inventoryItemId);
+                 if (template) {
+                    const itemInBranch = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === template.name);
+                    if (itemInBranch) updates.push({ id: itemInBranch.id, newQty: (itemInBranch.quantity || 0) - (b.quantity * mult) });
+                 }
               });
            }
         };
-
         cart.forEach(i => processDeduction(i.product, i.quantity));
-
-        // EXECUTE LOCAL & REMOTE
         updates.forEach(u => stockShieldRef.current.set(u.id, { qty: u.newQty, expiry: Date.now() + 60000 }));
-        
         await Promise.all([
           supabase.from('transactions').insert(txPayload),
           ...updates.map(u => supabase.from('inventory').update({ quantity: u.newQty }).eq('id', u.id))
         ]);
-
         setTransactions(prev => [hydrateDates(txPayload), ...prev]);
         setInventory(prev => prev.map(inv => {
            const u = updates.find(x => x.id === inv.id);
            return u ? { ...inv, quantity: u.newQty } : inv;
         }));
-        setCart([]); setSelectedCustomerId(null);
+        setOrderCart([]); setSelectedCustomerId(null);
       } finally { setIsSaving(false); }
     },
     clockIn: async (lat, lng, notes) => {
-      if (!supabase || !currentUser) return { success: false, message: "Sesi expired." };
+      if (!currentUser) return { success: false, message: "Sesi expired." };
       const now = new Date();
-      const payload = { id: `att-${Date.now()}`, staffId: currentUser.id, staffName: currentUser.name, outletId: selectedOutletId, date: now.toLocaleDateString('en-CA'), clockIn: now.toISOString(), status: 'PRESENT', latitude: lat, longitude: lng, notes };
+      const localDateStr = getTodayDateString();
+      
+      const payload = { 
+        id: `att-${Date.now()}`, 
+        staffId: currentUser.id, 
+        staffName: currentUser.name, 
+        outletId: selectedOutletId, 
+        date: localDateStr,
+        clockIn: now.toISOString(), 
+        status: 'PRESENT' as const, 
+        latitude: lat, 
+        longitude: lng, 
+        notes 
+      };
+      
+      // OPTIMISTIC UPDATE: Langsung update state lokal sebagai string date
       setAttendance(prev => [...prev, hydrateDates(payload)]);
-      await supabase.from('attendance').insert(payload);
+      
+      if (supabase) {
+        supabase.from('attendance').insert(payload).then(({ error }) => {
+           if (error) console.error("Cloud Sync Error (Absen):", error);
+        });
+      }
+      
       return { success: true };
     },
     clockOut: async () => {
-      if (!supabase || !currentUser) return;
+      if (!currentUser) return;
       const now = new Date();
-      const { data: activeShift } = await supabase.from('attendance').select('*').eq('staffId', currentUser.id).is('clockOut', null).maybeSingle();
+      const activeShift = attendance.find(a => a.staffId === currentUser.id && !a.clockOut);
+      
       if (activeShift) {
          setAttendance(prev => prev.map(a => a.id === activeShift.id ? { ...a, clockOut: now } : a));
-         await supabase.from('attendance').update({ clockOut: now.toISOString() }).eq('id', activeShift.id);
+         if (supabase) {
+           supabase.from('attendance').update({ clockOut: now.toISOString() }).eq('id', activeShift.id).then(({ error }) => {
+              if (error) console.error("Cloud Sync Error (ClockOut):", error);
+           });
+         }
       }
     },
+    submitLeave: async (l) => { 
+      const payload = { 
+        ...l, 
+        id: `lv-${Date.now()}`, 
+        status: 'PENDING', 
+        requestedAt: new Date().toISOString(),
+        startDate: new Date(l.startDate).toISOString(),
+        endDate: new Date(l.endDate).toISOString(),
+        staffId: currentUser?.id, 
+        staffName: currentUser?.name, 
+        outletId: selectedOutletId 
+      }; 
+      setLeaveRequests(prev => [...prev, hydrateDates(payload)]); 
+      if(supabase) await supabase.from('leave_requests').insert(payload); 
+    },
+    updateLeaveStatus: async (id, s) => { if(supabase) await supabase.from('leave_requests').update({ status: s }).eq('id', id); setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status: s } : l)); },
     performClosing: async (actualCash, notes, openingBalance, shiftName) => {
        if(!supabase || !currentUser) return;
        setIsSaving(true);
@@ -408,8 +446,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const now = new Date();
           const start = new Date(); start.setHours(0,0,0,0);
           const txs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start);
-          const cash = txs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+b.total, 0);
-          const qris = txs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a,b)=>a+b.total, 0);
+          const cash = txs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+(b.total ?? 0), 0);
+          const qris = txs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a,b)=>a+(b.total ?? 0), 0);
           const exp = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser.id && new Date(e.timestamp) >= start).reduce((a,b)=>a+b.amount, 0);
           const expected = openingBalance + cash - exp;
           const closingPayload = { id: `CLS-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser.id, staffName: currentUser.name, timestamp: now.toISOString(), shiftName, openingBalance, totalSalesCash: cash, totalSalesQRIS: qris, totalExpenses: exp, actualCash, discrepancy: actualCash - expected, notes, status: 'APPROVED' };
@@ -488,26 +526,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await fetchFromCloud(); return true;
        } catch (err) { console.error(`Import Error (${table}):`, err); return false; }
     },
-    addStaff: async (s) => { await supabase!.from('staff').insert(s); setStaff(prev => [...prev, hydrateDates(s)]); },
-    updateStaff: async (s) => { await supabase!.from('staff').update(s).eq('id', s.id); setStaff(prev => prev.map(m => m.id === s.id ? hydrateDates(s) : m)); if(currentUser?.id === s.id) setCurrentUser(s); },
-    deleteStaff: async (id) => { await supabase!.from('staff').delete().eq('id', id); setStaff(prev => prev.filter(m => m.id !== id)); },
-    submitLeave: async (l) => { const payload = { ...l, id: `lv-${Date.now()}`, status: 'PENDING', requestedAt: new Date().toISOString(), staffId: currentUser?.id, staffName: currentUser?.name, outletId: selectedOutletId }; await supabase!.from('leave_requests').insert(payload); setLeaveRequests(prev => [...prev, hydrateDates(payload)]); },
-    updateLeaveStatus: async (id, s) => { await supabase!.from('leave_requests').update({ status: s }).eq('id', id); setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status: s } : l)); },
-    addProduct: async (p) => { await supabase!.from('products').insert(p); setProducts(prev => [...prev, p]); },
-    updateProduct: async (p) => { await supabase!.from('products').update(p).eq('id', p.id); setProducts(prev => prev.map(m => m.id === p.id ? p : m)); },
-    deleteProduct: async (id) => { await supabase!.from('products').delete().eq('id', id); setProducts(prev => prev.filter(m => m.id !== id)); },
-    addInventoryItem: async (i, oids = []) => { const payloads = (oids.length > 0 ? oids : [selectedOutletId]).map(oid => ({ ...i, id: `inv-${oid}-${Date.now()}`, outletId: oid })); await supabase!.from('inventory').insert(payloads); await fetchFromCloud(); },
-    updateInventoryItem: async (i) => { await supabase!.from('inventory').update(i).eq('id', i.id); setInventory(prev => prev.map(m => m.id === i.id ? i : m)); },
-    deleteInventoryItem: async (id) => { await supabase!.from('inventory').delete().eq('id', id); setInventory(prev => prev.filter(m => m.id !== id)); },
-    addExpense: async (e) => { const payload = { ...e, id: `exp-${Date.now()}`, timestamp: new Date().toISOString(), staffId: currentUser?.id, staffName: currentUser?.name, outletId: selectedOutletId }; await supabase!.from('expenses').insert(payload); setExpenses(prev => [...prev, hydrateDates(payload)]); },
-    updateExpense: async (id, d) => { await supabase!.from('expenses').update(d).eq('id', id); setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...hydrateDates(d) } : e)); },
-    deleteExpense: async (id) => { await supabase!.from('expenses').delete().eq('id', id); setExpenses(prev => prev.filter(e => e.id !== id)); },
-    addExpenseType: async (n) => { const payload = { id: `et-${Date.now()}`, name: n }; await supabase!.from('expense_types').insert(payload); setExpenseTypes(prev => [...prev, payload]); },
-    updateExpenseType: async (id, n) => { await supabase!.from('expense_types').update({ name: n }).eq('id', id); setExpenseTypes(prev => prev.map(t => t.id === id ? { ...t, name: n } : t)); },
-    deleteExpenseType: async (id) => { await supabase!.from('expense_types').delete().eq('id', id); setExpenseTypes(prev => prev.filter(t => t.id !== id)); },
-    addCategory: async (n) => { const payload = { id: `cat-${Date.now()}`, name: n }; await supabase!.from('categories').insert(payload); setCategories(prev => [...prev, payload]); },
-    updateCategory: async (id, n) => { await supabase!.from('categories').update({ name: n }).eq('id', id); setCategories(prev => prev.map(c => c.id === id ? { ...c, name: n } : c)); },
-    deleteCategory: async (id) => { await supabase!.from('categories').delete().eq('id', id); setCategories(prev => prev.filter(c => c.id !== id)); },
+    addStaff: async (s) => { if(supabase) await supabase.from('staff').insert(s); setStaff(prev => [...prev, hydrateDates(s)]); },
+    updateStaff: async (s) => { if(supabase) await supabase.from('staff').update(s).eq('id', s.id); setStaff(prev => prev.map(m => m.id === s.id ? hydrateDates(s) : m)); if(currentUser?.id === s.id) setCurrentUser(s); },
+    deleteStaff: async (id) => { if(supabase) await supabase.from('staff').delete().eq('id', id); setStaff(prev => prev.filter(m => m.id !== id)); },
+    addProduct: async (p) => { if(supabase) await supabase.from('products').insert(p); setProducts(prev => [...prev, p]); },
+    updateProduct: async (p) => { if(supabase) await supabase.from('products').update(p).eq('id', p.id); setProducts(prev => prev.map(m => m.id === p.id ? p : m)); },
+    deleteProduct: async (id) => { if(supabase) await supabase.from('products').delete().eq('id', id); setProducts(prev => prev.filter(m => m.id !== id)); },
+    addInventoryItem: async (i, oids = []) => { const payloads = (oids.length > 0 ? oids : [selectedOutletId]).map(oid => ({ ...i, id: `inv-${oid}-${Date.now()}`, outletId: oid })); if(supabase) await supabase.from('inventory').insert(payloads); await fetchFromCloud(); },
+    updateInventoryItem: async (i) => { if(supabase) await supabase.from('inventory').update(i).eq('id', i.id); setInventory(prev => prev.map(m => m.id === i.id ? i : m)); },
+    deleteInventoryItem: async (id) => { if(supabase) await supabase.from('inventory').delete().eq('id', id); setInventory(prev => prev.filter(m => m.id !== id)); },
+    addExpense: async (e) => { const payload = { ...e, id: `exp-${Date.now()}`, timestamp: new Date().toISOString(), staffId: currentUser?.id, staffName: currentUser?.name, outletId: selectedOutletId }; if(supabase) await supabase.from('expenses').insert(payload); setExpenses(prev => [...prev, hydrateDates(payload)]); },
+    updateExpense: async (id, d) => { if(supabase) await supabase.from('expenses').update(d).eq('id', id); setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...hydrateDates(d) } : e)); },
+    deleteExpense: async (id) => { if(supabase) await supabase.from('expenses').delete().eq('id', id); setExpenses(prev => prev.filter(e => e.id !== id)); },
+    addExpenseType: async (n) => { const payload = { id: `et-${Date.now()}`, name: n }; if(supabase) await supabase.from('expense_types').insert(payload); setExpenseTypes(prev => [...prev, payload]); },
+    updateExpenseType: async (id, n) => { if(supabase) await supabase.from('expense_types').update({ name: n }).eq('id', id); setExpenseTypes(prev => prev.map(t => t.id === id ? { ...t, name: n } : t)); },
+    deleteExpenseType: async (id) => { if(supabase) await supabase.from('expense_types').delete().eq('id', id); setExpenseTypes(prev => prev.filter(t => t.id !== id)); },
+    addCategory: async (n) => { 
+       if (!supabase) return;
+       setIsSaving(true);
+       const newId = `cat-${Date.now()}`;
+       try {
+          const order = categories.length;
+          const payload = { id: newId, name: n, sortOrder: order }; 
+          const { error } = await supabase.from('categories').insert(payload); 
+          if (error && error.message.includes('sortOrder')) await supabase.from('categories').insert({ id: newId, name: n });
+          else if (error) throw error;
+          setCategories(prev => [...prev, payload]);
+          const newOrder = [...categories, payload].map(c => c.id);
+          localStorage.setItem(STORAGE_CAT_ORDER_KEY, JSON.stringify(newOrder));
+       } catch (err: any) { throw new Error("Gagal Simpan: " + err.message); } finally { setIsSaving(false); }
+    },
+    updateCategory: async (id, n) => { setCategories(prev => prev.map(c => c.id === id ? { ...c, name: n } : c)); if(supabase) await supabase.from('categories').update({ name: n }).eq('id', id); },
+    deleteCategory: async (id) => { 
+       setCategories(prev => prev.filter(c => c.id !== id)); if(supabase) await supabase.from('categories').delete().eq('id', id);
+       const savedOrder = localStorage.getItem(STORAGE_CAT_ORDER_KEY);
+       if (savedOrder) localStorage.setItem(STORAGE_CAT_ORDER_KEY, JSON.stringify(JSON.parse(savedOrder).filter((cid: string) => cid !== id)));
+    },
+    reorderCategories: async (newList) => {
+       setCategories(newList);
+       localStorage.setItem(STORAGE_CAT_ORDER_KEY, JSON.stringify(newList.map(c => c.id)));
+       if (supabase) {
+          setIsSaving(true);
+          try {
+             const updates = newList.map((c, idx) => ({ id: c.id, name: c.name, sortOrder: idx }));
+             const { error } = await supabase.from('categories').upsert(updates);
+             if (error && !error.message.includes('sortOrder')) throw error;
+          } catch (e) { console.warn("Cloud sort update skipped."); } finally { setIsSaving(false); }
+       }
+    },
     addPurchase: async (p) => { 
        const totalNominal = p.unitPrice; const qty = p.quantity; const timestamp = new Date().toISOString(); 
        const item = inventory.find(inv => inv.id === p.inventoryItemId);
@@ -516,16 +582,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        const expensePayload = { id: `exp-auto-${purchasePayload.id}`, outletId: selectedOutletId, typeId: 'purchase-auto', amount: totalNominal, notes: `Belanja ${item.name}`, staffId: currentUser?.id, staffName: currentUser?.name, timestamp };
        const newQty = (item.quantity || 0) + qty;
        stockShieldRef.current.set(item.id, { qty: newQty, expiry: Date.now() + 60000 });
-       await Promise.all([ supabase!.from('purchases').insert(purchasePayload), supabase!.from('expenses').insert(expensePayload), supabase!.from('inventory').update({ quantity: newQty }).eq('id', item.id) ]);
+       if(supabase) await Promise.all([ supabase.from('purchases').insert(purchasePayload), supabase.from('expenses').insert(expensePayload), supabase.from('inventory').update({ quantity: newQty }).eq('id', item.id) ]);
        setInventory(prev => prev.map(inv => inv.id === item.id ? { ...inv, quantity: newQty } : inv));
        setPurchases(prev => [hydrateDates(purchasePayload), ...prev]); setExpenses(prev => [hydrateDates(expensePayload), ...prev]);
     },
     processProduction: async (d) => {
-       if(!supabase || !currentUser || selectedOutletId === 'all') return;
+       if(!currentUser || selectedOutletId === 'all') return;
        setIsSaving(true);
        const updates: { id: string, newQty: number }[] = [];
        const currentOutletId = selectedOutletId;
-       
        try {
           for (const comp of d.components) {
              const template = inventory.find(i => i.id === comp.inventoryItemId);
@@ -539,43 +604,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
              const realWip = inventory.find(i => i.name === wipTemplate.name && i.outletId === currentOutletId);
              if (realWip) updates.push({ id: realWip.id, newQty: Number(realWip.quantity || 0) + Number(d.resultQuantity) });
           }
-
           if (updates.length === 0) throw new Error("Item Error");
-
-          // SHIELD LOKAL (PENTING!) - Mengunci nilai selama 60 detik agar cloud tidak revert paksa
           updates.forEach(u => stockShieldRef.current.set(u.id, { qty: u.newQty, expiry: Date.now() + 60000 }));
-
           const recordPayload = { ...d, id: `PROD-${Date.now()}`, timestamp: new Date().toISOString(), staffId: currentUser.id, staffName: currentUser.name, outletId: currentOutletId };
-          
-          // Background Sync
-          await Promise.all([
-             supabase.from('production_records').insert(recordPayload),
-             ...updates.map(u => supabase.from('inventory').update({ quantity: u.newQty }).eq('id', u.id))
-          ]);
-
-          // Update UI Instan
+          if(supabase) await Promise.all([ supabase.from('production_records').insert(recordPayload), ...updates.map(u => supabase.from('inventory').update({ quantity: u.newQty }).eq('id', u.id)) ]);
           setInventory(prev => prev.map(inv => {
              const match = updates.find(x => x.id === inv.id);
              return match ? { ...inv, quantity: match.newQty } : inv;
           }));
           setProductionRecords(prev => [hydrateDates(recordPayload), ...prev]);
-       } finally {
-          setIsSaving(false);
-          // Silent refresh untuk memastikan data lainnya tetap sinkron
-          setTimeout(fetchFromCloud, 2000);
-       }
+       } finally { setIsSaving(false); setTimeout(fetchFromCloud, 2000); }
     },
-    addWIPRecipe: async (recipe) => { const payload = { ...recipe, id: `wip-${Date.now()}` }; await supabase!.from('wip_recipes').insert(payload); setWipRecipes(prev => [...prev, hydrateDates(payload)]); },
-    updateWIPRecipe: async (recipe) => { await supabase!.from('wip_recipes').update(recipe).eq('id', recipe.id); setWipRecipes(prev => prev.map(r => r.id === recipe.id ? hydrateDates(recipe) : r)); },
-    deleteWIPRecipe: async (id) => { await supabase!.from('wip_recipes').delete().eq('id', id); setWipRecipes(prev => prev.filter(r => r.id !== id)); },
-    addCustomer: async (c) => { const payload = { ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date().toISOString(), registeredByStaffId: currentUser?.id, registeredByStaffName: currentUser?.name, registeredAtOutletId: selectedOutletId }; await supabase!.from('customers').insert(payload); setCustomers(prev => [...prev, hydrateDates(payload)]); },
-    updateCustomer: async (c) => { await supabase!.from('customers').update(c).eq('id', c.id); setCustomers(prev => prev.map(cust => cust.id === c.id ? hydrateDates(c) : cust)); },
-    deleteCustomer: async (id) => { await supabase!.from('customers').delete().eq('id', id); setCustomers(prev => prev.filter(c => c.id !== id)); },
-    addOutlet: async (o) => { await supabase!.from('outlets').insert(o); setOutlets(prev => [...prev, hydrateDates(o)]); },
-    updateOutlet: async (o) => { await supabase!.from('outlets').update(o).eq('id', o.id); setOutlets(prev => prev.map(out => out.id === o.id ? hydrateDates(o) : out)); },
-    deleteOutlet: async (id) => { await supabase!.from('outlets').delete().eq('id', id); setOutlets(prev => prev.filter(o => o.id !== id)); },
+    addWIPRecipe: async (recipe) => { const payload = { ...recipe, id: `wip-${Date.now()}` }; if(supabase) await supabase.from('wip_recipes').insert(payload); setWipRecipes(prev => [...prev, hydrateDates(payload)]); },
+    updateWIPRecipe: async (recipe) => { if(supabase) await supabase.from('wip_recipes').update(recipe).eq('id', recipe.id); setWipRecipes(prev => prev.map(r => r.id === recipe.id ? hydrateDates(recipe) : r)); },
+    deleteWIPRecipe: async (id) => { if(supabase) await supabase.from('wip_recipes').delete().eq('id', id); setWipRecipes(prev => prev.filter(r => r.id !== id)); },
+    addCustomer: async (c) => { const payload = { ...c, id: `c-${Date.now()}`, points: 0, registeredAt: new Date().toISOString(), registeredByStaffId: currentUser?.id, registeredByStaffName: currentUser?.name, registeredAtOutletId: selectedOutletId }; if(supabase) await supabase.from('customers').insert(payload); setCustomers(prev => [...prev, hydrateDates(payload)]); },
+    updateCustomer: async (c) => { if(supabase) await supabase.from('customers').update(c).eq('id', c.id); setCustomers(prev => prev.map(cust => cust.id === c.id ? hydrateDates(c) : cust)); },
+    deleteCustomer: async (id) => { if(supabase) await supabase.from('customers').delete().eq('id', id); setCustomers(prev => prev.filter(c => c.id !== id)); },
+    addOutlet: async (o) => { if(supabase) await supabase.from('outlets').insert(o); setOutlets(prev => [...prev, hydrateDates(o)]); },
+    updateOutlet: async (o) => { if(supabase) await supabase.from('outlets').update(o).eq('id', o.id); setOutlets(prev => prev.map(out => out.id === o.id ? hydrateDates(o) : out)); },
+    deleteOutlet: async (id) => { if(supabase) await supabase.from('outlets').delete().eq('id', id); setOutlets(prev => prev.filter(o => o.id !== id)); },
     transferStock: async (f, t, i, q) => { 
-       if(!supabase || !currentUser) return;
+       if(!currentUser) return;
        setIsSaving(true);
        try {
           const fromItem = inventory.find(inv => inv.outletId === f && inv.name === i);
@@ -585,7 +635,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
              stockShieldRef.current.set(fromItem.id, { qty: fQty, expiry: Date.now() + 60000 });
              stockShieldRef.current.set(toItem.id, { qty: tQty, expiry: Date.now() + 60000 });
              const payload = { id: `TRF-${Date.now()}`, fromOutletId: f, fromOutletName: outlets.find(o=>o.id===f)?.name, toOutletId: t, toOutletName: outlets.find(o=>o.id===t)?.name, itemName: i, quantity: q, unit: fromItem.unit, timestamp: new Date().toISOString(), staffId: currentUser.id, staffName: currentUser.name };
-             await Promise.all([ supabase.from('stock_transfers').insert(payload), supabase.from('inventory').update({ quantity: fQty }).eq('id', fromItem.id), supabase.from('inventory').update({ quantity: tQty }).eq('id', toItem.id) ]);
+             if(supabase) await Promise.all([ supabase.from('stock_transfers').insert(payload), supabase.from('inventory').update({ quantity: fQty }).eq('id', fromItem.id), supabase.from('inventory').update({ quantity: tQty }).eq('id', toItem.id) ]);
              setStockTransfers(prev => [hydrateDates(payload), ...prev]);
              setInventory(prev => prev.map(inv => {
                 if (inv.id === fromItem.id) return { ...inv, quantity: fQty };
@@ -595,16 +645,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
        } finally { setIsSaving(false); }
     },
-    addMembershipTier: async (t) => { const payload = { ...t, id: `t-${Date.now()}` }; await supabase!.from('membership_tiers').insert(payload); setMembershipTiers(prev => [...prev, payload]); },
-    updateMembershipTier: async (t) => { await supabase!.from('membership_tiers').update(t).eq('id', t.id); setMembershipTiers(prev => prev.map(tier => tier.id === t.id ? t : tier)); },
-    deleteMembershipTier: async (id) => { await supabase!.from('membership_tiers').delete().eq('id', id); setMembershipTiers(prev => prev.filter(t => t.id !== id)); },
-    addBulkDiscount: async (r) => { const payload = { ...r, id: `r-${Date.now()}` }; await supabase!.from('bulk_discounts').insert(payload); setBulkDiscounts(prev => [...prev, payload]); },
-    updateBulkDiscount: async (r) => { await supabase!.from('bulk_discounts').update(r).eq('id', r.id); setBulkDiscounts(prev => prev.map(rule => rule.id === r.id ? r : rule)); },
-    deleteBulkDiscount: async (id) => { await supabase!.from('bulk_discounts').delete().eq('id', id); setBulkDiscounts(prev => prev.filter(r => r.id !== id)); },
-    saveSimulation: async (s) => { await supabase!.from('simulations').upsert(s); setSimulations(prev => { const others = prev.filter(item => item.id !== s.id); return [...others, hydrateDates(s)]; }); },
-    deleteSimulation: async (id) => { await supabase!.from('simulations').delete().eq('id', id); setSimulations(prev => prev.filter(s => s.id !== id)); },
-    updateLoyaltyConfig: async (c) => { await supabase!.from('loyalty_config').upsert({ ...c, id: 'global' }); setLoyaltyConfig(c); },
-    voidTransaction: async (txId) => { await supabase!.from('transactions').update({ status: OrderStatus.VOIDED }).eq('id', txId); setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, status: OrderStatus.VOIDED } : tx)); },
+    addMembershipTier: async (t) => { const payload = { ...t, id: `t-${Date.now()}` }; if(supabase) await supabase.from('membership_tiers').insert(payload); setMembershipTiers(prev => [...prev, payload]); },
+    updateMembershipTier: async (t) => { if(supabase) await supabase.from('membership_tiers').update(t).eq('id', t.id); setMembershipTiers(prev => prev.map(tier => tier.id === t.id ? t : tier)); },
+    deleteMembershipTier: async (id) => { if(supabase) await supabase.from('membership_tiers').delete().eq('id', id); setMembershipTiers(prev => prev.filter(t => t.id !== id)); },
+    addBulkDiscount: async (r) => { const payload = { ...r, id: `r-${Date.now()}` }; if(supabase) await supabase.from('bulk_discounts').insert(payload); setBulkDiscounts(prev => [...prev, payload]); },
+    updateBulkDiscount: async (r) => { if(supabase) await supabase.from('bulk_discounts').update(r).eq('id', r.id); setBulkDiscounts(prev => prev.map(rule => rule.id === r.id ? r : rule)); },
+    deleteBulkDiscount: async (id) => { if(supabase) await supabase.from('bulk_discounts').delete().eq('id', id); setBulkDiscounts(prev => prev.filter(r => r.id !== id)); },
+    saveSimulation: async (s) => { if(supabase) await supabase.from('simulations').upsert(s); setSimulations(prev => { const others = prev.filter(item => item.id !== s.id); return [...others, hydrateDates(s)]; }); },
+    deleteSimulation: async (id) => { if(supabase) await supabase.from('simulations').delete().eq('id', id); setSimulations(prev => prev.filter(s => s.id !== id)); },
+    updateLoyaltyConfig: async (c) => { if(supabase) await supabase.from('loyalty_config').upsert({ ...c, id: 'global' }); setLoyaltyConfig(c); },
+    voidTransaction: async (txId) => { if(supabase) await supabase.from('transactions').update({ status: OrderStatus.VOIDED }).eq('id', txId); setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, status: OrderStatus.VOIDED } : tx)); },
     cloneOutletSetup: async (fid, tid) => {
        if(!supabase) return;
        setIsSaving(true);

@@ -1,13 +1,8 @@
 
 import { Category, Product, InventoryItem, Outlet, UserRole, StaffMember, InventoryItemType } from './types';
 
-export const CATEGORIES: Category[] = [
-  { id: 'cat1', name: 'Corndog Gurih' },
-  { id: 'cat2', name: 'Corndog Sweet' },
-  { id: 'cat3', name: 'Tteokbokki' },
-  { id: 'cat4', name: 'Odeng' },
-  { id: 'cat5', name: 'Drinks' },
-];
+// Kosongkan kategori agar tidak membingungkan user dan tidak menimpa data baru
+export const CATEGORIES: Category[] = [];
 
 export const INVENTORY_ITEMS: InventoryItem[] = [
   // Outlet 1 (Central)

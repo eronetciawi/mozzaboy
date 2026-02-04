@@ -21,7 +21,9 @@ export const Inventory: React.FC = () => {
     name: '', unit: 'gr', quantity: 0, minStock: 0, costPerUnit: 0, type: InventoryItemType.RAW, isCashierOperated: false, canCashierPurchase: false
   });
 
-  const isOwnerOrManager = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
+  const isOwner = currentUser?.role === UserRole.OWNER;
+  const isManager = currentUser?.role === UserRole.MANAGER;
+  const isOwnerOrManager = isOwner || isManager;
 
   const movementLogs = useMemo(() => {
     const logs: any[] = [];
@@ -78,7 +80,7 @@ export const Inventory: React.FC = () => {
         </div>
         <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
           <input type="text" placeholder="Cari Bahan..." className="w-full md:w-48 px-4 py-2.5 bg-white border-2 border-slate-100 rounded-xl font-bold text-[10px] shadow-sm outline-none focus:border-orange-500 text-slate-900" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-          {viewMode === 'list' && isOwnerOrManager && (
+          {viewMode === 'list' && isOwner && (
             <button onClick={() => { setSelectedBranches([selectedOutletId]); setShowAddModal(true); }} className="w-full md:w-auto px-4 py-2.5 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase shadow-lg active:scale-95 transition-all">+ Item Baru</button>
           )}
         </div>
@@ -101,7 +103,7 @@ export const Inventory: React.FC = () => {
                     <th className="py-5 px-4 text-right">Stok Aktif</th>
                     <th className="py-5 px-4 text-right text-red-500">Limit Aman</th>
                     <th className="py-5 px-4 text-right">Akses Kasir</th>
-                    {isOwnerOrManager && <th className="py-5 px-8 text-right">Aksi</th>}
+                    {isOwner && <th className="py-5 px-8 text-right">Aksi</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 text-slate-900">
@@ -121,7 +123,7 @@ export const Inventory: React.FC = () => {
                           </span>
                         </div>
                       </td>
-                      {isOwnerOrManager && (
+                      {isOwner && (
                         <td className="py-4 px-8 text-right">
                           <div className="flex justify-end gap-2">
                             <button onClick={() => setEditingItem(item)} className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center">✏️</button>
@@ -146,7 +148,7 @@ export const Inventory: React.FC = () => {
                               <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Satuan: {item.unit}</p>
                            </div>
                         </div>
-                        {isOwnerOrManager && (
+                        {isOwner && (
                            <div className="flex gap-2">
                               <button onClick={() => setEditingItem(item)} className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center">✏️</button>
                               <button onClick={() => setItemToDelete(item)} className="w-8 h-8 bg-red-50 text-red-500 rounded-lg flex items-center justify-center">🗑️</button>
@@ -189,8 +191,8 @@ export const Inventory: React.FC = () => {
         )}
       </div>
 
-      {/* MODAL TAMBAH ITEM BARU */}
-      {showAddModal && isOwnerOrManager && (
+      {/* MODAL TAMBAH ITEM BARU - HANYA OWNER */}
+      {showAddModal && isOwner && (
         <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-xl p-8 md:p-12 shadow-2xl overflow-y-auto max-h-[92vh] border-t md:border border-white/20 animate-in slide-in-from-bottom-10">
              <div className="flex justify-between items-center mb-8">
@@ -219,7 +221,15 @@ export const Inventory: React.FC = () => {
                    </div>
                    <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1 text-red-500">Stok Awal</label>
-                      <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-900 focus:border-orange-500 outline-none" value={newItem.quantity} onChange={e => setNewItem({...newItem, quantity: parseFloat(e.target.value) || 0})} />
+                      <input 
+                        type="number" 
+                        inputMode="decimal"
+                        onFocus={e => e.currentTarget.select()}
+                        className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-900 focus:border-orange-500 outline-none" 
+                        value={newItem.quantity === 0 ? "" : newItem.quantity} 
+                        onChange={e => setNewItem({...newItem, quantity: parseFloat(e.target.value) || 0})} 
+                        placeholder="0"
+                      />
                    </div>
                 </div>
 
@@ -275,8 +285,8 @@ export const Inventory: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL EDIT STOK */}
-      {editingItem && isOwnerOrManager && (
+      {/* MODAL EDIT STOK - HANYA OWNER */}
+      {editingItem && isOwner && (
         <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white rounded-t-[40px] md:rounded-[48px] w-full max-w-lg p-8 md:p-12 shadow-2xl overflow-y-auto max-h-[92vh] animate-in slide-in-from-bottom-10">
              <div className="flex justify-between items-center mb-8">
@@ -288,16 +298,40 @@ export const Inventory: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                    <div>
                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Stok Fisik</label>
-                     <input type="number" onFocus={e => e.target.select()} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-slate-900 focus:border-orange-500 outline-none" value={editingItem.quantity ?? 0} onChange={e => setEditingItem({...editingItem, quantity: parseFloat(e.target.value) || 0})} />
+                     <input 
+                        type="number" 
+                        inputMode="decimal"
+                        onFocus={e => e.currentTarget.select()} 
+                        className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-slate-900 focus:border-orange-500 outline-none" 
+                        value={editingItem.quantity === 0 ? "" : editingItem.quantity} 
+                        onChange={e => setEditingItem({...editingItem, quantity: parseFloat(e.target.value) || 0})} 
+                        placeholder="0"
+                     />
                    </div>
                    <div>
                      <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1 text-red-500">Limit Aman</label>
-                     <input type="number" onFocus={e => e.target.select()} className="w-full p-4 bg-red-50 border-2 border-red-100 rounded-2xl font-black text-center text-red-600 outline-none focus:border-red-500" value={editingItem.minStock ?? 0} onChange={e => setEditingItem({...editingItem, minStock: parseFloat(e.target.value) || 0})} />
+                     <input 
+                        type="number" 
+                        inputMode="decimal"
+                        onFocus={e => e.currentTarget.select()} 
+                        className="w-full p-4 bg-red-50 border-2 border-red-100 rounded-2xl font-black text-center text-red-600 outline-none focus:border-red-500" 
+                        value={editingItem.minStock === 0 ? "" : editingItem.minStock} 
+                        onChange={e => setEditingItem({...editingItem, minStock: parseFloat(e.target.value) || 0})} 
+                        placeholder="0"
+                     />
                    </div>
                 </div>
                 <div>
                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">HPP Unit (Rp)</label>
-                   <input type="number" onFocus={e => e.target.select()} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-indigo-600 outline-none focus:border-indigo-500" value={editingItem.costPerUnit ?? 0} onChange={e => setEditingItem({...editingItem, costPerUnit: parseInt(e.target.value) || 0})} />
+                   <input 
+                      type="number" 
+                      inputMode="numeric"
+                      onFocus={e => e.currentTarget.select()} 
+                      className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-center text-indigo-600 outline-none focus:border-indigo-500" 
+                      value={editingItem.costPerUnit === 0 ? "" : editingItem.costPerUnit} 
+                      onChange={e => setEditingItem({...editingItem, costPerUnit: parseInt(e.target.value) || 0})} 
+                      placeholder="0"
+                   />
                 </div>
 
                 <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 space-y-4">
@@ -343,8 +377,8 @@ export const Inventory: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL KONFIRMASI HAPUS */}
-      {itemToDelete && (
+      {/* MODAL KONFIRMASI HAPUS - HANYA OWNER */}
+      {itemToDelete && isOwner && (
         <div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-2xl flex items-center justify-center p-6">
            <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
               <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[32px] flex items-center justify-center text-4xl mx-auto mb-6 shadow-inner">🗑️</div>

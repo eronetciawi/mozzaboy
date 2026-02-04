@@ -112,15 +112,24 @@ export const MenuManagement: React.FC = () => {
   const filteredPickerItems = useMemo(() => {
     if (!pickerModal) return [];
     if (pickerModal.type === 'material') {
+      // DEDUPLIKASI LOGIC: Hanya tampilkan satu item per nama unik
+      const uniqueNames = new Set();
       return inventory
-        .filter(i => selectedOutletId === 'all' ? true : i.outletId === selectedOutletId)
-        .filter(i => i.name.toLowerCase().includes(pickerSearch.toLowerCase()));
+        .filter(i => {
+           const matchesSearch = i.name.toLowerCase().includes(pickerSearch.toLowerCase());
+           const isNew = !uniqueNames.has(i.name.toLowerCase());
+           if (matchesSearch && isNew) {
+              uniqueNames.add(i.name.toLowerCase());
+              return true;
+           }
+           return false;
+        });
     } else {
       return products
         .filter(p => !p.isCombo && p.id !== formData.id)
         .filter(p => p.name.toLowerCase().includes(pickerSearch.toLowerCase()));
     }
-  }, [pickerModal, pickerSearch, inventory, products, selectedOutletId, formData.id]);
+  }, [pickerModal, pickerSearch, inventory, products, formData.id]);
 
   const selectItemForPicker = (id: string) => {
     if (!pickerModal) return;
@@ -155,7 +164,7 @@ export const MenuManagement: React.FC = () => {
         </button>
       </div>
 
-      {/* GRID MENU - DIBUAT JAUH LEBIH COMPACT */}
+      {/* GRID MENU */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-2.5">
         {products.map(p => (
           <div key={p.id} className="bg-white rounded-2xl border border-slate-100 p-2.5 flex flex-col shadow-sm hover:border-orange-200 transition-all group relative overflow-hidden">
@@ -184,7 +193,6 @@ export const MenuManagement: React.FC = () => {
         <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-2 md:p-4">
            <div className="bg-white rounded-[24px] md:rounded-[40px] w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl animate-in zoom-in-95 overflow-hidden">
               
-              {/* STICKY MODAL HEADER */}
               <div className="p-4 md:px-8 md:py-4 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
                  <div>
                     <h3 className="text-sm md:text-lg font-black text-slate-800 uppercase tracking-tighter leading-none">{editingProduct ? 'Update Konfigurasi' : 'Pendaftaran Menu'}</h3>
@@ -193,7 +201,6 @@ export const MenuManagement: React.FC = () => {
                  <button onClick={() => setShowModal(false)} className="w-8 h-8 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">✕</button>
               </div>
 
-              {/* TABS STICKY */}
               <div className="px-4 md:px-8 py-2 border-b bg-slate-50/50 shrink-0">
                   <div className="flex bg-slate-100 p-1 rounded-lg">
                       <button onClick={() => setActiveModalTab('info')} className={`flex-1 py-1.5 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${activeModalTab === 'info' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400'}`}>Basic Info</button>
@@ -202,7 +209,6 @@ export const MenuManagement: React.FC = () => {
                   </div>
               </div>
 
-              {/* CONTENT AREA - SCROLLABLE */}
               <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
                  {activeModalTab === 'info' && (
                    <div className="space-y-4 animate-in fade-in duration-300">
@@ -323,7 +329,6 @@ export const MenuManagement: React.FC = () => {
                  )}
               </div>
 
-              {/* STICKY FOOTER */}
               <div className="p-4 md:px-8 md:py-4 border-t border-slate-100 bg-slate-50 shrink-0">
                  <button onClick={handleSaveProduct} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all">SIMPAN DATA MASTER 💾</button>
               </div>
@@ -355,7 +360,7 @@ export const MenuManagement: React.FC = () => {
                        <div>
                           <p className="text-white font-black uppercase text-[11px]">{item.name}</p>
                           <p className="text-white/40 text-[8px] font-bold uppercase mt-1">
-                             {pickerModal.type === 'material' ? `Stok: ${item.quantity} ${item.unit}` : `Pilih Menu`}
+                             {pickerModal.type === 'material' ? `Unit: ${item.unit}` : `Pilih Menu`}
                           </p>
                        </div>
                        <span className="text-white opacity-20 group-hover:opacity-100">➔</span>

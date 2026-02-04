@@ -205,9 +205,10 @@ export const PurchaseManagement: React.FC = () => {
                             <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Qty Nota (Bungkus/Kotak)</label>
                             <input 
                               type="number" 
-                              onFocus={e => e.target.select()} 
+                              inputMode="decimal"
+                              onFocus={e => e.currentTarget.select()} 
                               className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400 text-slate-900" 
-                              value={rawPurchaseQty || ''} 
+                              value={rawPurchaseQty === 0 ? "" : rawPurchaseQty} 
                               onChange={e => setRawPurchaseQty(parseFloat(e.target.value) || 0)} 
                               placeholder="0"
                             />
@@ -217,9 +218,10 @@ export const PurchaseManagement: React.FC = () => {
                             <label className="text-[7px] font-black text-slate-400 uppercase mb-1 block">Isi per Kotak</label>
                             <input 
                               type="number" 
-                              onFocus={e => e.target.select()} 
+                              inputMode="decimal"
+                              onFocus={e => e.currentTarget.select()} 
                               className="w-full p-3 bg-white border border-slate-100 rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-400 text-slate-900" 
-                              value={multiplier || ''} 
+                              value={multiplier === 0 ? "" : multiplier} 
                               onChange={e => setMultiplier(parseFloat(e.target.value) || 1)} 
                             />
                          </div>
@@ -231,9 +233,10 @@ export const PurchaseManagement: React.FC = () => {
                       <div className="relative">
                          <input 
                            type="number" 
-                           onFocus={e => e.target.select()} 
+                           inputMode="decimal"
+                           onFocus={e => e.currentTarget.select()} 
                            className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-[28px] font-black text-xl text-center outline-none focus:border-orange-500 transition-all text-slate-900 shadow-inner" 
-                           value={formData.quantity || ''} 
+                           value={formData.quantity === 0 ? "" : formData.quantity} 
                            onChange={e => setFormData({...formData, quantity: parseFloat(e.target.value) || 0})} 
                            placeholder="0"
                          />
@@ -248,9 +251,10 @@ export const PurchaseManagement: React.FC = () => {
                       <span className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-orange-500 text-base">Rp</span>
                       <input 
                         type="number" 
-                        onFocus={e => e.target.select()}
+                        inputMode="numeric"
+                        onFocus={e => e.currentTarget.select()}
                         className="w-full p-6 pl-14 bg-orange-500 text-white border-4 border-orange-200 rounded-[32px] font-black text-3xl shadow-xl focus:outline-none transition-all placeholder:text-orange-300"
-                        value={formData.unitPrice || ''}
+                        value={formData.unitPrice === 0 ? "" : formData.unitPrice}
                         onChange={e => setFormData({...formData, unitPrice: parseInt(e.target.value) || 0})}
                         placeholder="0"
                       />

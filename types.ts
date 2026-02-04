@@ -219,6 +219,7 @@ export interface MenuSimulation {
 export interface Category {
   id: string;
   name: string;
+  sortOrder?: number;
 }
 
 export interface MembershipTier {
