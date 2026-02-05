@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import { AppProvider, useApp } from './store';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
@@ -24,8 +24,17 @@ import { MenuEngineering } from './components/MenuEngineering';
 import { Maintenance } from './components/Maintenance';
 
 const MainApp: React.FC = () => {
-  const { isAuthenticated } = useApp();
+  const { isAuthenticated, isInitialLoading } = useApp();
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  if (isInitialLoading) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white">
+        <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-6"></div>
+        <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Initializing MozzaBoy Cloud...</p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Login />;
@@ -59,7 +68,9 @@ const MainApp: React.FC = () => {
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
       <div className="h-full relative">
-        {renderContent()}
+        <Suspense fallback={<div className="p-10 text-center animate-pulse">Memuat...</div>}>
+          {renderContent()}
+        </Suspense>
       </div>
     </Layout>
   );

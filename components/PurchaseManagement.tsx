@@ -61,28 +61,28 @@ export const PurchaseManagement: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (isShiftClosed || isSaving) return;
+    if (isShiftClosed) return;
     
-    // Validasi data sebelum kirim
     if (!formData.inventoryItemId || finalQuantity <= 0 || formData.unitPrice <= 0) {
        alert("Lengkapi Item, Kuantitas, dan Total Bayar!");
        return;
     }
 
-    try {
-      await addPurchase({ 
-        inventoryItemId: formData.inventoryItemId, 
-        quantity: finalQuantity, 
-        unitPrice: formData.unitPrice, 
-        requestId: formData.requestId 
-      });
-      setShowModal(false);
-      resetForm();
-      setShowSuccessToast(true);
-      setTimeout(() => setShowSuccessToast(false), 3000);
-    } catch (err) {
-      alert("Gagal memproses data belanja.");
-    }
+    // SPEED OPTIMIZATION: Modal langsung ditutup & Toast langsung muncul (Optimistic UI)
+    setShowModal(false);
+    setShowSuccessToast(true);
+    
+    // Proses pengiriman data (tanpa blocking UI)
+    addPurchase({ 
+      inventoryItemId: formData.inventoryItemId, 
+      quantity: finalQuantity, 
+      unitPrice: formData.unitPrice, 
+      requestId: formData.requestId 
+    });
+
+    // Reset UI state
+    resetForm();
+    setTimeout(() => setShowSuccessToast(false), 2500);
   };
 
   const resetForm = () => {
@@ -97,11 +97,11 @@ export const PurchaseManagement: React.FC = () => {
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50 pb-24 md:pb-8 relative">
       {showSuccessToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
-           <div className="bg-orange-600 text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-4 border border-orange-400">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl">🚚</div>
+           <div className="bg-slate-900 text-white px-8 py-4 rounded-[40px] shadow-2xl flex items-center gap-4 border-2 border-orange-500/30">
+              <div className="w-12 h-12 bg-orange-600 rounded-full flex items-center justify-center text-xl shadow-lg animate-bounce">🚚</div>
               <div>
-                <p className="text-[11px] font-black uppercase tracking-[0.2em] leading-none">Belanja Berhasil</p>
-                <p className="text-[9px] font-bold text-orange-200 uppercase mt-1">Stok Gudang Otomatis Bertambah!</p>
+                <p className="text-[12px] font-black uppercase tracking-[0.2em] leading-none text-orange-400">Belanja Dicatat!</p>
+                <p className="text-[10px] font-bold text-slate-300 uppercase mt-1.5 tracking-widest">Stok Gudang Berhasil Ditambah.</p>
               </div>
            </div>
         </div>
@@ -265,11 +265,11 @@ export const PurchaseManagement: React.FC = () => {
 
              <div className="px-6 md:px-10 py-6 border-t border-slate-50 bg-slate-50/50 shrink-0 pb-safe">
                 <button 
-                  disabled={!formData.inventoryItemId || finalQuantity <= 0 || formData.unitPrice <= 0 || isSaving}
+                  disabled={!formData.inventoryItemId || finalQuantity <= 0 || formData.unitPrice <= 0}
                   onClick={handleSave} 
-                  className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.4em] shadow-xl disabled:opacity-20 active:scale-95 transition-all"
+                  className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.4em] shadow-xl disabled:opacity-20 active:scale-95 transition-all flex items-center justify-center gap-3"
                 >
-                  {isSaving ? 'SEDANG MENYIMPAN...' : 'SUBMIT BELANJA 🚀'}
+                  SUBMIT BELANJA 🚀
                 </button>
              </div>
           </div>

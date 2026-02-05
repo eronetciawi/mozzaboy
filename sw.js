@@ -1,9 +1,8 @@
 
-const CACHE_NAME = 'mozzaboy-v2';
+const CACHE_NAME = 'mozzaboy-v3';
 const ASSETS = [
   '/',
   '/index.html',
-  '/index.tsx',
   '/logo.png',
   '/manifest.json',
   'https://cdn.tailwindcss.com'
@@ -18,6 +17,11 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Biarkan browser menghandle file modul .tsx secara langsung agar ditransformasi oleh server/bundler
+  if (event.request.url.includes('.tsx')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((response) => {
       return response || fetch(event.request);

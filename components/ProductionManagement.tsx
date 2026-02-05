@@ -56,6 +56,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
 
   useEffect(() => {
+    // Hanya fetch data saat komponen mount, tidak perlu setiap saat
     fetchFromCloud();
   }, []);
   
@@ -129,53 +130,63 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   };
 
   const saveMaster = async () => {
-    if (isShiftClosed) return;
+    if (isShiftClosed || isProcessingLocal || isSaving) return;
     if (!recipeName || !resultItemId || components.length === 0) return alert("Mohon lengkapi Nama Resep, Item Hasil, dan Bahan Baku!");
     if (selectedBranches.length === 0) return alert("Pilih minimal satu cabang untuk mengaktifkan resep ini!");
     
     setIsProcessingLocal(true);
-    const payload = {
-      name: recipeName, 
-      resultItemId, 
-      resultQuantity, 
-      isCashierOperated: isCashierOperatedFlag,
-      assignedOutletIds: selectedBranches,
-      components: components.map(({ inventoryItemId, quantity }) => ({ inventoryItemId, quantity }))
-    };
-    if (activeRecipe) await updateWIPRecipe({ ...activeRecipe, ...payload });
-    else await addWIPRecipe(payload);
-    setView('list');
-    setIsProcessingLocal(false);
+    try {
+      const payload = {
+        name: recipeName, 
+        resultItemId, 
+        resultQuantity, 
+        isCashierOperated: isCashierOperatedFlag,
+        assignedOutletIds: selectedBranches,
+        components: components.map(({ inventoryItemId, quantity }) => ({ inventoryItemId, quantity }))
+      };
+      if (activeRecipe) await updateWIPRecipe({ ...activeRecipe, ...payload });
+      else await addWIPRecipe(payload);
+      setView('list');
+    } finally {
+      setIsProcessingLocal(false);
+    }
   };
 
   const finishProduction = async () => {
-    if (isShiftClosed) return;
-    
-    const insufficient = components.filter(c => {
-       const sourceItemInfo = inventory.find(i => i.id === c.inventoryItemId);
-       if (!sourceItemInfo) return true;
-       const localMat = inventory.find(i => i.name === sourceItemInfo.name && i.outletId === selectedOutletId);
-       return (localMat?.quantity || 0) < c.quantity;
-    });
-    
-    if (insufficient.length > 0) {
-       const firstBadItem = inventory.find(i => i.id === insufficient[0].inventoryItemId)?.name;
-       return alert(`Stok ${firstBadItem} tidak mencukupi untuk produksi batch ini!`);
-    }
+    // SECURITY GUARD: Mencegah eksekusi ganda
+    if (isShiftClosed || isProcessingLocal || isSaving) return;
     
     setIsProcessingLocal(true);
+    
     try {
-      await processProduction({ resultItemId, resultQuantity, components });
+      const insufficient = components.filter(c => {
+         const sourceItemInfo = inventory.find(i => i.id === c.inventoryItemId);
+         if (!sourceItemInfo) return true;
+         const localMat = inventory.find(i => i.name === sourceItemInfo.name && i.outletId === selectedOutletId);
+         return (localMat?.quantity || 0) < c.quantity;
+      });
+      
+      if (insufficient.length > 0) {
+         const firstBadItem = inventory.find(i => i.id === insufficient[0].inventoryItemId)?.name;
+         alert(`Stok ${firstBadItem} tidak mencukupi untuk produksi batch ini!`);
+         setIsProcessingLocal(false);
+         return;
+      }
+      
+      // OPTIMISTIC NAVIGATION: Langsung pindah layar, sinkronisasi jalan di background
       setShowSuccessToast(true);
-      setTimeout(() => {
-        setShowSuccessToast(false);
-        setView('list');
-        setActiveSubTab('logs');
-        setIsProcessingLocal(false);
-      }, 800);
+      setView('list');
+      setActiveSubTab('logs');
+      
+      // Panggil proses (logika store sudah dioptimalkan untuk update lokal instan)
+      await processProduction({ resultItemId, resultQuantity, components });
+      
+      // Reset status local setelah background process selesai
+      setIsProcessingLocal(false);
+      setTimeout(() => setShowSuccessToast(false), 2000);
     } catch (err) {
       console.error("Finish Production Error:", err);
-      alert("Terjadi kesalahan teknis saat memproses produksi.");
+      alert("Gagal sinkron cloud. Stok tetap terpotong lokal, silakan refresh nanti.");
       setIsProcessingLocal(false);
     }
   };
@@ -192,16 +203,12 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
 
   const filteredPickerItems = useMemo(() => {
     if (!pickerModal) return [];
-    
-    // DEDUPLIKASI LOGIC: Hanya tampilkan satu item per nama unik
     const uniqueNames = new Set();
-    
     return inventory
       .filter(i => {
          const matchesSearch = i.name.toLowerCase().includes(pickerQuery.toLowerCase());
          const isCorrectType = pickerModal.type === 'wip' ? i.type === InventoryItemType.WIP : (i.type === InventoryItemType.RAW || i.type === InventoryItemType.WIP);
          const isNew = !uniqueNames.has(i.name.toLowerCase());
-         
          if (matchesSearch && isCorrectType && isNew) {
             uniqueNames.add(i.name.toLowerCase());
             return true;
@@ -217,8 +224,8 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
            <div className="bg-slate-900 text-white px-10 py-5 rounded-[40px] shadow-2xl flex items-center gap-5 border-2 border-indigo-500/30">
               <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-3xl shadow-lg animate-bounce">👨‍🍳</div>
               <div>
-                <p className="text-[12px] font-black uppercase tracking-[0.3em] leading-none text-indigo-400">Produksi Berhasil!</p>
-                <p className="text-[10px] font-bold text-slate-300 uppercase mt-1.5 tracking-widest">Stok bahan baku terpotong otomatis.</p>
+                <p className="text-[12px] font-black uppercase tracking-[0.3em] leading-none text-indigo-400">Sedang Diproses!</p>
+                <p className="text-[10px] font-bold text-slate-300 uppercase mt-1.5 tracking-widest">Stok diperbarui instan.</p>
               </div>
            </div>
         </div>
@@ -235,11 +242,11 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
             </div>
             {view === 'list' && !isCashier && activeSubTab === 'recipes' && (
               <button 
-                disabled={isShiftClosed}
+                disabled={isShiftClosed || isSaving || isProcessingLocal}
                 onClick={startNewRecipe} 
-                className={`px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all ${isShiftClosed ? 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                className={`px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all ${isShiftClosed || isSaving || isProcessingLocal ? 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
               >
-                {isShiftClosed ? '🔒 LOCKED' : '+ Master Baru'}
+                {isShiftClosed ? '🔒 LOCKED' : (isSaving || isProcessingLocal) ? '⏳ WAIT' : '+ Master Baru'}
               </button>
             )}
             {view === 'form' && (
@@ -278,11 +285,11 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                        </div>
                        <div className="flex gap-3">
                           <button 
-                            disabled={isShiftClosed}
+                            disabled={isShiftClosed || isSaving || isProcessingLocal}
                             onClick={() => handleExecuteMode(r)} 
-                            className={`flex-[4] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl transition-all ${isShiftClosed ? 'bg-slate-100 text-slate-300 shadow-none grayscale cursor-not-allowed' : 'bg-indigo-600 text-white shadow-indigo-200 active:scale-95'}`}
+                            className={`flex-[4] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl transition-all ${isShiftClosed || isSaving || isProcessingLocal ? 'bg-slate-100 text-slate-300 shadow-none grayscale cursor-not-allowed' : 'bg-indigo-600 text-white shadow-indigo-200 active:scale-95'}`}
                           >
-                            {isShiftClosed ? '🔒 SHIFT CLOSED' : 'MULAI MASAK ⚡'}
+                            {isShiftClosed ? '🔒 SHIFT CLOSED' : (isSaving || isProcessingLocal) ? 'MEMPROSES...' : 'MULAI MASAK ⚡'}
                           </button>
                           {!isCashier && (
                             <div className="flex flex-1 gap-2">
@@ -313,7 +320,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                             <p className="text-2xl font-black text-indigo-600">+{log.resultQuantity} {resultItem?.unit}</p>
                          </div>
                          <div className="bg-slate-50 rounded-3xl p-5 border border-slate-100 grid grid-cols-2 md:grid-cols-4 gap-3">
-                            {log.components.map((comp, idx) => (
+                            {(log.components || []).map((comp, idx) => (
                                <div key={idx} className="bg-white p-3 rounded-xl border flex justify-between items-center">
                                   <span className="text-[9px] font-black uppercase text-slate-500 truncate pr-2">{inventory.find(i => i.id === comp.inventoryItemId)?.name || '??'}</span>
                                   <span className="text-[10px] font-black text-red-500">-{comp.quantity}</span>
@@ -421,11 +428,11 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                           </div>
                        </div>
                        <button 
-                         disabled={isProcessingLocal}
+                         disabled={isProcessingLocal || isSaving}
                          onClick={saveMaster} 
                          className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50"
                        >
-                         {isProcessingLocal ? 'MENYIMPAN...' : 'SIMPAN MASTER RESEP 💾'}
+                         {isProcessingLocal || isSaving ? 'MENYIMPAN...' : 'SIMPAN MASTER RESEP 💾'}
                        </button>
                     </div>
                  </div>
@@ -435,10 +442,11 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                        <p className="text-[11px] font-black text-indigo-600 uppercase tracking-[0.3em] mb-8">Berapa Banyak {activeRecipe?.name} yang dibuat?</p>
                        <div className="flex items-center justify-center gap-5">
                           <input 
+                            disabled={isProcessingLocal || isSaving}
                             type="number" 
                             inputMode="decimal"
                             onFocus={e => e.currentTarget.select()}
-                            className="bg-slate-50 border-4 border-indigo-600 font-black text-6xl text-center outline-none w-44 h-28 rounded-[40px] text-slate-900 shadow-inner focus:bg-white transition-all" 
+                            className="bg-slate-50 border-4 border-indigo-600 font-black text-6xl text-center outline-none w-44 h-28 rounded-[40px] text-slate-900 shadow-inner focus:bg-white transition-all disabled:opacity-50" 
                             value={resultQuantity === 0 ? "" : resultQuantity} 
                             onChange={e => setResultQuantity(parseFloat(e.target.value) || 0)} 
                             placeholder="0"
@@ -476,14 +484,14 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                        </div>
                     </div>
                     <button 
-                      disabled={isProcessingLocal}
+                      disabled={isProcessingLocal || isSaving}
                       onClick={finishProduction} 
                       className="w-full py-8 bg-indigo-600 text-white rounded-[40px] font-black text-sm uppercase tracking-[0.4em] shadow-xl hover:bg-indigo-700 active:scale-95 disabled:bg-slate-300 disabled:shadow-none transition-all flex items-center justify-center gap-4"
                     >
-                       {isProcessingLocal ? (
+                       {isProcessingLocal || isSaving ? (
                          <>
                            <div className="w-6 h-6 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
-                           <span>MEMPROSES...</span>
+                           <span>SINKRONISASI CLOUD...</span>
                          </>
                        ) : (
                          <>
@@ -529,6 +537,23 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                ))}
             </div>
          </div>
+      )}
+
+      {/* DELETE CONFIRM */}
+      {recipeToDelete && (
+        <div className="fixed inset-0 z-[500] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-6">
+           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[32px] flex items-center justify-center text-4xl mx-auto mb-6 shadow-inner">🗑️</div>
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Resep?</h3>
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8 leading-relaxed">
+                 Master resep <span className="text-red-600 font-black">"{recipeToDelete.name}"</span> akan dihapus dari sistem.
+              </p>
+              <div className="flex flex-col gap-3">
+                 <button onClick={handleDeleteRecipe} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700">IYA, HAPUS PERMANEN</button>
+                 <button onClick={() => setRecipeToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
+              </div>
+           </div>
+        </div>
       )}
     </div>
   );

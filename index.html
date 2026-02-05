@@ -8,8 +8,6 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f97316">
     <link rel="manifest" href="/manifest.json">
-    
-    <!-- Favicon & App Icons -->
     <link rel="icon" type="image/png" href="/logo.png">
     <link rel="apple-touch-icon" href="/logo.png">
     
@@ -18,136 +16,46 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+        window.process = { env: { NODE_ENV: 'production' } };
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            console.error('Fatal Error:', msg, error);
+            if (msg.includes('Script error')) return;
+            // Jika layar masih putih setelah 3 detik karena error runtime
+            setTimeout(() => {
+                const root = document.getElementById('root');
+                if (root && root.innerHTML === "") {
+                    console.warn("Attempting recovery from white screen...");
+                    localStorage.removeItem('mozzaboy_session_user');
+                    window.location.reload();
+                }
+            }, 3000);
+        };
+    </script>
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
-            color: #1e293b;
-            overscroll-behavior-y: contain; /* Prevent pull-to-refresh */
-        }
-
-        /* Global Input Fix for Visibility */
-        input, select, textarea {
-            color: #0f172a !important; /* Slate-900 */
-        }
-
-        input::placeholder {
-            color: #94a3b8 !important; /* Slate-400 */
-        }
-
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: #f1f1f1;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-10px); }
-            75% { transform: translateX(10px); }
-        }
-        .animate-shake {
-            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
-        }
-
-        /* ACCOUNTING / CORPORATE PRINT STYLES */
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #1e293b; overscroll-behavior-y: contain; }
+        input, select, textarea { color: #0f172a !important; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         @media print {
-            @page {
-                size: A4;
-                margin: 1cm 1.5cm;
-            }
-            
-            html, body {
-                height: auto !important;
-                overflow: visible !important;
-                background: white !important;
-                color: black !important;
-                font-size: 10pt;
-            }
-
-            #root > div > div:first-child,
-            header, .no-print, nav, button {
-                display: none !important;
-            }
-
-            main {
-                margin: 0 !important;
-                padding: 0 !important;
-                width: 100% !important;
-                height: auto !important;
-                overflow: visible !important;
-                display: block !important;
-            }
-
-            .fixed.inset-0 {
-                position: relative !important;
-                display: block !important;
-                background: white !important;
-                padding: 0 !important;
-                z-index: auto !important;
-                overflow: visible !important;
-                height: auto !important;
-                width: 100% !important;
-                backdrop-filter: none !important;
-            }
-
-            .bg-white {
-                box-shadow: none !important;
-                border: none !important;
-                border-radius: 0 !important;
-                height: auto !important;
-                overflow: visible !important;
-                display: block !important;
-            }
-
-            section {
-                page-break-inside: avoid;
-                margin-bottom: 2rem;
-                display: block;
-            }
-
-            table {
-                width: 100% !important;
-                border-collapse: collapse !important;
-                page-break-inside: auto !important;
-                border: 1px solid #e2e8f0;
-            }
-            tr {
-                page-break-inside: avoid !important;
-                page-break-after: auto !important;
-            }
-            thead {
-                display: table-header-group !important;
-            }
-            th, td {
-                border: 1px solid #f1f5f9 !important;
-                padding: 8px !important;
-            }
+            #root > div > div:first-child, header, .no-print, nav, button { display: none !important; }
+            main { display: block !important; width: 100% !important; }
         }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "recharts": "https://esm.sh/recharts@^3.7.0",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.93.2",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "recharts": "https://esm.sh/recharts@2.12.7?external=react,react-dom",
+    "html2canvas": "https://esm.sh/html2canvas@1.4.1",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.1",
     "vite": "https://esm.sh/vite@^7.3.1",
-    "html2canvas": "https://esm.sh/html2canvas@^1.4.1"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.3",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
   }
 }
 </script>

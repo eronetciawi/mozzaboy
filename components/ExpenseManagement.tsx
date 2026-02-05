@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../store';
 import { Expense, ExpenseType, UserRole } from '../types';
@@ -62,7 +63,7 @@ export const ExpenseManagement: React.FC = () => {
   };
 
   const handleSaveExpense = async () => {
-    if (isShiftClosed) return;
+    if (isShiftClosed || isSaving) return;
     if (!newExpense.typeId || newExpense.amount <= 0) {
         setToast({ message: "Lengkapi kategori dan nominal!", type: 'error' });
         return;
@@ -301,9 +302,10 @@ export const ExpenseManagement: React.FC = () => {
               <button 
                 disabled={isSaving}
                 onClick={handleSaveExpense} 
-                className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-orange-600 transition-all active:scale-95 disabled:opacity-50"
+                className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-orange-600 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
               >
-                {isSaving ? 'SEDANG MENYIMPAN...' : (editingExpense ? 'UPDATE DATA BIAYA 💾' : 'SIMPAN PENGELUARAN 💾')}
+                {isSaving && <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
+                <span>{isSaving ? 'SEDANG MENYIMPAN...' : (editingExpense ? 'UPDATE DATA BIAYA 💾' : 'SIMPAN PENGELUARAN 💾')}</span>
               </button>
             </div>
             <div className="h-safe-bottom md:hidden"></div>

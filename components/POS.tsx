@@ -12,7 +12,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     products = [], categories = [], cart = [], addToCart, 
     updateCartQuantity, checkout, customers = [], selectCustomer, selectedCustomerId,
     membershipTiers = [], bulkDiscounts = [], selectedOutletId, loyaltyConfig, inventory = [], 
-    dailyClosings = [], currentUser, attendance = [], clockIn
+    dailyClosings = [], currentUser, attendance = [], clockIn, isSaving
   } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -92,7 +92,8 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
   const handleCheckout = async (method: PaymentMethod) => {
     if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
-    
+    if (isSaving) return; // Prevent multiple execution
+
     if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
        setShowAttendanceToast(true);
        return;
@@ -141,7 +142,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
       {/* ATTENDANCE WARNING TOAST */}
       {showAttendanceToast && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500 w-full max-w-sm px-4">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500 w-full max-sm:w-80 px-4">
            <div className="bg-rose-600 text-white px-6 py-4 rounded-[28px] shadow-2xl flex items-center gap-4 border-2 border-rose-400">
               <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl shrink-0 animate-bounce">⚠️</div>
               <div>
@@ -208,7 +209,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
               return (
                 <button 
                   key={product.id} 
-                  disabled={!inStock || isShiftClosed}
+                  disabled={!inStock || isShiftClosed || isSaving}
                   onClick={() => addToCart(product)} 
                   className={`bg-white rounded-xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm ${(!inStock || isShiftClosed) ? 'opacity-40 border-slate-200 grayscale' : 'border-white hover:border-orange-500 hover:shadow-xl hover:-translate-y-1'}`}
                 >
@@ -310,7 +311,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             <span className="text-3xl font-black text-slate-900 tracking-tighter font-mono">Rp {total.toLocaleString()}</span>
           </div>
           <button
-            disabled={cart.length === 0 || isShiftClosed}
+            disabled={cart.length === 0 || isShiftClosed || isSaving}
             onClick={() => {
               if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
                   setShowAttendanceToast(true);
@@ -320,7 +321,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             }}
             className="w-full py-5 bg-orange-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-xl shadow-orange-500/20 hover:bg-orange-500 active:scale-95 disabled:opacity-30 transition-all"
           >
-            {isShiftClosed ? 'SHIFT CLOSED' : `PROSES BAYAR ➔`}
+            {isShiftClosed ? 'SHIFT CLOSED' : isSaving ? 'PROCESSING...' : `PROSES BAYAR ➔`}
           </button>
         </div>
       </div>
@@ -330,17 +331,42 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           <div className="bg-white rounded-t-[32px] md:rounded-[40px] w-full max-w-sm p-8 shadow-2xl animate-in slide-in-from-bottom-10">
              <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-black text-slate-900 uppercase tracking-tighter">Pilih Metode Bayar</h3>
-                <button onClick={() => setShowCheckout(false)} className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">✕</button>
+                <button 
+                  disabled={isSaving}
+                  onClick={() => setShowCheckout(false)} 
+                  className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 disabled:opacity-20"
+                >
+                  ✕
+                </button>
              </div>
              
              <div className="grid grid-cols-1 gap-3 mb-8">
-                <button onClick={() => handleCheckout(PaymentMethod.CASH)} className="w-full p-5 bg-green-50 border-2 border-transparent hover:border-green-500 rounded-3xl flex items-center gap-4 group transition-all">
-                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">💵</div>
-                   <div className="text-left"><p className="text-[10px] font-black text-green-600 uppercase">Tunai (Cash)</p><p className="text-sm font-black text-slate-800">Uang Fisik</p></div>
+                <button 
+                  disabled={isSaving}
+                  onClick={() => handleCheckout(PaymentMethod.CASH)} 
+                  className={`w-full p-5 bg-green-50 border-2 border-transparent rounded-3xl flex items-center gap-4 group transition-all ${isSaving ? 'opacity-50 grayscale' : 'hover:border-green-500'}`}
+                >
+                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">
+                      {isSaving ? <div className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></div> : '💵'}
+                   </div>
+                   <div className="text-left">
+                      <p className="text-[10px] font-black text-green-600 uppercase">Tunai (Cash)</p>
+                      <p className="text-sm font-black text-slate-800">{isSaving ? 'MEMPROSES...' : 'Uang Fisik'}</p>
+                   </div>
                 </button>
-                <button onClick={() => handleCheckout(PaymentMethod.QRIS)} className="w-full p-5 bg-blue-50 border-2 border-transparent hover:border-blue-500 rounded-3xl flex items-center gap-4 group transition-all">
-                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">📱</div>
-                   <div className="text-left"><p className="text-[10px] font-black text-blue-600 uppercase">Digital (QRIS)</p><p className="text-sm font-black text-slate-800">Bank / E-Wallet</p></div>
+
+                <button 
+                  disabled={isSaving}
+                  onClick={() => handleCheckout(PaymentMethod.QRIS)} 
+                  className={`w-full p-5 bg-blue-50 border-2 border-transparent rounded-3xl flex items-center gap-4 group transition-all ${isSaving ? 'opacity-50 grayscale' : 'hover:border-blue-500'}`}
+                >
+                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">
+                      {isSaving ? <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div> : '📱'}
+                   </div>
+                   <div className="text-left">
+                      <p className="text-[10px] font-black text-blue-600 uppercase">Digital (QRIS)</p>
+                      <p className="text-sm font-black text-slate-800">{isSaving ? 'MEMPROSES...' : 'Bank / E-Wallet'}</p>
+                   </div>
                 </button>
              </div>
              <div className="h-safe-bottom md:hidden"></div>
