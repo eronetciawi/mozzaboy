@@ -17,7 +17,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
   const pendingRequestsCount = stockRequests.filter(r => (selectedOutletId === 'all' || r.outletId === selectedOutletId) && r.status === 'PENDING').length;
   const pendingLeavesCount = leaveRequests.filter(l => l.status === 'PENDING').length;
 
-  // Added explicit type to menuGroups to ensure 'badge' and 'status' are recognized by TypeScript across all items
   const menuGroups: { label: string; items: { id: string; label: string; icon: string; visible: boolean; badge?: number | null; status?: string }[] }[] = [
     { label: 'Operasional', items: [
       { id: 'dashboard', label: 'Dashboard', icon: '📊', visible: true },
@@ -35,6 +34,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       { id: 'inventory', label: 'Stok Barang', icon: '📦', visible: true }, 
       { id: 'production', label: 'Produksi/Mixing', icon: '🧪', visible: (permissions.canManageInventory || isCashier) && selectedOutletId !== 'all' },
       { id: 'purchases', label: 'Pembelian Stok', icon: '🚛', visible: (permissions.canManageInventory || isCashier) && selectedOutletId !== 'all', badge: pendingRequestsCount > 0 ? pendingRequestsCount : null },
+      { id: 'transfers', label: 'Mutasi Stok', icon: '↔️', visible: isAdmin },
     ]},
     { label: 'Katalog & Pelanggan', items: [
       { id: 'menu', label: 'Daftar Menu', icon: '📜', visible: permissions.canManageMenu },
@@ -71,7 +71,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
                 <button key={item.id} onClick={() => handleNav(item.id)} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl transition-all duration-200 group relative ${activeTab === item.id ? 'bg-orange-500 text-white font-bold shadow-lg shadow-orange-500/20' : 'hover:bg-slate-800 text-slate-400'}`}>
                   <span className="text-base">{item.icon}</span>
                   <span className="text-[10px] uppercase font-black tracking-widest flex-1 text-left">{item.label}</span>
-                  {/* Accessing item.badge is now safe as 'badge' is part of the explicit items type in menuGroups */}
                   {item.badge && <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full ring-2 ring-slate-900 animate-pulse">{item.badge}</span>}
                 </button>
               ))}

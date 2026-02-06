@@ -15,6 +15,7 @@ const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzd
 
 const STORAGE_USER_KEY = 'mozzaboy_session_user';
 const STORAGE_OUTLET_KEY = 'mozzaboy_active_outlet';
+const STORAGE_CLOCKIN_KEY = 'mozzaboy_last_clockin'; 
 
 export const getPermissionsByRole = (role: UserRole): Permissions => {
   switch (role) {
@@ -68,6 +69,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const isFirstLoadRef = useRef(true);
+
+  // CLOUD IMMUNITY SYSTEM: Mencegah penimpaan data lokal oleh data cloud lama
+  const immunityLocks = useRef<Map<string, number>>(new Map()); // Map<ItemID, ExpiryTimestamp>
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -132,10 +136,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setProducts(dataMap.products.length > 0 ? dataMap.products : PRODUCTS);
       setCategories(dataMap.categories.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0)));
-      setInventory(dataMap.inventory);
+      
+      // LOGIKA MERGE INVENTORY DENGAN CLOUD IMMUNITY
+      setInventory(prev => {
+        const cloudData = dataMap.inventory || [];
+        const now = Date.now();
+        
+        return cloudData.map((cItem: InventoryItem) => {
+           const immunityExpiry = immunityLocks.current.get(cItem.id);
+           // Jika item dalam masa imunitas (baru diupdate lokal), abaikan data cloud lama
+           if (immunityExpiry && now < immunityExpiry) {
+              const currentLocal = prev.find(p => p.id === cItem.id);
+              return currentLocal || cItem;
+           }
+           return cItem;
+        });
+      });
+
       setOutlets(dataMap.outlets.length > 0 ? dataMap.outlets : OUTLETS);
       setStaff(dataMap.staff.length > 0 ? dataMap.staff : INITIAL_STAFF);
-      setAttendance(dataMap.attendance);
+      
+      // ATTENDANCE GUARD: Cek Local Storage agar status absen tidak flip
+      setAttendance(prev => {
+        const cloudData = dataMap.attendance || [];
+        const todayStr = getTodayDateString();
+        const savedGuard = localStorage.getItem(STORAGE_CLOCKIN_KEY);
+        
+        if (savedGuard) {
+           const guard = JSON.parse(savedGuard);
+           if (guard.date === todayStr) {
+              const localOnlyToday = prev.filter(p => p.date === todayStr && !cloudData.find((c: any) => c.id === p.id));
+              return [...cloudData, ...localOnlyToday];
+           }
+        }
+        return cloudData;
+      });
+
       setLeaveRequests(dataMap.leave_requests);
       setCustomers(dataMap.customers);
       setTransactions(dataMap.transactions);
@@ -177,7 +213,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return { success: false, message: "Kredensial salah." };
     },
-    logout: () => { setIsAuthenticated(false); setCurrentUser(null); localStorage.removeItem(STORAGE_USER_KEY); },
+    logout: () => { 
+      setIsAuthenticated(false); 
+      setCurrentUser(null); 
+      localStorage.removeItem(STORAGE_USER_KEY); 
+      localStorage.removeItem(STORAGE_CLOCKIN_KEY);
+    },
     switchOutlet: (id) => { setSelectedOutletId(id); localStorage.setItem(STORAGE_OUTLET_KEY, id); },
     addToCart: (p) => setOrderCart(prev => {
       const ex = prev.find(i => i.product.id === p.id);
@@ -203,6 +244,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         const total = Math.max(0, subtotal - memberDisc - bulkDisc - (redeem * loyaltyConfig.redemptionValuePerPoint));
         const txPayload = { id: `TX-${Date.now()}`, outletId: selectedOutletId, customerId: selectedCustomerId || null, items: cart, subtotal, total, totalCost, paymentMethod: method, status: OrderStatus.CLOSED, timestamp: new Date().toISOString(), cashierId: currentUser?.id, cashierName: currentUser?.name, pointsEarned: Math.floor(total/1000), pointsRedeemed: redeem };
+        
         const updates: { id: string, newQty: number }[] = [];
         const processDeduction = (p: Product, mult: number) => {
            if (p.isCombo && p.comboItems) {
@@ -212,13 +254,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                  const template = inventory.find(inv => inv.id === b.inventoryItemId);
                  if (template) {
                     const itemInBranch = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === template.name);
-                    if (itemInBranch) updates.push({ id: itemInBranch.id, newQty: (itemInBranch.quantity || 0) - (b.quantity * mult) });
+                    if (itemInBranch) {
+                        const newQty = (itemInBranch.quantity || 0) - (b.quantity * mult);
+                        updates.push({ id: itemInBranch.id, newQty });
+                        immunityLocks.current.set(itemInBranch.id, Date.now() + 60000); // Imunitas 60 detik
+                    }
                  }
               });
            }
         };
         cart.forEach(i => processDeduction(i.product, i.quantity));
-        await Promise.all([ supabase.from('transactions').insert(txPayload), ...updates.map(u => supabase.from('inventory').update({ quantity: u.newQty }).eq('id', u.id)) ]);
+        
+        setInventory(prev => prev.map(inv => {
+           const up = updates.find(u => u.id === inv.id);
+           return up ? { ...inv, quantity: up.newQty } : inv;
+        }));
+
+        await Promise.all([ 
+           supabase.from('transactions').insert(txPayload), 
+           ...updates.map(u => supabase.from('inventory').update({ quantity: u.newQty }).eq('id', u.id)) 
+        ]);
+
         setTransactions(prev => [hydrateDates(txPayload), ...(prev || [])]);
         setOrderCart([]); setSelectedCustomerId(null);
       } finally { setIsSaving(false); }
@@ -226,9 +282,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     clockIn: async (lat, lng, notes) => {
       if (!currentUser) return { success: false, message: "Sesi expired." };
       const now = new Date();
-      const payload = { id: `att-${Date.now()}`, staffId: currentUser.id, staffName: currentUser.name, outletId: selectedOutletId, date: getTodayDateString(), clockIn: now.toISOString(), status: 'PRESENT' as const, latitude: lat, longitude: lng, notes };
+      const today = getTodayDateString();
+      const payload = { id: `att-${Date.now()}`, staffId: currentUser.id, staffName: currentUser.name, outletId: selectedOutletId, date: today, clockIn: now.toISOString(), status: 'PRESENT' as const, latitude: lat, longitude: lng, notes };
+      
+      localStorage.setItem(STORAGE_CLOCKIN_KEY, JSON.stringify({ date: today, staffId: currentUser.id, outletId: selectedOutletId }));
+
       setAttendance(prev => [...(prev || []), hydrateDates(payload)]);
-      if (supabase) supabase.from('attendance').insert(payload);
+      if (supabase) await supabase.from('attendance').insert(payload);
       return { success: true };
     },
     clockOut: async () => {
@@ -237,7 +297,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const activeShift = (attendance || []).find(a => a.staffId === currentUser.id && !a.clockOut);
       if (activeShift) {
          setAttendance(prev => prev.map(a => a.id === activeShift.id ? { ...a, clockOut: now } : a));
-         if (supabase) supabase.from('attendance').update({ clockOut: now.toISOString() }).eq('id', activeShift.id);
+         if (supabase) await supabase.from('attendance').update({ clockOut: now.toISOString() }).eq('id', activeShift.id);
+         localStorage.removeItem(STORAGE_CLOCKIN_KEY);
       }
     },
     submitLeave: async (l) => { 
@@ -262,22 +323,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await actions.clockOut();
        } finally { setIsSaving(false); }
     },
-    resetAttendanceLogs: async () => { if(supabase) { await supabase.from('attendance').delete().neq('id', 'VOID'); setAttendance([]); } },
+    resetAttendanceLogs: async () => { if(supabase) { await supabase.from('attendance').delete().neq('id', 'VOID'); setAttendance([]); localStorage.removeItem(STORAGE_CLOCKIN_KEY); } },
     resetOutletData: async (oid) => { 
        if(!supabase) return; 
        setIsSaving(true); 
        try {
-          // Menghapus seluruh log operasional cabang yang spesifik
-          // Ditambah log purchases agar supply log juga bersih sesuai permintaan
           await Promise.all([ 
             supabase.from('transactions').delete().match({ outletId: oid }), 
             supabase.from('expenses').delete().match({ outletId: oid }),
             supabase.from('attendance').delete().match({ outletId: oid }),
             supabase.from('daily_closings').delete().match({ outletId: oid }),
             supabase.from('production_records').delete().match({ outletId: oid }),
-            supabase.from('purchases').delete().match({ outletId: oid })
+            supabase.from('purchases').delete().match({ outletId: oid }),
+            supabase.from('stock_transfers').delete().match({ fromOutletId: oid }),
+            supabase.from('stock_transfers').delete().match({ toOutletId: oid })
           ]); 
           await fetchFromCloud(); 
+          localStorage.removeItem(STORAGE_CLOCKIN_KEY);
        } finally {
           setIsSaving(false); 
        }
@@ -285,9 +347,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     resetGlobalData: async () => { 
       if(!supabase) return; 
       setIsSaving(true); 
-      // Menambahkan purchases ke penghapusan global
-      await Promise.all(['transactions','expenses','attendance','leave_requests','daily_closings','production_records','purchases'].map(t => supabase.from(t).delete().neq('id', 'VOID'))); 
+      await Promise.all(['transactions','expenses','attendance','leave_requests','daily_closings','production_records','purchases','stock_transfers'].map(t => supabase.from(t).delete().neq('id', 'VOID'))); 
       await fetchFromCloud(); 
+      localStorage.removeItem(STORAGE_CLOCKIN_KEY);
       setIsSaving(false); 
     },
     exportTableToCSV: (table) => { alert("Exporting " + table); },
@@ -323,41 +385,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     reorderCategories: async (newList) => { setCategories(newList); if (supabase) { setIsSaving(true); try { const updates = newList.map((c, idx) => ({ id: c.id, name: c.name, sortOrder: idx })); await supabase.from('categories').upsert(updates); } finally { setIsSaving(false); } } },
     addPurchase: async (p) => { 
       if(!supabase || !currentUser) return; 
-      
       const item = inventory.find(inv => inv.id === p.inventoryItemId); 
       if (!item) return; 
-      
-      // 1. OPTIMISTIC UPDATE: Langsung update layar tanpa tunggu server
       const newQty = (item.quantity || 0) + p.quantity; 
       const now = new Date();
-      const timestamp = now.toISOString();
-      const purchaseId = `pur-${Date.now()}`;
-      const expenseId = `exp-auto-${Date.now()}`;
-
-      const purchaseRecord: Purchase = { 
-        ...p, id: purchaseId, outletId: selectedOutletId, 
-        staffId: currentUser.id, staffName: currentUser.name, 
-        timestamp: now, itemName: item.name, 
-        totalPrice: p.unitPrice, unitPrice: p.unitPrice / p.quantity 
-      };
-
-      const expenseRecord: Expense = {
-        id: expenseId, outletId: selectedOutletId, typeId: 'purchase-auto',
-        amount: p.unitPrice, notes: `Belanja ${item.name} (${p.quantity} ${item.unit})`,
-        staffId: currentUser.id, staffName: currentUser.name, timestamp: now
-      };
-
-      // Update State Lokal Seketika
+      const purchaseRecord: Purchase = { ...p, id: `pur-${Date.now()}`, outletId: selectedOutletId, staffId: currentUser.id, staffName: currentUser.name, timestamp: now, itemName: item.name, totalPrice: p.unitPrice, unitPrice: p.unitPrice / p.quantity };
+      const expenseRecord: Expense = { id: `exp-auto-${Date.now()}`, outletId: selectedOutletId, typeId: 'purchase-auto', amount: p.unitPrice, notes: `Belanja ${item.name} (${p.quantity} ${item.unit})`, staffId: currentUser.id, staffName: currentUser.name, timestamp: now };
+      
+      immunityLocks.current.set(item.id, Date.now() + 60000); // Imunitas 60 detik
       setInventory(prev => prev.map(inv => inv.id === item.id ? { ...inv, quantity: newQty } : inv));
       setPurchases(prev => [purchaseRecord, ...(prev || [])]);
       setExpenses(prev => [expenseRecord, ...(prev || [])]);
-
-      // 2. BACKGROUND SYNC: Proses di Supabase jalan di belakang (non-blocking)
-      Promise.all([
-        supabase.from('purchases').insert({ ...purchaseRecord, timestamp: timestamp }),
-        supabase.from('expenses').insert({ ...expenseRecord, timestamp: timestamp }),
-        supabase.from('inventory').update({ quantity: newQty }).eq('id', item.id)
-      ]).catch(err => console.error("Background sync failed:", err));
+      
+      Promise.all([ 
+         supabase.from('purchases').insert({ ...purchaseRecord, timestamp: now.toISOString() }), 
+         supabase.from('expenses').insert({ ...expenseRecord, timestamp: now.toISOString() }), 
+         supabase.from('inventory').update({ quantity: newQty }).eq('id', item.id) 
+      ]).catch(err => console.error("Purchase sync failed:", err));
     },
     processProduction: async (d) => { 
       if(!supabase || !currentUser || isSaving) return; 
@@ -366,28 +410,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const now = new Date();
         const recordPayload = { ...d, id: `PROD-${Date.now()}`, timestamp: now.toISOString(), staffId: currentUser.id, staffName: currentUser.name, outletId: selectedOutletId }; 
         
-        setInventory(prev => {
-          return prev.map(item => {
-            if (item.id === d.resultItemId) return { ...item, quantity: (item.quantity || 0) + d.resultQuantity };
-            const component = d.components.find(c => c.inventoryItemId === item.id);
-            if (component) return { ...item, quantity: (item.quantity || 0) - component.quantity };
-            return item;
-          });
-        });
+        // PENCARIAN ITEM SPESIFIK CABANG BERDASARKAN NAMA
+        const resultTemplate = inventory.find(i => i.id === d.resultItemId);
+        const localResult = inventory.find(i => i.name === resultTemplate?.name && i.outletId === selectedOutletId);
+
+        if (!localResult) throw new Error("Item WIP (hasil mixing) tidak ditemukan di cabang ini.");
+
+        const componentUpdates = d.components.map(c => {
+           const compTemplate = inventory.find(i => i.id === c.inventoryItemId);
+           const target = inventory.find(i => i.name === compTemplate?.name && i.outletId === selectedOutletId);
+           return { targetId: target?.id, subtract: c.quantity };
+        }).filter(u => u.targetId);
+
+        // CLOUD IMMUNITY: Aktifkan imunitas 60 detik untuk item yang terlibat
+        immunityLocks.current.set(localResult.id, Date.now() + 60000); 
+        componentUpdates.forEach(u => immunityLocks.current.set(u.targetId!, Date.now() + 60000));
+
+        // ATOMIC UPDATE: Langsung update memori lokal (PASTI)
+        setInventory(prev => prev.map(item => { 
+            if (item.id === localResult.id) return { ...item, quantity: (item.quantity || 0) + d.resultQuantity }; 
+            const up = componentUpdates.find(u => u.targetId === item.id);
+            if (up) return { ...item, quantity: (item.quantity || 0) - up.subtract }; 
+            return item; 
+        }));
+        
         setProductionRecords(prev => [hydrateDates(recordPayload), ...(prev || [])]);
 
-        await Promise.all([
-          supabase.from('production_records').insert(recordPayload),
-          ...d.components.map(c => {
-             const current = inventory.find(i => i.id === c.inventoryItemId);
-             return supabase.from('inventory').update({ quantity: (current?.quantity || 0) - c.quantity }).eq('id', c.inventoryItemId);
-          }),
-          supabase.from('inventory').update({ 
-            quantity: (inventory.find(i => i.id === d.resultItemId)?.quantity || 0) + d.resultQuantity 
-          }).eq('id', d.resultItemId)
+        // Background update ke Cloud
+        await Promise.all([ 
+          supabase.from('production_records').insert(recordPayload), 
+          ...componentUpdates.map(u => {
+             const currentItem = inventory.find(i => i.id === u.targetId);
+             return supabase.from('inventory').update({ quantity: (currentItem?.quantity || 0) - u.subtract }).eq('id', u.targetId); 
+          }), 
+          supabase.from('inventory').update({ quantity: (localResult.quantity || 0) + d.resultQuantity }).eq('id', localResult.id) 
         ]);
-      } finally {
-        setIsSaving(false);
+      } finally { 
+        setIsSaving(false); 
       }
     },
     addWIPRecipe: async (recipe) => { const payload = { ...recipe, id: `wip-${Date.now()}` }; if(supabase) await supabase.from('wip_recipes').insert(payload); setWipRecipes(prev => [...(prev || []), hydrateDates(payload)]); },
@@ -399,7 +458,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addOutlet: async (o) => { if(supabase) await supabase.from('outlets').insert(o); setOutlets(prev => [...(prev || []), hydrateDates(o)]); },
     updateOutlet: async (o) => { if(supabase) await supabase.from('outlets').update(o).eq('id', o.id); setOutlets(prev => (prev || []).map(out => out.id === o.id ? hydrateDates(o) : out)); },
     deleteOutlet: async (id) => { if(supabase) await supabase.from('outlets').delete().eq('id', id); setOutlets(prev => (prev || []).filter(o => o.id !== id)); },
-    transferStock: async (f, t, i, q) => { alert("Stock Transfer Initiated"); },
+    transferStock: async (from, to, itemName, qty) => { 
+      if(!supabase || !currentUser) return;
+      const fromItem = inventory.find(i => i.outletId === from && i.name === itemName);
+      const toItem = inventory.find(i => i.outletId === to && i.name === itemName);
+      if(!fromItem || !toItem) return alert("Item tidak ditemukan di kedua cabang!");
+      if(fromItem.quantity < qty) return alert("Stok tidak cukup!");
+      
+      immunityLocks.current.set(fromItem.id, Date.now() + 60000);
+      immunityLocks.current.set(toItem.id, Date.now() + 60000);
+
+      const transferId = `trf-${Date.now()}`;
+      const payload: StockTransfer = { id: transferId, fromOutletId: from, fromOutletName: outlets.find(o=>o.id===from)?.name || '', toOutletId: to, toOutletName: outlets.find(o=>o.id===to)?.name || '', itemName, quantity: qty, unit: fromItem.unit, timestamp: new Date(), staffId: currentUser.id, staffName: currentUser.name };
+      
+      setInventory(prev => prev.map(i => { if(i.id === fromItem.id) return {...i, quantity: i.quantity - qty}; if(i.id === toItem.id) return {...i, quantity: i.quantity + qty}; return i; }));
+      setStockTransfers(prev => [payload, ...(prev || [])]);
+      
+      await Promise.all([ supabase.from('stock_transfers').insert({...payload, timestamp: payload.timestamp.toISOString()}), supabase.from('inventory').update({quantity: fromItem.quantity - qty}).eq('id', fromItem.id), supabase.from('inventory').update({quantity: toItem.quantity + qty}).eq('id', toItem.id) ]);
+    },
     addMembershipTier: async (t) => { const payload = { ...t, id: `t-${Date.now()}` }; if(supabase) await supabase.from('membership_tiers').insert(payload); setMembershipTiers(prev => [...(prev || []), payload]); },
     updateMembershipTier: async (t) => { if(supabase) await supabase.from('membership_tiers').update(t).eq('id', t.id); setMembershipTiers(prev => (prev || []).map(tier => tier.id === t.id ? t : tier)); },
     deleteMembershipTier: async (id) => { if(supabase) await supabase.from('membership_tiers').delete().eq('id', id); setMembershipTiers(prev => (prev || []).filter(t => t.id !== id)); },

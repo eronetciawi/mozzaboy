@@ -24,20 +24,32 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const [memberQuery, setMemberQuery] = useState('');
   const [redeemPoints, setRedeemPoints] = useState(0);
   
-  // Toast States
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [showAttendanceToast, setShowAttendanceToast] = useState(false);
 
   const isClockedInToday = useMemo(() => {
-    if (!currentUser) return true;
+    if (currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER) return true;
+    if (!currentUser) return false;
+
     const todayStr = new Date().toLocaleDateString('en-CA');
+
+    // 1. CEK PERSISTENCE GUARD (PENTING!)
+    const savedGuard = localStorage.getItem('mozzaboy_last_clockin');
+    if (savedGuard) {
+       try {
+          const guard = JSON.parse(savedGuard);
+          if (guard.date === todayStr && guard.staffId === currentUser.id && guard.outletId === selectedOutletId) {
+             return true;
+          }
+       } catch (e) {}
+    }
     
-    // Logika pengecekan yang lebih tangguh untuk memastikan record attendance ditemukan
+    // 2. CEK DATABASE
     return (attendance || []).some(a => {
-       const recordDate = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
-       return a.staffId === currentUser.id && recordDate === todayStr;
+       const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
+       return a.staffId === currentUser.id && recordDateStr === todayStr && a.outletId === selectedOutletId;
     });
-  }, [attendance, currentUser]);
+  }, [attendance, currentUser, selectedOutletId]);
 
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
@@ -92,9 +104,9 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
   const handleCheckout = async (method: PaymentMethod) => {
     if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
-    if (isSaving) return; // Prevent multiple execution
+    if (isSaving) return;
 
-    if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
+    if (!isClockedInToday) {
        setShowAttendanceToast(true);
        return;
     }
@@ -127,7 +139,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   return (
     <div className="h-full flex flex-col md:flex-row overflow-hidden bg-white relative">
       
-      {/* SUCCESS TOAST */}
       {showSuccessToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-slate-900 text-white px-8 py-3 rounded-2xl shadow-2xl flex items-center gap-4 border border-white/10">
@@ -140,7 +151,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       )}
 
-      {/* ATTENDANCE WARNING TOAST */}
       {showAttendanceToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500 w-full max-sm:w-80 px-4">
            <div className="bg-rose-600 text-white px-6 py-4 rounded-[28px] shadow-2xl flex items-center gap-4 border-2 border-rose-400">
@@ -241,7 +251,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         <div className="md:hidden fixed bottom-20 left-0 right-0 px-4 z-[60] animate-in slide-in-from-bottom-5">
           <button 
             onClick={() => {
-              if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
+              if (!isClockedInToday) {
                   setShowAttendanceToast(true);
               } else {
                   setMobileView('cart');
@@ -313,7 +323,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           <button
             disabled={cart.length === 0 || isShiftClosed || isSaving}
             onClick={() => {
-              if (!isClockedInToday && currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.MANAGER) {
+              if (!isClockedInToday) {
                   setShowAttendanceToast(true);
               } else {
                   setShowCheckout(true);

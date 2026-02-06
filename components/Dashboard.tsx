@@ -27,10 +27,8 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
   const isExecutive = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
   const isGlobalView = selectedOutletId === 'all' && isExecutive;
   
-  // Tanggal lokal yang konsisten
   const todayStr = new Date().toLocaleDateString('en-CA');
 
-  // Notifikasi untuk Owner/Manager
   const pendingLeaves = useMemo(() => 
     leaveRequests.filter(l => l.status === 'PENDING'), 
     [leaveRequests]
@@ -38,12 +36,28 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
 
   const myPresenceToday = useMemo(() => {
      if (isExecutive) return true;
-     // Pengecekan record absensi sesuai staffId dan tanggal lokal hari ini (string compare)
+     if (!currentUser) return false;
+
+     // 1. CEK DARI LOCAL STORAGE (PERSISTENCE GUARD)
+     const savedGuard = localStorage.getItem('mozzaboy_last_clockin');
+     if (savedGuard) {
+        try {
+           const guard = JSON.parse(savedGuard);
+           if (guard.date === todayStr && guard.staffId === currentUser.id && guard.outletId === selectedOutletId) {
+              return true;
+           }
+        } catch (e) {}
+     }
+
+     // 2. CEK DARI DATA SINKRONISASI (DATABASE)
      return (attendance || []).some(a => {
-        const recordDate = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
-        return a.staffId === currentUser?.id && recordDate === todayStr;
+        const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
+        const isMe = a.staffId === currentUser.id;
+        const isToday = recordDateStr === todayStr;
+        const isCorrectOutlet = a.outletId === selectedOutletId;
+        return isMe && isToday && isCorrectOutlet;
      });
-  }, [attendance, currentUser, todayStr, isExecutive]);
+  }, [attendance, currentUser, todayStr, isExecutive, selectedOutletId]);
 
   const summary = useMemo(() => {
     const targetTxs = isGlobalView ? transactions : filteredTransactions;
@@ -99,7 +113,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         </div>
       </div>
 
-      {/* 0. NOTIFIKASI IZIN/CUTI (HANYA OWNER/MGR) */}
       {isExecutive && pendingLeaves.length > 0 && (
          <div className="mb-6 p-5 bg-indigo-600 rounded-[32px] text-white flex items-center justify-between shadow-xl shadow-indigo-200 animate-in slide-in-from-top-4">
             <div className="flex items-center gap-4">
@@ -113,7 +126,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
          </div>
       )}
 
-      {/* 1. STATUS ABSENSI BAR */}
       {!isExecutive && (
         <div className={`mb-8 p-6 rounded-[40px] border-2 flex flex-col md:flex-row items-center justify-between gap-6 transition-all ${myPresenceToday ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100 animate-pulse'}`}>
            <div className="flex items-center gap-5">
@@ -133,7 +145,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         </div>
       )}
 
-      {/* 2. RINGKASAN METRIK */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-10">
         <CompactMetric label="Total Omzet" value={`Rp ${((summary.sales ?? 0)/1000).toFixed(0)}k`} color="text-slate-900" icon="💰" />
         <CompactMetric label="Sales Tunai" value={`Rp ${((summary.cash ?? 0)/1000).toFixed(0)}k`} color="text-emerald-600" icon="💵" />
@@ -142,7 +153,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-         {/* 3. CHART PENJUALAN */}
          <div className="xl:col-span-2 bg-white p-8 rounded-[48px] border border-slate-100 shadow-sm flex flex-col min-h-[350px]">
             <div className="flex justify-between items-center mb-8">
                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em]">Grafik Traffic Penjualan</h3>
@@ -165,7 +175,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
             </div>
          </div>
 
-         {/* 4. AUDIT PENJUALAN TERAKHIR */}
          <div className="bg-slate-900 p-8 rounded-[48px] text-white shadow-2xl flex flex-col h-full overflow-hidden">
             <div className="flex justify-between items-center mb-8">
               <div>
@@ -210,17 +219,15 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
          </div>
       </div>
 
-      {/* 5. DIGITAL RECEIPT MODAL - OPTIMIZED UX */}
       {viewingTransaction && (
         <div 
           className="fixed inset-0 z-[500] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300"
-          onClick={() => setViewingTransaction(null)} // Close on backdrop click
+          onClick={() => setViewingTransaction(null)}
         >
            <div 
              className="w-full max-w-xs md:max-w-sm flex flex-col gap-4 animate-in zoom-in-95 duration-300 relative"
-             onClick={e => e.stopPropagation()} // Prevent close when clicking receipt
+             onClick={e => e.stopPropagation()}
            >
-              {/* COMPACT CLOSE BUTTON */}
               <button 
                 onClick={() => setViewingTransaction(null)}
                 className="absolute -top-12 right-0 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all"
@@ -228,7 +235,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                  <span className="text-xl">✕</span>
               </button>
 
-              {/* THE RECEIPT CANVAS - COMPACT VERSION */}
               <div 
                 ref={receiptRef}
                 className="bg-white p-6 md:p-8 rounded-[28px] shadow-2xl text-slate-900 border border-slate-100 overflow-hidden relative"
@@ -292,7 +298,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                  </div>
               </div>
 
-              {/* ACTION BUTTONS - COMPACT */}
               <div className="flex gap-2">
                  <button 
                    onClick={downloadReceipt}
