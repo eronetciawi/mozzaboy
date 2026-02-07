@@ -1,28 +1,27 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../store';
-import { UserRole } from '../types';
+import { UserRole, BrandConfig } from '../types';
 
 export const Maintenance: React.FC = () => {
   const { 
     resetOutletData, resetGlobalData, 
-    currentUser, outlets, 
-    exportTableToCSV, resetAttendanceLogs, importCSVToTable
+    currentUser, outlets, brandConfig, updateBrandConfig,
+    exportTableToCSV, isDbConnected
   } = useApp();
   
   const [targetOutletId, setTargetOutletId] = useState('');
   const [showOutletResetConfirm, setShowOutletResetConfirm] = useState(false);
   const [showGlobalResetConfirm, setShowGlobalResetConfirm] = useState(false);
-  const [showAttendanceResetConfirm, setShowAttendanceResetConfirm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' | null }>({ message: '', type: null });
+  const [tempBrand, setTempBrand] = useState<BrandConfig>(brandConfig);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [currentImportTable, setCurrentImportTable] = useState<string | null>(null);
+  useEffect(() => { setTempBrand(brandConfig); }, [brandConfig]);
 
   useEffect(() => {
-    if (toast.type && toast.type !== 'info') {
+    if (toast.type) {
       const timer = setTimeout(() => setToast({ message: '', type: null }), 5000);
       return () => clearTimeout(timer);
     }
@@ -37,6 +36,18 @@ export const Maintenance: React.FC = () => {
       </div>
     );
   }
+
+  const handleSaveBrand = async () => {
+    setIsProcessing(true);
+    try {
+      await updateBrandConfig(tempBrand);
+      setToast({ message: "IDENTITAS BISNIS DIPERBARUI!", type: 'success' });
+    } catch (e) {
+      setToast({ message: "Gagal menyimpan branding.", type: 'error' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleGlobalWipe = async () => {
      setIsProcessing(true);
@@ -54,87 +65,31 @@ export const Maintenance: React.FC = () => {
      setToast({ message: "DATA CABANG DIBERSIHKAN!", type: 'success' });
   };
 
-  const triggerImport = (table: string) => {
-     setCurrentImportTable(table);
-     fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-     const file = e.target.files?.[0];
-     if (!file || !currentImportTable) return;
-
-     setIsProcessing(true);
-     setToast({ message: `Mempulihkan Tabel ${currentImportTable.toUpperCase()}...`, type: 'info' });
-
-     const reader = new FileReader();
-     reader.onload = async (event) => {
-        const csv = event.target?.result as string;
-        const success = await importCSVToTable(currentImportTable, csv);
-        
-        setIsProcessing(false);
-        if (success) {
-           setToast({ message: `Data ${currentImportTable.toUpperCase()} Berhasil Dipulihkan!`, type: 'success' });
-        } else {
-           setToast({ message: `Gagal memulihkan ${currentImportTable.toUpperCase()}. Cek format file.`, type: 'error' });
-        }
-        e.target.value = ''; // Reset input
-     };
-     reader.readAsText(file);
-  };
-
-  const backupMasterData = () => {
-    const tables = ['outlets', 'staff', 'products', 'categories', 'customers', 'membership_tiers', 'bulk_discounts', 'expense_types'];
-    setToast({ message: "Memproses Master Archive...", type: 'info' });
-    tables.forEach((t, i) => setTimeout(() => exportTableToCSV(t), i * 1000));
-  };
-
-  const backupAllSystem = () => {
-    const tables = ['outlets', 'staff', 'products', 'categories', 'customers', 'inventory', 'transactions', 'expenses', 'purchases', 'daily_closings', 'attendance', 'stock_transfers', 'production_records'];
-    setToast({ message: "Memproses Total System Backup...", type: 'info' });
-    tables.forEach((t, i) => setTimeout(() => exportTableToCSV(t), i * 1000));
-  };
-
   const ExportButton = ({ label, table }: { label: string; table: string }) => (
     <div className="flex gap-1">
       <button 
         onClick={() => exportTableToCSV(table)} 
-        className="flex-1 py-2.5 px-4 bg-slate-50 text-slate-600 rounded-l-xl font-black text-[9px] uppercase tracking-widest text-left flex justify-between items-center group transition-all hover:bg-slate-900 hover:text-white"
+        className="flex-1 py-2.5 px-4 bg-slate-50 text-slate-600 rounded-xl font-black text-[9px] uppercase tracking-widest text-left flex justify-between items-center group transition-all hover:bg-slate-900 hover:text-white"
       >
         <span>{label}</span>
-        <span className="opacity-0 group-hover:opacity-100 transition-opacity">↓</span>
-      </button>
-      <button 
-        onClick={() => triggerImport(table)}
-        className="px-4 bg-slate-100 text-slate-400 rounded-r-xl border-l border-white hover:bg-orange-500 hover:text-white transition-all text-[10px]"
-        title="Restore dari CSV"
-      >
-        ↑
+        <span className="opacity-0 group-hover:opacity-100 transition-opacity">↓ EXPORT</span>
       </button>
     </div>
   );
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50 pb-40">
-      {/* Hidden File Input for Import */}
-      <input 
-         type="file" 
-         ref={fileInputRef} 
-         className="hidden" 
-         accept=".csv" 
-         onChange={handleFileChange} 
-      />
-
       {toast.type && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[999] animate-in slide-in-from-top-10 duration-500 w-full max-w-sm px-4">
            <div className={`px-6 py-5 rounded-[32px] shadow-2xl flex items-center gap-4 border-2 ${
              toast.type === 'success' ? 'bg-emerald-600 border-emerald-400 text-white' : 
              toast.type === 'error' ? 'bg-rose-600 border-rose-400 text-white' : 'bg-slate-900 text-white'
            }`}>
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl shrink-0 shadow-inner">
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl shrink-0">
                 {toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : '⏳'}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] leading-none mb-1">System Audit</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] mb-1">System Audit</p>
                 <p className="text-[11px] font-bold opacity-90 uppercase leading-tight">{toast.message}</p>
               </div>
            </div>
@@ -142,88 +97,122 @@ export const Maintenance: React.FC = () => {
       )}
 
       <div className="max-w-6xl mx-auto space-y-10">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-           <div>
-              <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">Enterprise Archive Hub</h2>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Backup, Recovery & Data Portability Tools</p>
-           </div>
-           <div className="flex gap-2">
-              <div className="bg-indigo-50 border border-indigo-100 px-4 py-2 rounded-2xl flex items-center gap-2">
-                 <span className="text-indigo-600 text-xs">ℹ️</span>
-                 <p className="text-[8px] font-black text-indigo-400 uppercase leading-tight">Gunakan tombol <b>↑</b> di samping tabel <br/>untuk memulihkan data dari CSV.</p>
+        <div>
+          <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">System Maintenance</h2>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Infrastructure & Data Control</p>
+        </div>
+
+        {/* PERMANENT CLOUD STATUS */}
+        <div className="bg-slate-900 p-8 md:p-12 rounded-[56px] shadow-2xl relative overflow-hidden text-white border border-white/5">
+           <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-[120px] -mr-40 -mt-40"></div>
+           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+              <div className="flex items-center gap-6">
+                 <div className="w-20 h-20 bg-emerald-500/20 text-emerald-400 rounded-[32px] flex items-center justify-center text-4xl shadow-inner animate-pulse">
+                    ⚡
+                 </div>
+                 <div>
+                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-2">System Connectivity</p>
+                    <h3 className="text-2xl font-black uppercase tracking-tight">Enterprise Cloud Engine: Active</h3>
+                    <div className="flex items-center gap-2 mt-2">
+                       <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Database Terhubung Secara Permanen ke Cloud Global</p>
+                    </div>
+                 </div>
+              </div>
+              <div className="bg-white/5 border border-white/10 px-6 py-4 rounded-3xl">
+                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Target Infrastructure</p>
+                 <p className="text-[10px] font-mono text-emerald-400">qpawptimafvxhppeuqel.supabase.co</p>
               </div>
            </div>
         </div>
 
-        {/* MEGA BACKUP SECTION */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-           <div className="bg-indigo-600 p-8 rounded-[48px] text-white shadow-xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-8 opacity-10 text-8xl transform rotate-12 group-hover:scale-110 transition-transform">📂</div>
-              <h3 className="text-2xl font-black uppercase tracking-tighter mb-2">Master Data Full Backup</h3>
-              <p className="text-[10px] text-indigo-200 font-bold uppercase tracking-widest mb-10 leading-relaxed max-w-xs">Ekspor seluruh konfigurasi bisnis (Cabang, Staff, Menu, CRM) dalam satu kali klik.</p>
-              <button onClick={backupMasterData} className="px-8 py-4 bg-white text-indigo-600 rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-indigo-50 active:scale-95 transition-all">Download Master Archive ↓</button>
+        {/* WHITE LABEL SETTINGS */}
+        <div className="bg-white p-8 md:p-10 rounded-[48px] border-2 border-slate-100 shadow-sm overflow-hidden relative">
+           <div className="flex items-center gap-3 mb-8">
+              <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner" style={{ color: brandConfig.primaryColor }}>🎨</div>
+              <div>
+                 <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Business Identity</h3>
+                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Kustomisasi Nama & Logo Internal</p>
+              </div>
            </div>
-           
-           <div className="bg-emerald-600 p-8 rounded-[48px] text-white shadow-xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-8 opacity-10 text-8xl transform rotate-12 group-hover:scale-110 transition-transform">💾</div>
-              <h3 className="text-2xl font-black uppercase tracking-tighter mb-2">Full System Audit Backup</h3>
-              <p className="text-[10px] text-emerald-100 font-bold uppercase tracking-widest mb-10 leading-relaxed max-w-xs">Arsip total mencakup Master Data + Seluruh Log Transaksi, Absensi, dan Stok.</p>
-              <button onClick={backupAllSystem} className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-slate-800 active:scale-95 transition-all">Download Mega Archive ↓</button>
+
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-6">
+                 <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Perusahaan</label>
+                    <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-900 focus:border-indigo-500 outline-none" value={tempBrand.name} onChange={e => setTempBrand({...tempBrand, name: e.target.value})} placeholder="Contoh: Mozza Boy" />
+                 </div>
+                 <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Tagline Bisnis</label>
+                    <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-900 focus:border-indigo-500 outline-none" value={tempBrand.tagline} onChange={e => setTempBrand({...tempBrand, tagline: e.target.value})} placeholder="Contoh: Modern Cafe System" />
+                 </div>
+              </div>
+              <div className="space-y-6">
+                 <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Logo URL (PNG/SVG)</label>
+                    <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-slate-900 focus:border-indigo-500 outline-none" value={tempBrand.logoUrl} onChange={e => setTempBrand({...tempBrand, logoUrl: e.target.value})} placeholder="https://link-to-your-logo.png" />
+                 </div>
+                 <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block ml-1">Warna Utama (Hex)</label>
+                    <div className="flex gap-4">
+                       <input type="color" className="w-16 h-14 bg-transparent cursor-pointer" value={tempBrand.primaryColor} onChange={e => setTempBrand({...tempBrand, primaryColor: e.target.value})} />
+                       <input type="text" className="flex-1 p-4 bg-slate-50 border-2 rounded-2xl font-mono font-black text-slate-900 focus:border-indigo-500 outline-none" value={tempBrand.primaryColor} onChange={e => setTempBrand({...tempBrand, primaryColor: e.target.value})} />
+                    </div>
+                 </div>
+              </div>
+           </div>
+
+           <div className="mt-10 pt-8 border-t border-slate-50">
+              <button 
+                disabled={isProcessing}
+                onClick={handleSaveBrand}
+                className="w-full md:w-auto px-12 py-5 bg-slate-900 text-white rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isProcessing ? 'MENYIMPAN...' : 'UPDATE IDENTITAS 🚀'}
+              </button>
            </div>
         </div>
 
-        {/* DETAILED EXPORT GRID */}
+        {/* DATA MANAGEMENT */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-           {/* MASTER DATA */}
            <div className="bg-white p-8 rounded-[40px] border-2 border-slate-100 shadow-sm flex flex-col">
               <div className="flex items-center gap-3 mb-6">
                  <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-xl shadow-inner">🏢</div>
-                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-800">Master Business</h4>
+                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-800">Master Data</h4>
               </div>
               <div className="space-y-2">
                  <ExportButton label="Daftar Cabang" table="outlets" />
                  <ExportButton label="Database Staff" table="staff" />
                  <ExportButton label="Katalog Produk" table="products" />
-                 <ExportButton label="Kategori Menu" table="categories" />
-                 <ExportButton label="Member CRM" table="customers" />
-                 <ExportButton label="Loyalty Tiers" table="membership_tiers" />
               </div>
            </div>
 
-           {/* LOGISTICS & STOCK */}
            <div className="bg-white p-8 rounded-[40px] border-2 border-slate-100 shadow-sm flex flex-col">
               <div className="flex items-center gap-3 mb-6">
                  <div className="w-10 h-10 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center text-xl shadow-inner">📦</div>
-                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-800">Supply Chain</h4>
+                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-800">Supply Logs</h4>
               </div>
               <div className="space-y-2">
-                 <ExportButton label="Stok Gudang (Current)" table="inventory" />
-                 <ExportButton label="Resep Mixing (WIP)" table="wip_recipes" />
+                 <ExportButton label="Stok Gudang" table="inventory" />
                  <ExportButton label="Riwayat Belanja" table="purchases" />
-                 <ExportButton label="Log Mutasi Cabang" table="stock_transfers" />
-                 <ExportButton label="Log Produksi/Masak" table="production_records" />
+                 <ExportButton label="Log Mutasi" table="stock_transfers" />
               </div>
            </div>
 
-           {/* OPERATIONS */}
            <div className="bg-white p-8 rounded-[40px] border-2 border-slate-100 shadow-sm flex flex-col">
               <div className="flex items-center gap-3 mb-6">
                  <div className="w-10 h-10 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center text-xl shadow-inner">📈</div>
-                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-800">Operational Logs</h4>
+                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-800">Sales Logs</h4>
               </div>
               <div className="space-y-2">
                  <ExportButton label="Semua Transaksi" table="transactions" />
-                 <ExportButton label="Biaya Operasional" table="expenses" />
-                 <ExportButton label="Rekap Tutup Buku" table="daily_closings" />
-                 <ExportButton label="Log Absensi Kru" table="attendance" />
-                 <ExportButton label="Pengajuan Cuti" table="leave_requests" />
+                 <ExportButton label="Rekap Tutup Shift" table="daily_closings" />
               </div>
            </div>
         </div>
 
-        {/* DANGER ZONE AREA */}
+        {/* DANGER ZONE */}
         <div className="pt-10 border-t border-slate-200">
-           <h4 className="text-xs font-black text-red-500 uppercase tracking-[0.4em] mb-8 text-center">Nuclear Management (Danger Zone)</h4>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-white p-6 rounded-[32px] border-2 border-orange-100 flex flex-col md:flex-row justify-between items-center gap-4">
                  <div className="text-center md:text-left">
@@ -242,7 +231,7 @@ export const Maintenance: React.FC = () => {
               <div className="bg-white p-6 rounded-[32px] border-2 border-red-100 flex flex-col md:flex-row justify-between items-center gap-4">
                  <div className="text-center md:text-left">
                     <p className="text-[10px] font-black uppercase text-red-600">Factory Reset Global</p>
-                    <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Kosongkan seluruh database cloud Mozza Boy.</p>
+                    <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Kosongkan seluruh database transaksi sistem.</p>
                  </div>
                  <button disabled={isProcessing} onClick={() => setShowGlobalResetConfirm(true)} className="w-full md:w-auto px-10 py-3 bg-red-600 text-white rounded-xl text-[9px] font-black uppercase shadow-lg disabled:opacity-30">SYSTEM RESET 🧨</button>
               </div>
@@ -250,7 +239,7 @@ export const Maintenance: React.FC = () => {
         </div>
       </div>
 
-      {/* CONFIRMATION MODALS */}
+      {/* CONFIRMS */}
       {showOutletResetConfirm && (
         <div className="fixed inset-0 z-[1000] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-4">
           <div className="bg-white rounded-[56px] w-full max-w-sm p-12 shadow-2xl text-center animate-in zoom-in-95">
@@ -270,7 +259,7 @@ export const Maintenance: React.FC = () => {
           <div className="bg-white rounded-[56px] w-full max-w-sm p-12 shadow-2xl text-center animate-in zoom-in-95">
              <div className="text-6xl mb-8">🧨</div>
              <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter mb-4">Factory Reset</h3>
-             <p className="text-slate-500 text-[10px] font-black uppercase leading-relaxed tracking-widest px-4">Tindakan ini akan mengosongkan SELURUH isi database cloud (Kecuali Akun Staff).</p>
+             <p className="text-slate-500 text-[10px] font-black uppercase leading-relaxed tracking-widest px-4">Tindakan ini akan mengosongkan SELURUH isi database transaksi (Kecuali Akun Staff).</p>
              <div className="flex flex-col gap-3 mt-12">
                 <button disabled={isProcessing} onClick={handleGlobalWipe} className="w-full py-6 bg-red-600 text-white rounded-[28px] font-black text-xs uppercase shadow-xl">NUCLEAR WIPE GLOBAL</button>
                 <button onClick={() => setShowGlobalResetConfirm(false)} className="w-full py-4 text-slate-400 font-black uppercase text-[10px]">BATALKAN</button>

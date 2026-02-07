@@ -11,7 +11,7 @@
     <link rel="icon" type="image/png" href="/logo.png">
     <link rel="apple-touch-icon" href="/logo.png">
     
-    <title>Mozza Boy | Food OS</title>
+    <title>Mozza Boy Cloud POS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,12 +21,11 @@
         window.onerror = function(msg, url, lineNo, columnNo, error) {
             console.error('Fatal Error:', msg, error);
             if (msg.includes('Script error')) return;
-            // Jika layar masih putih setelah 3 detik karena error runtime
             setTimeout(() => {
                 const root = document.getElementById('root');
                 if (root && root.innerHTML === "") {
                     console.warn("Attempting recovery from white screen...");
-                    localStorage.removeItem('mozzaboy_session_user');
+                    localStorage.removeItem('foodos_session_user');
                     window.location.reload();
                 }
             }, 3000);

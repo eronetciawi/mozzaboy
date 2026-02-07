@@ -6,7 +6,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import html2canvas from 'html2canvas';
 
 const CompactMetric: React.FC<{ label: string; value: string; color: string; icon: string }> = ({ label, value, color, icon }) => (
-  <div className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm flex flex-col justify-between group hover:border-orange-200 transition-all">
+  <div className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm flex flex-col justify-between group hover:border-indigo-200 transition-all">
     <div className="flex justify-between items-start mb-2">
       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
       <span className="text-lg group-hover:scale-110 transition-transform">{icon}</span>
@@ -18,7 +18,7 @@ const CompactMetric: React.FC<{ label: string; value: string; color: string; ico
 export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ setActiveTab }) => {
   const { 
     selectedOutletId, outlets, 
-    currentUser, transactions, expenses, attendance, filteredTransactions, leaveRequests = []
+    currentUser, transactions, expenses, attendance, filteredTransactions, leaveRequests = [], brandConfig
   } = useApp();
   
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -38,7 +38,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
      if (isExecutive) return true;
      if (!currentUser) return false;
 
-     // 1. CEK DARI LOCAL STORAGE (PERSISTENCE GUARD)
      const savedGuard = localStorage.getItem('mozzaboy_last_clockin');
      if (savedGuard) {
         try {
@@ -49,7 +48,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         } catch (e) {}
      }
 
-     // 2. CEK DARI DATA SINKRONISASI (DATABASE)
      return (attendance || []).some(a => {
         const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
         const isMe = a.staffId === currentUser.id;
@@ -86,7 +84,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
     try {
       const canvas = await html2canvas(receiptRef.current, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
       const link = document.createElement('a');
-      link.download = `Struk-Audit-MB-${viewingTransaction.id.slice(-6)}.png`;
+      link.download = `Struk-${brandConfig.name}-${viewingTransaction.id.slice(-6)}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) { alert('Gagal menyimpan gambar struk.'); }
@@ -102,7 +100,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-[#fcfdfe] pb-40">
       <div className="flex justify-between items-center mb-8">
         <div>
-           <p className="text-[10px] font-black text-orange-500 uppercase tracking-[0.4em]">Audit Dashboard</p>
+           <p className="text-[10px] font-black uppercase tracking-[0.4em]" style={{ color: brandConfig.primaryColor }}>Audit Dashboard</p>
            <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase mt-1">
              {isGlobalView ? "Global Intel Hub" : "Branch Control Center"}
            </h2>
@@ -135,7 +133,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
               <div>
                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1.5">Status Kehadiran Hari Ini</p>
                  <h4 className={`text-sm font-black uppercase ${myPresenceToday ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {myPresenceToday ? 'Tugas Aktif: Akses POS Terbuka ✓' : 'Wajib Absen Masuk Untuk Mulai Jualan!'}
+                    {myPresenceToday ? 'Tugas Aktif: Akses POS Terbuka ✓' : 'Wajib Absen Masuk Untuk Mulai Bertugas!'}
                  </h4>
               </div>
            </div>
@@ -169,7 +167,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                         labelStyle={{ color: '#6366f1' }}
                         formatter={(v: number) => [`Rp ${(v ?? 0).toLocaleString()}`, 'Sales']}
                      />
-                     <Area type="monotone" dataKey="sales" stroke="#6366f1" strokeWidth={4} fillOpacity={0.1} fill="#6366f1" />
+                     <Area type="monotone" dataKey="sales" stroke={brandConfig.primaryColor || "#6366f1"} strokeWidth={4} fillOpacity={0.1} fill={brandConfig.primaryColor || "#6366f1"} />
                   </AreaChart>
                </ResponsiveContainer>
             </div>
@@ -241,10 +239,16 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                 style={{ fontFamily: "'Inter', sans-serif" }}
               >
                  <div className="text-center border-b-2 border-dashed border-slate-200 pb-5 mb-5">
-                    <div className="w-12 h-12 bg-slate-900 text-white rounded-[18px] flex items-center justify-center font-black text-2xl mx-auto mb-3">M</div>
-                    <h4 className="text-[12px] font-black uppercase tracking-tighter">Mozza Boy Street Food</h4>
+                    {brandConfig.logoUrl ? (
+                       <img src={brandConfig.logoUrl} className="w-12 h-12 object-contain mx-auto mb-3" />
+                    ) : (
+                       <div className="w-12 h-12 text-white rounded-[18px] flex items-center justify-center font-black text-2xl mx-auto mb-3" style={{ backgroundColor: brandConfig.primaryColor || '#0f172a' }}>
+                          {brandConfig.name.charAt(0)}
+                       </div>
+                    )}
+                    <h4 className="text-[12px] font-black uppercase tracking-tighter">{brandConfig.name}</h4>
                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                      {outlets.find(o => o.id === viewingTransaction.outletId)?.name || 'Outlet Mozza Boy'}
+                      {outlets.find(o => o.id === viewingTransaction.outletId)?.name || 'Store Hub'}
                     </p>
                  </div>
 
@@ -292,7 +296,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                        <p className="text-[9px] font-black text-indigo-600 uppercase mt-0.5">{viewingTransaction.paymentMethod}</p>
                     </div>
                     <div className="text-right">
-                       <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Cashier PIC</p>
+                       <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">PIC</p>
                        <p className="text-[9px] font-black text-slate-800 uppercase mt-0.5">{viewingTransaction.cashierName.split(' ')[0]}</p>
                     </div>
                  </div>
@@ -301,7 +305,8 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
               <div className="flex gap-2">
                  <button 
                    onClick={downloadReceipt}
-                   className="flex-1 py-4 bg-orange-500 text-white rounded-[20px] font-black text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-2 border-b-4 border-orange-700"
+                   className="flex-1 py-4 text-white rounded-[20px] font-black text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-2 border-b-4 border-black/20"
+                   style={{ backgroundColor: brandConfig.primaryColor || '#f97316' }}
                  >
                     <span>💾</span> SIMPAN GAMBAR
                  </button>

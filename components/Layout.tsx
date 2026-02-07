@@ -6,7 +6,7 @@ import { UserRole } from '../types';
 interface SidebarProps { activeTab: string; setActiveTab: (tab: string) => void; closeDrawer?: () => void; }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer }) => {
-  const { currentUser, logout, stockRequests = [], selectedOutletId, connectedPrinter, leaveRequests = [] } = useApp();
+  const { currentUser, logout, stockRequests = [], stockTransfers = [], selectedOutletId, connectedPrinter, leaveRequests = [], brandConfig } = useApp();
   
   if (!currentUser || !currentUser.permissions) return <div className="h-full bg-slate-900 animate-pulse"></div>;
 
@@ -14,8 +14,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
   const isCashier = currentUser.role === UserRole.CASHIER;
   const isAdmin = currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER;
   
-  const pendingRequestsCount = stockRequests.filter(r => (selectedOutletId === 'all' || r.outletId === selectedOutletId) && r.status === 'PENDING').length;
-  const pendingLeavesCount = leaveRequests.filter(l => l.status === 'PENDING').length;
+  const pendingRequestsCount = (stockRequests || []).filter(r => (selectedOutletId === 'all' || r.outletId === selectedOutletId) && r.status === 'PENDING').length;
+  const pendingLeavesCount = (leaveRequests || []).filter(l => l.status === 'PENDING').length;
+  const incomingMutationsCount = (stockTransfers || []).filter(t => t.toOutletId === selectedOutletId && t.status === 'PENDING').length;
 
   const menuGroups: { label: string; items: { id: string; label: string; icon: string; visible: boolean; badge?: number | null; status?: string }[] }[] = [
     { label: 'Operasional', items: [
@@ -34,14 +35,14 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       { id: 'inventory', label: 'Stok Barang', icon: '📦', visible: true }, 
       { id: 'production', label: 'Produksi/Mixing', icon: '🧪', visible: (permissions.canManageInventory || isCashier) && selectedOutletId !== 'all' },
       { id: 'purchases', label: 'Pembelian Stok', icon: '🚛', visible: (permissions.canManageInventory || isCashier) && selectedOutletId !== 'all', badge: pendingRequestsCount > 0 ? pendingRequestsCount : null },
-      { id: 'transfers', label: 'Mutasi Stok', icon: '↔️', visible: isAdmin },
+      { id: 'transfers', label: 'Mutasi Stok', icon: '↔️', visible: selectedOutletId !== 'all', badge: incomingMutationsCount > 0 ? incomingMutationsCount : null },
     ]},
     { label: 'Katalog & Pelanggan', items: [
       { id: 'menu', label: 'Daftar Menu', icon: '📜', visible: permissions.canManageMenu },
       { id: 'categories', label: 'Kategori Menu', icon: '🏷️', visible: permissions.canManageMenu },
       { id: 'crm', label: 'Data Pelanggan', icon: '🎖️', visible: true },
     ]},
-    { label: 'Pengaturan', items: [
+    { label: 'System Setup', items: [
       { id: 'staff', label: 'Karyawan', icon: '👥', visible: permissions.canManageStaff, badge: (isAdmin && pendingLeavesCount > 0) ? pendingLeavesCount : null },
       { id: 'outlets', label: 'Daftar Cabang', icon: '🏢', visible: currentUser.role === UserRole.OWNER },
       { id: 'printer', label: 'Printer BT', icon: '🖨️', visible: true, status: connectedPrinter ? 'connected' : 'none' },
@@ -54,10 +55,16 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-slate-300">
       <div className="p-6 flex items-center gap-3 shrink-0">
-        <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg transform -rotate-2 select-none">M</div>
+        {brandConfig.logoUrl ? (
+          <img src={brandConfig.logoUrl} className="w-12 h-12 object-contain" alt="Logo" />
+        ) : (
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg transform -rotate-2 select-none" style={{ backgroundColor: brandConfig.primaryColor }}>
+            {brandConfig.name.charAt(0)}
+          </div>
+        )}
         <div>
-          <div className="font-black text-white text-sm tracking-tighter uppercase leading-none">Mozza Boy</div>
-          <div className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1">Food OS</div>
+          <div className="font-black text-white text-sm tracking-tighter uppercase leading-none">{brandConfig.name}</div>
+          <div className="text-[8px] font-black uppercase tracking-widest mt-1" style={{ color: brandConfig.primaryColor }}>{brandConfig.tagline}</div>
         </div>
       </div>
       <nav className="flex-1 px-3 space-y-6 overflow-y-auto custom-scrollbar pb-10">
@@ -68,7 +75,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
             <div key={gIdx} className="space-y-1">
               <h5 className="px-4 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">{group.label}</h5>
               {visibleItems.map((item) => (
-                <button key={item.id} onClick={() => handleNav(item.id)} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl transition-all duration-200 group relative ${activeTab === item.id ? 'bg-orange-500 text-white font-bold shadow-lg shadow-orange-500/20' : 'hover:bg-slate-800 text-slate-400'}`}>
+                <button 
+                  key={item.id} 
+                  onClick={() => handleNav(item.id)} 
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl transition-all duration-200 group relative ${activeTab === item.id ? 'text-white font-bold shadow-lg' : 'hover:bg-slate-800 text-slate-400'}`}
+                  style={activeTab === item.id ? { backgroundColor: brandConfig.primaryColor } : {}}
+                >
                   <span className="text-base">{item.icon}</span>
                   <span className="text-[10px] uppercase font-black tracking-widest flex-1 text-left">{item.label}</span>
                   {item.badge && <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full ring-2 ring-slate-900 animate-pulse">{item.badge}</span>}
@@ -93,7 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
 };
 
 export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; setActiveTab: (tab: string) => void }> = ({ children, activeTab, setActiveTab }) => {
-  const { outlets = [], selectedOutletId, switchOutlet, isSaving, isCloudConnected, currentUser } = useApp();
+  const { outlets = [], selectedOutletId, switchOutlet, isSaving, currentUser, brandConfig } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
   const assignedIds = currentUser?.assignedOutletIds || [];
@@ -116,32 +128,34 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
         <header className="h-16 md:h-20 bg-white border-b border-slate-100 px-4 md:px-8 flex items-center justify-between shadow-sm z-40 shrink-0 no-print">
           <div className="flex items-center gap-3">
              <button onClick={() => setIsMenuOpen(true)} className="md:hidden w-12 h-12 flex items-center justify-center text-xl bg-slate-50 rounded-2xl">☰</button>
-             <div className="hidden md:block w-1.5 h-8 bg-orange-500 rounded-full"></div>
+             <div className="hidden md:block w-1.5 h-8 rounded-full" style={{ backgroundColor: brandConfig.primaryColor }}></div>
              <div className="flex flex-col">
                <h1 className="text-[12px] md:text-sm font-black text-slate-900 uppercase tracking-tighter leading-none">
-                 {selectedOutletId === 'all' ? 'Network Hub' : accessibleOutlets.find(o=>o.id===selectedOutletId)?.name || 'Outlet'}
+                 {selectedOutletId === 'all' ? 'Network Hub' : (accessibleOutlets || []).find(o=>o.id===selectedOutletId)?.name || 'Outlet'}
                </h1>
                <div className="flex items-center gap-1.5 mt-1">
-                 <div className={`w-1.5 h-1.5 rounded-full ${isSaving ? 'bg-orange-400 animate-pulse' : isCloudConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                 <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">{isSaving ? 'Syncing...' : 'Live System'}</span>
+                 <div className={`w-1.5 h-1.5 rounded-full ${isSaving ? 'animate-pulse bg-orange-500' : 'bg-emerald-500'}`}></div>
+                 <span className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                    {isSaving ? 'Syncing...' : 'System Online'}
+                 </span>
                </div>
              </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="bg-slate-50 border-2 border-slate-100 p-1.5 md:p-2 rounded-2xl flex items-center gap-2">
-              <select className="text-[11px] md:text-[13px] font-black text-orange-600 bg-transparent focus:outline-none cursor-pointer max-w-[120px] md:max-w-none" value={selectedOutletId} onChange={(e) => switchOutlet(e.target.value)}>
+              <select className="text-[11px] md:text-[13px] font-black bg-transparent focus:outline-none cursor-pointer max-w-[120px] md:max-w-none" style={{ color: brandConfig.primaryColor }} value={selectedOutletId} onChange={(e) => switchOutlet(e.target.value)}>
                 {isGlobalManager && <option value="all">🌍 ALL BRANCHES</option>}
-                {accessibleOutlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                {(accessibleOutlets || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
             </div>
           </div>
         </header>
         <div className="flex-1 overflow-hidden relative">{children}</div>
         <nav className="md:hidden h-20 bg-white border-t border-slate-100 flex items-center justify-around px-4 pb-safe z-50 no-print shrink-0 shadow-[0_-10px_30px_rgba(0,0,0,0.03)]">
-           <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'dashboard' ? 'text-orange-500' : 'text-slate-300'}`}><span className="text-2xl">📊</span><span className="text-[9px] font-black uppercase tracking-tighter">Stats</span></button>
-           <button disabled={selectedOutletId === 'all'} onClick={() => setActiveTab('pos')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'pos' ? 'text-orange-500' : 'text-slate-300'} ${selectedOutletId === 'all' ? 'opacity-20' : ''}`}><span className="text-2xl">🛒</span><span className="text-[9px] font-black uppercase tracking-tighter">POS</span></button>
-           <button onClick={() => setActiveTab('attendance')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'attendance' ? 'text-orange-500' : 'text-slate-300'}`}><span className="text-2xl">⏰</span><span className="text-[9px] font-black uppercase tracking-tighter">Portal</span></button>
-           <button onClick={() => setIsMenuOpen(true)} className="flex flex-col items-center gap-1.5 flex-1 text-slate-300"><span className="text-2xl">⚙️</span><span className="text-[9px] font-black uppercase tracking-tighter">Menu</span></button>
+           <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'dashboard' ? 'opacity-100' : 'text-slate-300 opacity-60'}`} style={activeTab === 'dashboard' ? { color: brandConfig.primaryColor } : {}}><span className="text-2xl">📊</span><span className="text-[9px] font-black uppercase tracking-tighter">Stats</span></button>
+           <button disabled={selectedOutletId === 'all'} onClick={() => setActiveTab('pos')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'pos' ? 'opacity-100' : 'text-slate-300 opacity-60'} ${selectedOutletId === 'all' ? 'opacity-20' : ''}`} style={activeTab === 'pos' ? { color: brandConfig.primaryColor } : {}}><span className="text-2xl">🛒</span><span className="text-[9px] font-black uppercase tracking-tighter">POS</span></button>
+           <button onClick={() => setActiveTab('attendance')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'attendance' ? 'opacity-100' : 'text-slate-300 opacity-60'}`} style={activeTab === 'attendance' ? { color: brandConfig.primaryColor } : {}}><span className="text-2xl">⏰</span><span className="text-[9px] font-black uppercase tracking-tighter">Portal</span></button>
+           <button onClick={() => setIsMenuOpen(true)} className="flex flex-col items-center gap-1.5 flex-1 text-slate-300 opacity-60"><span className="text-2xl">⚙️</span><span className="text-[9px] font-black uppercase tracking-tighter">Menu</span></button>
         </nav>
       </main>
     </div>

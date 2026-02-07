@@ -12,7 +12,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     products = [], categories = [], cart = [], addToCart, 
     updateCartQuantity, checkout, customers = [], selectCustomer, selectedCustomerId,
     membershipTiers = [], bulkDiscounts = [], selectedOutletId, loyaltyConfig, inventory = [], 
-    dailyClosings = [], currentUser, attendance = [], clockIn, isSaving
+    dailyClosings = [], currentUser, attendance = [], clockIn, isSaving, brandConfig
   } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -33,7 +33,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
     const todayStr = new Date().toLocaleDateString('en-CA');
 
-    // 1. CEK PERSISTENCE GUARD (PENTING!)
     const savedGuard = localStorage.getItem('mozzaboy_last_clockin');
     if (savedGuard) {
        try {
@@ -44,7 +43,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
        } catch (e) {}
     }
     
-    // 2. CEK DATABASE
     return (attendance || []).some(a => {
        const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
        return a.staffId === currentUser.id && recordDateStr === todayStr && a.outletId === selectedOutletId;
@@ -169,8 +167,8 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             <div className="relative flex-1">
               <input 
                 type="text" 
-                placeholder="Cari menu Mozza Boy..." 
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-100 rounded-xl focus:bg-white ring-2 ring-transparent focus:ring-orange-500/20 outline-none font-bold text-xs transition-all"
+                placeholder="Cari produk / menu..." 
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-100 rounded-xl focus:bg-white ring-2 ring-transparent focus:ring-indigo-500/20 outline-none font-bold text-xs transition-all"
                 value={search} onChange={e => setSearch(e.target.value)}
               />
               <span className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 text-sm">🔍</span>
@@ -185,7 +183,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                   <span className="text-sm">🚚</span>
                   <span className="text-[7px] font-black uppercase mt-0.5">STOK</span>
                </button>
-               <button onClick={() => setShowMemberModal(true)} className={`p-2.5 rounded-xl border transition-all flex flex-col items-center justify-center min-w-[50px] ${currentCustomer ? 'bg-orange-500 border-orange-600 text-white shadow-lg shadow-orange-200' : 'bg-white border-slate-200 text-slate-400 hover:border-orange-500'}`}>
+               <button onClick={() => setShowMemberModal(true)} className={`p-2.5 rounded-xl border transition-all flex flex-col items-center justify-center min-w-[50px] ${currentCustomer ? 'bg-indigo-600 border-indigo-700 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-400 hover:border-indigo-500'}`}>
                   <span className="text-sm">👤</span>
                   <span className="text-[7px] font-black uppercase mt-0.5">{currentCustomer ? 'MEMBER' : 'JOIN'}</span>
                </button>
@@ -195,7 +193,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           <div className="flex flex-wrap gap-1.5 pt-1">
             <button 
               onClick={() => setSelectedCategory('all')} 
-              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[8px] md:text-[9px] font-black uppercase transition-all border-2 ${selectedCategory === 'all' ? 'bg-orange-500 border-orange-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[8px] md:text-[9px] font-black uppercase transition-all border-2 ${selectedCategory === 'all' ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
             >
               Semua
             </button>
@@ -203,7 +201,8 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
               <button 
                 key={cat.id} 
                 onClick={() => setSelectedCategory(cat.id)} 
-                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[8px] md:text-[9px] font-black uppercase transition-all border-2 ${selectedCategory === cat.id ? 'bg-orange-500 border-orange-500 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[8px] md:text-[9px] font-black uppercase transition-all border-2 ${selectedCategory === cat.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+                style={selectedCategory === cat.id ? { backgroundColor: brandConfig.primaryColor, borderColor: brandConfig.primaryColor } : {}}
               >
                 {cat.name}
               </button>
@@ -221,7 +220,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                   key={product.id} 
                   disabled={!inStock || isShiftClosed || isSaving}
                   onClick={() => addToCart(product)} 
-                  className={`bg-white rounded-xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm ${(!inStock || isShiftClosed) ? 'opacity-40 border-slate-200 grayscale' : 'border-white hover:border-orange-500 hover:shadow-xl hover:-translate-y-1'}`}
+                  className={`bg-white rounded-xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm ${(!inStock || isShiftClosed) ? 'opacity-40 border-slate-200 grayscale' : 'border-white hover:border-indigo-500 hover:shadow-xl hover:-translate-y-1'}`}
                 >
                   <div className="aspect-square w-full overflow-hidden bg-slate-100 relative shrink-0">
                     <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
@@ -236,7 +235,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                   </div>
                   <div className="p-2 md:p-3 flex-1 flex flex-col justify-center">
                     <h5 className="font-extrabold text-slate-800 text-[8px] md:text-[11px] uppercase leading-tight line-clamp-2">{product.name}</h5>
-                    <p className={`text-[9px] md:text-[13px] font-black font-mono tracking-tighter mt-1 ${(!inStock || isShiftClosed) ? 'text-slate-300' : 'text-orange-600'}`}>
+                    <p className={`text-[9px] md:text-[13px] font-black font-mono tracking-tighter mt-1 ${(!inStock || isShiftClosed) ? 'text-slate-300' : 'text-indigo-600'}`} style={(!inStock || isShiftClosed) ? {} : { color: brandConfig.primaryColor }}>
                       Rp {(displayPrice).toLocaleString()}
                     </p>
                   </div>
@@ -260,7 +259,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             className="w-full bg-slate-900 text-white rounded-2xl p-4 shadow-2xl flex justify-between items-center active:scale-95"
           >
             <div className="flex items-center gap-3">
-               <div className="w-9 h-9 bg-orange-500 text-white rounded-xl flex items-center justify-center font-black text-sm">{totalQty}</div>
+               <div className="w-9 h-9 bg-indigo-500 text-white rounded-xl flex items-center justify-center font-black text-sm" style={{ backgroundColor: brandConfig.primaryColor }}>{totalQty}</div>
                <p className="text-sm font-black tracking-tight">Rp {total.toLocaleString()}</p>
             </div>
             <span className="font-black text-[9px] uppercase tracking-widest bg-white/10 px-3 py-1.5 rounded-lg">Check ➔</span>
@@ -291,7 +290,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-black text-[10px] text-slate-800 uppercase truncate leading-tight">{item.product.name}</p>
-                  <p className="text-[11px] text-orange-600 font-black font-mono">Rp {getPrice(item.product).toLocaleString()}</p>
+                  <p className="text-[11px] font-black font-mono" style={{ color: brandConfig.primaryColor }}>Rp {getPrice(item.product).toLocaleString()}</p>
                 </div>
                 <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border">
                   <button onClick={() => updateCartQuantity(item.product.id, -1)} className="w-7 h-7 rounded-lg bg-white hover:bg-red-50 hover:text-red-500 transition-all text-xs font-black shadow-sm">－</button>
@@ -310,7 +309,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                 <span className="font-mono">Rp {subtotal.toLocaleString()}</span>
              </div>
              {(appliedTierDiscount + appliedBulkDiscount + pointDiscountValue) > 0 && (
-                <div className="flex justify-between text-[10px] font-black uppercase text-orange-500 italic">
+                <div className="flex justify-between text-[10px] font-black uppercase text-rose-500 italic">
                    <span>Potongan Diskon</span>
                    <span className="font-mono">-Rp {(appliedTierDiscount + appliedBulkDiscount + pointDiscountValue).toLocaleString()}</span>
                 </div>
@@ -329,7 +328,8 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                   setShowCheckout(true);
               }
             }}
-            className="w-full py-5 bg-orange-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-xl shadow-orange-500/20 hover:bg-orange-500 active:scale-95 disabled:opacity-30 transition-all"
+            className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-xl hover:bg-slate-800 active:scale-95 disabled:opacity-30 transition-all"
+            style={cart.length > 0 && !isShiftClosed && !isSaving ? { backgroundColor: brandConfig.primaryColor } : {}}
           >
             {isShiftClosed ? 'SHIFT CLOSED' : isSaving ? 'PROCESSING...' : `PROSES BAYAR ➔`}
           </button>
@@ -395,18 +395,18 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                 <input 
                   type="text" 
                   placeholder="Ketik Nama / No. WhatsApp..." 
-                  className="w-full p-4 bg-slate-100 rounded-2xl font-bold text-xs outline-none ring-2 ring-transparent focus:ring-orange-500/20 transition-all"
+                  className="w-full p-4 bg-slate-100 rounded-2xl font-bold text-xs outline-none ring-2 ring-transparent focus:ring-indigo-500/20 transition-all"
                   value={memberQuery}
                   onChange={e => setMemberQuery(e.target.value)}
                 />
                 <div className="max-h-[300px] overflow-y-auto custom-scrollbar space-y-2 pr-1">
                    {(customers || []).filter(c => c.name.toLowerCase().includes(memberQuery.toLowerCase()) || c.phone.includes(memberQuery)).map(c => (
-                     <button key={c.id} onClick={() => { selectCustomer(c.id); setShowMemberModal(false); }} className={`w-full p-4 rounded-2xl flex justify-between items-center border-2 transition-all ${selectedCustomerId === c.id ? 'bg-orange-500 border-orange-500 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:bg-white hover:border-orange-200'}`}>
+                     <button key={c.id} onClick={() => { selectCustomer(c.id); setShowMemberModal(false); }} className={`w-full p-4 rounded-2xl flex justify-between items-center border-2 transition-all ${selectedCustomerId === c.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:bg-white hover:border-indigo-200'}`}>
                         <div className="text-left">
                            <p className="text-[10px] font-black uppercase leading-none">{c.name}</p>
-                           <p className={`text-[8px] font-bold uppercase mt-1 ${selectedCustomerId === c.id ? 'text-orange-100' : 'text-slate-400'}`}>{c.phone}</p>
+                           <p className={`text-[8px] font-bold uppercase mt-1 ${selectedCustomerId === c.id ? 'text-indigo-100' : 'text-slate-400'}`}>{c.phone}</p>
                         </div>
-                        <p className={`text-[10px] font-black font-mono ${selectedCustomerId === c.id ? 'text-white' : 'text-orange-600'}`}>{c.points} PTS</p>
+                        <p className={`text-[10px] font-black font-mono ${selectedCustomerId === c.id ? 'text-white' : 'text-indigo-600'}`}>{c.points} PTS</p>
                      </button>
                    ))}
                 </div>

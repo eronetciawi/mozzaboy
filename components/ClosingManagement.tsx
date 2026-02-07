@@ -8,7 +8,7 @@ export const ClosingManagement: React.FC = () => {
   const { 
     transactions, expenses, dailyClosings, performClosing, 
     currentUser, selectedOutletId, outlets, staff, isSaving, logout,
-    productionRecords, purchases, inventory, attendance, expenseTypes
+    productionRecords, purchases, inventory, attendance, expenseTypes, brandConfig
   } = useApp();
   
   const [actualCash, setActualCash] = useState(0);
@@ -22,7 +22,6 @@ export const ClosingManagement: React.FC = () => {
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   const todayStr = new Date().toLocaleDateString('en-CA');
 
-  // Menemukan data absensi shift ini
   const currentShiftAttendance = useMemo(() => {
     const records = [...(attendance || [])]
       .filter(a => a.staffId === currentUser?.id && a.outletId === selectedOutletId)
@@ -119,7 +118,7 @@ export const ClosingManagement: React.FC = () => {
     if (!reportRef.current) return;
     const canvas = await html2canvas(reportRef.current, { scale: 2, backgroundColor: '#ffffff' });
     const link = document.createElement('a');
-    link.download = `Daily-Report-${activeOutlet?.name || 'Outlet'}-${todayStr}.png`;
+    link.download = `Report-${brandConfig.name}-${activeOutlet?.name || 'Store'}-${todayStr}.png`;
     link.href = canvas.toDataURL();
     link.click();
   };
@@ -164,11 +163,10 @@ export const ClosingManagement: React.FC = () => {
            </div>
 
            <div ref={reportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 text-slate-900">
-              {/* PROFESSIONAL HEADER */}
               <div className="relative">
                  <div className="p-8 md:p-10 text-center bg-slate-900 text-white">
-                    <p className="text-[10px] font-black uppercase tracking-[0.5em] text-orange-500 mb-2">Daily Report</p>
-                    <h4 className="text-2xl font-black uppercase tracking-tighter">Mozzaboy {activeOutlet?.name?.split(' ').pop() || 'Cikereteg'}</h4>
+                    <p className="text-[10px] font-black uppercase tracking-[0.5em] text-indigo-400 mb-2" style={{ color: brandConfig.primaryColor }}>Daily Report</p>
+                    <h4 className="text-2xl font-black uppercase tracking-tighter">{brandConfig.name}</h4>
                     <div className="mt-4 flex justify-center items-center gap-3">
                        <span className="h-px w-8 bg-white/20"></span>
                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
@@ -178,26 +176,25 @@ export const ClosingManagement: React.FC = () => {
                     </div>
                  </div>
 
-                 {/* CREW INFO GRID */}
                  <div className="p-8 grid grid-cols-2 gap-y-6 gap-x-8 border-b-2 border-dashed border-slate-100 bg-slate-50/50">
                     <div className="space-y-1">
-                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Nama Crew</p>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Nama PIC</p>
                        <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{currentUser?.name}</p>
                     </div>
                     <div className="space-y-1 text-right">
-                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Jadwal Crew</p>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Lokasi</p>
                        <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">
-                          {currentUser?.shiftStartTime || '--:--'} - {currentUser?.shiftEndTime || '--:--'}
+                          {activeOutlet?.name || 'Verified Point'}
                        </p>
                     </div>
                     <div className="space-y-1">
-                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Absensi Masuk</p>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Absensi In</p>
                        <p className="text-[11px] font-black text-indigo-600 uppercase tracking-tight">
                           {formatTime(currentShiftAttendance?.clockIn)} WIB
                        </p>
                     </div>
                     <div className="space-y-1 text-right">
-                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Absensi Pulang</p>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Absensi Out</p>
                        <p className="text-[11px] font-black text-rose-600 uppercase tracking-tight">
                           {formatTime(myClosing.timestamp)} WIB
                        </p>
@@ -206,7 +203,6 @@ export const ClosingManagement: React.FC = () => {
               </div>
 
               <div className="p-8 md:p-10 space-y-12">
-                 {/* 1. FINANCIAL PERFORMANCE */}
                  <ReportSection title="Financial Performance" icon="💰" color="text-indigo-600">
                     <div className="space-y-1">
                        <FinanceRow label="Modal Awal Shift" value={myClosing.openingBalance} />
@@ -220,7 +216,6 @@ export const ClosingManagement: React.FC = () => {
                     </div>
                  </ReportSection>
 
-                 {/* 2. CASH BOX VERIFICATION */}
                  <ReportSection title="Cash Box Reconciliation" icon="🔒">
                     <div className="bg-slate-50 rounded-[24px] p-6 border-2 border-slate-100 space-y-2">
                        <FinanceRow label="Uang Seharusnya Ada" value={(myClosing.openingBalance ?? 0) + (myClosing.totalSalesCash ?? 0) - (calc.expTotal ?? 0)} />
@@ -232,128 +227,8 @@ export const ClosingManagement: React.FC = () => {
                     </div>
                  </ReportSection>
 
-                 {/* 3. OPERATIONAL EXPENSE AUDIT */}
-                 <ReportSection title="Expense Shift Log" icon="💸" color="text-rose-600">
-                    <div className="space-y-4">
-                       <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex justify-between items-center">
-                          <p className="text-[9px] font-black text-rose-600 uppercase tracking-widest">Total Pengeluaran Shift Ini</p>
-                          <p className="text-lg font-black text-rose-700 font-mono">Rp {calc.expTotal.toLocaleString()}</p>
-                       </div>
-                       
-                       <div className="overflow-hidden border border-slate-100 rounded-2xl">
-                          <table className="w-full text-left border-collapse">
-                             <thead className="bg-slate-50 border-b">
-                                <tr className="text-[7px] font-black text-slate-400 uppercase">
-                                   <th className="py-3 px-4">Waktu</th>
-                                   <th className="py-3 px-4">Uraian / Catatan</th>
-                                   <th className="py-3 px-4 text-right">Nominal</th>
-                                </tr>
-                             </thead>
-                             <tbody className="text-[9px] font-bold text-slate-700 uppercase">
-                                {calc.shiftExps.map((e, i) => {
-                                   const isAuto = e.id.startsWith('exp-auto-');
-                                   const catName = expenseTypes.find(t => t.id === e.typeId)?.name || 'LAIN-LAIN';
-                                   const displayNotes = e.notes || catName;
-                                   
-                                   return (
-                                      <tr key={i} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
-                                         <td className="py-3 px-4 text-slate-400 font-mono">{new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</td>
-                                         <td className="py-3 px-4">
-                                            <p className="leading-tight text-slate-800">{displayNotes}</p>
-                                            <p className="text-[6px] font-black text-rose-400 mt-1">{isAuto ? 'AUTO PURCHASE' : catName}</p>
-                                         </td>
-                                         <td className="py-3 px-4 text-right text-rose-600 font-black">Rp {e.amount.toLocaleString()}</td>
-                                      </tr>
-                                   );
-                                })}
-                                {calc.shiftExps.length === 0 && (
-                                   <tr>
-                                      <td colSpan={3} className="py-8 text-center text-[9px] italic text-slate-300 uppercase tracking-widest">Nol Pengeluaran</td>
-                                   </tr>
-                                )}
-                             </tbody>
-                          </table>
-                       </div>
-                    </div>
-                 </ReportSection>
-
-                 {/* 4. STOCK MUTATION AUDIT */}
-                 <ReportSection title="Inventory Shift Mutation" icon="📦" color="text-orange-600">
-                    <div className="overflow-x-auto">
-                       <table className="w-full text-left border-collapse">
-                          <thead>
-                             <tr className="text-[7px] font-black text-slate-400 uppercase border-b-2 border-slate-100">
-                                <th className="py-2">Material Item</th>
-                                <th className="py-2 text-right">Awal</th>
-                                <th className="py-2 text-right text-green-600">Masuk</th>
-                                <th className="py-2 text-right text-red-500">Keluar</th>
-                                <th className="py-2 text-right">Akhir</th>
-                             </tr>
-                          </thead>
-                          <tbody className="text-[9px] font-bold text-slate-700 uppercase">
-                             {calc.stockAudit.map((item, idx) => (
-                                <tr key={idx} className="border-b border-slate-50/50 last:border-0">
-                                   <td className="py-2.5 truncate max-w-[100px] leading-none">{item.name}</td>
-                                   <td className="py-2.5 text-right font-mono">{item.startStock.toFixed(1)}</td>
-                                   <td className="py-2.5 text-right font-mono text-green-600">+{item.totalIn.toFixed(1)}</td>
-                                   <td className="py-2.5 text-right font-mono text-red-500">-{item.totalOut.toFixed(1)}</td>
-                                   <td className="py-2.5 text-right font-black font-mono bg-slate-50/30">{item.endStock.toFixed(1)}</td>
-                                </tr>
-                             ))}
-                             {calc.stockAudit.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-[8px] italic text-slate-300 uppercase">Tidak ada pergerakan stok shift ini</td></tr>}
-                          </tbody>
-                       </table>
-                    </div>
-                 </ReportSection>
-
-                 {/* 5. OPS LOGS - SEPARATED INTO ROWS WITHOUT LINES */}
-                 <div className="space-y-12">
-                    {/* PRODUCTION SECTION */}
-                    <ReportSection title="Crew Production Log" icon="🧪" color="text-indigo-600">
-                       <div className="bg-slate-50/50 rounded-2xl p-5 space-y-4">
-                          {calc.shiftProds.map((p, i) => (
-                             <div key={i} className="flex justify-between items-center group">
-                                <div className="flex-1">
-                                   <div className="flex items-center gap-2">
-                                      <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{inventory.find(inv=>inv.id===p.resultItemId)?.name || 'Produk Jadi'}</p>
-                                      <span className="text-[7px] font-black text-indigo-400 font-mono">[{new Date(p.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}]</span>
-                                   </div>
-                                   <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Produksi Hasil Mix</p>
-                                </div>
-                                <div className="text-right">
-                                   <p className="text-[12px] font-black text-indigo-600 whitespace-nowrap">+{p.resultQuantity} {inventory.find(inv=>inv.id===p.resultItemId)?.unit}</p>
-                                </div>
-                             </div>
-                          ))}
-                          {calc.shiftProds.length === 0 && <p className="text-[9px] italic text-slate-300 uppercase tracking-widest text-center py-4">Nol Aktivitas Produksi</p>}
-                       </div>
-                    </ReportSection>
-                    
-                    {/* SUPPLIES SECTION */}
-                    <ReportSection title="Shift Supplies Log" icon="🚛" color="text-orange-600">
-                       <div className="bg-slate-50/50 rounded-2xl p-5 space-y-4">
-                          {calc.shiftPurchases.map((p, i) => (
-                             <div key={i} className="flex justify-between items-center group">
-                                <div className="flex-1">
-                                   <div className="flex items-center gap-2">
-                                      <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{p.itemName}</p>
-                                      <span className="text-[7px] font-black text-orange-400 font-mono">[{new Date(p.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}]</span>
-                                   </div>
-                                   <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Supply Bahan Mentah</p>
-                                </div>
-                                <div className="text-right">
-                                   <p className="text-[12px] font-black text-orange-600 whitespace-nowrap">+{p.quantity} {inventory.find(inv=>inv.name===p.itemName)?.unit || ''}</p>
-                                </div>
-                             </div>
-                          ))}
-                          {calc.shiftPurchases.length === 0 && <p className="text-[9px] italic text-slate-300 uppercase tracking-widest text-center py-4">Nol Aktivitas Belanja</p>}
-                       </div>
-                    </ReportSection>
-                 </div>
-
-                 {/* FOOTER */}
                  <div className="pt-10 border-t-2 border-dashed border-slate-100 text-center">
-                    <p className="text-[7px] font-black text-slate-300 uppercase tracking-[0.4em]">Mozza Boy Smart OS v6.1 • Verified Audit Archive</p>
+                    <p className="text-[7px] font-black text-slate-300 uppercase tracking-[0.4em]">{brandConfig.name} • Cloud Operating System</p>
                  </div>
               </div>
            </div>
@@ -421,7 +296,7 @@ export const ClosingManagement: React.FC = () => {
                        type="number" 
                        inputMode="numeric"
                        onFocus={e => e.currentTarget.select()}
-                       className={`w-full p-4 pl-12 bg-slate-50 border-2 rounded-[24px] text-2xl font-black text-center outline-none transition-all ${(calc.diff ?? 0) !== 0 && actualCash > 0 ? 'border-rose-200 text-rose-600' : 'border-slate-100 text-slate-900 focus:border-orange-500'}`}
+                       className={`w-full p-4 pl-12 bg-slate-50 border-2 rounded-[24px] text-2xl font-black text-center outline-none transition-all ${(calc.diff ?? 0) !== 0 && actualCash > 0 ? 'border-rose-200 text-rose-600' : 'border-slate-100 text-slate-900 focus:border-indigo-500'}`}
                        value={actualCash === 0 ? "" : actualCash}
                        onChange={e => setActualCash(parseInt(e.target.value) || 0)}
                        placeholder="0"
@@ -444,71 +319,13 @@ export const ClosingManagement: React.FC = () => {
             <button 
                disabled={isSaving || actualCash <= 0}
                onClick={() => { if (isEarly || (calc.diff !== 0 && actualCash > 0)) setShowApproval(true); else setShowConfirm(true); }}
-               className={`w-full py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 border-b-4 ${isEarly ? 'bg-rose-600 border-rose-800 text-white' : 'bg-slate-900 border-slate-700 text-white hover:bg-orange-600'}`}
+               className={`w-full py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 border-b-4 ${isEarly ? 'bg-rose-600 border-rose-800 text-white' : 'bg-slate-900 border-slate-700 text-white hover:bg-slate-800'}`}
+               style={!isEarly && actualCash > 0 ? { backgroundColor: brandConfig.primaryColor } : {}}
             >
                {isSaving ? 'MEMPROSES...' : 'TUTUP SHIFT SEKARANG 🏁'}
             </button>
          </div>
       </div>
-
-      {showConfirm && (
-         <div className="fixed inset-0 z-[500] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
-            <div className="bg-white rounded-[32px] w-full max-w-xs p-8 text-center shadow-2xl animate-in zoom-in-95">
-               <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter mb-4">Kirim Laporan?</h3>
-               <p className="text-slate-500 text-[8px] mb-8 uppercase font-bold tracking-widest leading-relaxed">Data akan dikirim langsung ke Owner dan tidak bisa diubah.</p>
-               <div className="flex flex-col gap-2">
-                  <button onClick={() => handleExecute()} className="w-full py-4 bg-orange-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95">YA, KIRIM 🚀</button>
-                  <button onClick={() => setShowConfirm(false)} className="w-full py-2 text-slate-400 font-black uppercase text-[8px]">BATAL</button>
-               </div>
-            </div>
-         </div>
-      )}
-
-      {showApproval && (
-         <div className="fixed inset-0 z-[510] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-6">
-            <div className="bg-white rounded-[32px] w-full max-w-xs p-8 shadow-2xl animate-in zoom-in-95">
-               <div className="text-center mb-6">
-                  <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center text-xl mx-auto mb-3">🔑</div>
-                  <h3 className="text-sm font-black text-slate-800 uppercase">Otorisasi Diperlukan</h3>
-                  
-                  <div className="mt-4 p-4 bg-rose-50 rounded-2xl border border-rose-100 text-left space-y-3">
-                    {isEarly && (
-                      <div className="space-y-1">
-                        <p className="text-[9px] font-black text-rose-600 uppercase tracking-wider">⚠️ PELANGGARAN JAM SHIFT</p>
-                        <p className="text-[10px] font-bold text-rose-800 leading-tight">
-                          Outlet tidak bisa ditutup sebelum jadwal shift berakhir pkl {currentUser?.shiftEndTime}. Saat ini masih dalam jam kerja.
-                        </p>
-                      </div>
-                    )}
-                    
-                    {calc.diff !== 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[9px] font-black text-rose-600 uppercase tracking-wider">⚠️ SELISIH UANG TUNAI</p>
-                        <div className="flex justify-between items-center">
-                          <p className="text-[10px] font-bold text-rose-800">Jumlah Selisih:</p>
-                          <p className="text-[10px] font-black text-rose-900">Rp {Math.abs(calc.diff).toLocaleString()}</p>
-                        </div>
-                        <p className="text-[8px] font-black uppercase text-rose-600 italic">
-                          Keterangan: Uang {calc.diff < 0 ? 'KURANG (Defisit)' : 'LEBIH (Surplus)'}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-               </div>
-
-               <div className="space-y-3">
-                  <input type="text" placeholder="ID Manager" className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none text-[10px] focus:border-indigo-500 text-slate-900" value={auth.u} onChange={e=>setAuth({...auth, u: e.target.value})} />
-                  <input type="password" placeholder="Passkey" className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none text-[10px] focus:border-indigo-500 text-slate-900" value={auth.p} onChange={e=>setAuth({...auth, p: e.target.value})} />
-                  {error && <p className="text-[7px] font-black text-red-600 uppercase text-center">{error}</p>}
-                  <button onClick={() => {
-                     const mgr = staff.find(s => s.username === auth.u && s.password === auth.p && (s.role === UserRole.OWNER || s.role === UserRole.MANAGER));
-                     if (mgr) handleExecute(mgr.name); else setError('KREDENSIAL SALAH!');
-                  }} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase shadow-xl tracking-widest">VERIFIKASI MANAGER 🔓</button>
-                  <button onClick={() => { setShowApproval(false); setError(''); }} className="w-full py-1 text-slate-300 font-black text-[8px] uppercase tracking-widest text-center">Batalkan Proses</button>
-               </div>
-            </div>
-         </div>
-      )}
     </div>
   );
 };

@@ -32,6 +32,13 @@ export enum InventoryItemType {
   WIP = 'SETENGAH_JADI'
 }
 
+export interface BrandConfig {
+  name: string;
+  tagline: string;
+  logoUrl: string;
+  primaryColor: string;
+}
+
 export interface LoyaltyConfig {
   isEnabled: boolean;
   earningAmountPerPoint: number;
@@ -164,6 +171,7 @@ export interface StockTransfer {
   itemName: string;
   quantity: number;
   unit: string;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
   timestamp: Date;
   staffId: string;
   staffName: string;
