@@ -12,10 +12,19 @@ import { PRODUCTS, INVENTORY_ITEMS, OUTLETS, INITIAL_STAFF } from './constants';
 
 const STORAGE_USER_KEY = 'foodos_session_user';
 const STORAGE_OUTLET_KEY = 'foodos_active_outlet';
+const STORAGE_MANIFEST_KEY = 'mozzaboy_system_cache';
 
-// KREDENSIAL DATABASE PERMANEN - TERHUBUNG OTOMATIS UNTUK SEMUA USER
 const SUPABASE_URL = 'https://qpawptimafvxhppeuqel.supabase.co'; 
 const SUPABASE_KEY = 'sb_publishable_Kaye1xn88d9J_S9A32t4AA_e2ZIz2Az'; 
+
+const getSyncCache = () => {
+  try {
+    const cached = localStorage.getItem(STORAGE_MANIFEST_KEY);
+    return cached ? JSON.parse(cached) : {};
+  } catch (e) { return {}; }
+};
+
+const initialCache = getSyncCache();
 
 export const getPermissionsByRole = (role: UserRole): Permissions => {
   switch (role) {
@@ -38,6 +47,8 @@ interface AppState {
 
 interface AppActions {
   login: (username: string, password?: string) => Promise<{ success: boolean; message?: string }>; logout: () => void; clearSession: () => void; switchOutlet: (id: string) => void; addToCart: (product: Product) => void; removeFromCart: (productId: string) => void; updateCartQuantity: (productId: string, delta: number) => void; clearCart: () => void; checkout: (paymentMethod: PaymentMethod, redeemPoints?: number, membershipDiscount?: number, bulkDiscount?: number) => Promise<void>; addStaff: (member: StaffMember) => Promise<void>; updateStaff: (member: StaffMember) => Promise<void>; deleteStaff: (id: string) => Promise<void>; clockIn: (lat?: number, lng?: number, notes?: string) => Promise<{ success: boolean; message?: string }>; clockOut: () => Promise<void>; submitLeave: (leave: any) => Promise<void>; updateLeaveStatus: (id: string, status: 'APPROVED' | 'REJECTED') => Promise<void>; addProduct: (product: Product) => Promise<void>; updateProduct: (product: Product) => Promise<void>; deleteProduct: (id: string) => Promise<void>; addInventoryItem: (item: any, outletIds?: string[]) => Promise<void>; updateInventoryItem: (item: InventoryItem) => Promise<void>; deleteInventoryItem: (id: string) => Promise<void>; performClosing: (actualCash: number, notes: string, openingBalance: number, shiftName: string) => Promise<void>; addPurchase: (purchase: { inventoryItemId: string; quantity: number; unitPrice: number; requestId?: string }) => Promise<void>; selectCustomer: (id: string | null) => void; addCustomer: (customer: any) => Promise<void>; updateCustomer: (customer: Customer) => Promise<void>; deleteCustomer: (id: string) => Promise<void>; addOutlet: (outlet: Outlet) => Promise<void>; updateOutlet: (outlet: Outlet) => Promise<void>; deleteOutlet: (id: string) => Promise<void>; setConnectedPrinter: (device: any) => void; processProduction: (data: { resultItemId: string; resultQuantity: number; components: { inventoryItemId: string; quantity: number }[] }) => Promise<void>; addWIPRecipe: (recipe: Omit<WIPRecipe, 'id'>) => Promise<void>; updateWIPRecipe: (recipe: WIPRecipe) => Promise<void>; deleteWIPRecipe: (id: string) => Promise<void>; transferStock: (from: string, to: string, item: string, qty: number) => Promise<void>; respondToTransfer: (id: string, status: 'ACCEPTED' | 'REJECTED') => Promise<void>; addMembershipTier: (tier: any) => Promise<void>; updateMembershipTier: (tier: any) => Promise<void>; deleteMembershipTier: (id: string) => Promise<void>; addBulkDiscount: (rule: any) => Promise<void>; updateBulkDiscount: (rule: any) => Promise<void>; deleteBulkDiscount: (id: string) => Promise<void>; saveSimulation: (sim: MenuSimulation) => Promise<void>; deleteSimulation: (id: string) => Promise<void>; updateLoyaltyConfig: (config: LoyaltyConfig) => Promise<void>; updateBrandConfig: (config: BrandConfig) => Promise<void>; resetOutletData: (outletId: string) => Promise<void>; voidTransaction: (txId: string) => Promise<void>; fetchFromCloud: () => Promise<void>; resetGlobalData: () => Promise<void>; resetAttendanceLogs: () => Promise<void>; syncToCloud: () => void; exportTableToCSV: (table: string) => void; importCSVToTable: (table: string, csv: string) => Promise<boolean>; addExpense: (expense: any) => Promise<void>; updateExpense: (id: string, d: Partial<Expense>) => Promise<void>; deleteExpense: (id: string) => Promise<void>; addExpenseType: (name: string) => Promise<void>; updateExpenseType: (id: string, name: string) => Promise<void>; deleteExpenseType: (id: string) => Promise<void>; addCategory: (name: string) => Promise<void>; updateCategory: (id: string, name: string) => Promise<void>; deleteCategory: (id: string) => Promise<void>; reorderCategories: (newList: Category[]) => Promise<void>;
+  exportSystemBackup: () => Promise<void>;
+  importSystemBackup: (jsonString: string) => Promise<{ success: boolean; message: string }>;
 }
 
 const AppContext = createContext<(AppState & AppActions) | undefined>(undefined);
@@ -61,44 +72,45 @@ const hydrateDates = (obj: any): any => {
   return newObj;
 };
 
-// Inisialisasi Supabase menggunakan kredensial permanen
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(() => !localStorage.getItem(STORAGE_MANIFEST_KEY));
   const [isSaving, setIsSaving] = useState(false);
   const isFirstLoadRef = useRef(true);
 
-  // States for data
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [outlets, setOutlets] = useState<Outlet[]>([]);
-  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [products, setProducts] = useState<Product[]>(initialCache.products || PRODUCTS);
+  const [categories, setCategories] = useState<Category[]>(initialCache.categories || []);
+  const [inventory, setInventory] = useState<InventoryItem[]>(initialCache.inventory || INVENTORY_ITEMS);
+  const [outlets, setOutlets] = useState<Outlet[]>(initialCache.outlets || OUTLETS);
+  const [staff, setStaff] = useState<StaffMember[]>(initialCache.staff || INITIAL_STAFF);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>([]);
+  const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>(initialCache.expenseTypes || []);
   const [dailyClosings, setDailyClosings] = useState<DailyClosing[]>([]);
   const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>([]);
   const [stockRequests, setStockRequests] = useState<StockRequest[]>([]);
   const [productionRecords, setProductionRecords] = useState<ProductionRecord[]>([]);
-  const [wipRecipes, setWipRecipes] = useState<WIPRecipe[]>([]);
+  const [wipRecipes, setWipRecipes] = useState<WIPRecipe[]>(initialCache.wipRecipes || []);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
-  const [membershipTiers, setMembershipTiers] = useState<MembershipTier[]>([]);
-  const [bulkDiscounts, setBulkDiscounts] = useState<BulkDiscountRule[]>([]);
+  const [membershipTiers, setMembershipTiers] = useState<MembershipTier[]>(initialCache.membershipTiers || []);
+  const [bulkDiscounts, setBulkDiscounts] = useState<BulkDiscountRule[]>(initialCache.bulkDiscounts || []);
   const [simulations, setSimulations] = useState<MenuSimulation[]>([]);
-  const [loyaltyConfig, setLoyaltyConfig] = useState<LoyaltyConfig>({ isEnabled: true, earningAmountPerPoint: 1000, redemptionValuePerPoint: 100, minRedeemPoints: 50 });
-  const [brandConfig, setBrandConfig] = useState<BrandConfig>({ name: 'Mozza Boy', tagline: 'Premium Korean Street Food', logoUrl: '', primaryColor: '#f97316' });
+  const [loyaltyConfig, setLoyaltyConfig] = useState<LoyaltyConfig>(initialCache.loyaltyConfig || { isEnabled: true, earningAmountPerPoint: 1000, redemptionValuePerPoint: 100, minRedeemPoints: 50 });
+  const [brandConfig, setBrandConfig] = useState<BrandConfig>(initialCache.brandConfig || { name: 'Mozza Boy', tagline: 'Premium Korean Street Food', logoUrl: '', primaryColor: '#f97316' });
 
   const [currentUser, setCurrentUser] = useState<StaffMember | null>(() => {
     try {
       const savedUser = localStorage.getItem(STORAGE_USER_KEY);
-      return savedUser ? JSON.parse(savedUser) : null;
+      if (!savedUser) return null;
+      const parsed = JSON.parse(savedUser);
+      return (initialCache.staff || INITIAL_STAFF).find((s: any) => s.id === parsed.id || s.username === parsed.username) || parsed;
     } catch (e) { return null; }
   });
+  
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => localStorage.getItem(STORAGE_USER_KEY) !== null);
   const [selectedOutletId, setSelectedOutletId] = useState<string>(() => localStorage.getItem(STORAGE_OUTLET_KEY) || 'out1');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -106,57 +118,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [connectedPrinter, setConnectedPrinter] = useState<any>(null);
   const [loginTime, setLoginTime] = useState<Date | null>(null);
 
-  const safeFetch = async (table: string, setter: (data: any) => void, fallback: any = []) => {
+  const safeFetch = async (table: string, setter: (data: any) => void) => {
     try {
       const { data, error } = await supabase.from(table).select('*');
       if (error) throw error;
-      setter(data && data.length > 0 ? hydrateDates(data) : (isFirstLoadRef.current ? fallback : []));
+      if (data && data.length > 0) setter(hydrateDates(data));
+      return data;
     } catch (e: any) {
-      if (isFirstLoadRef.current) setter(fallback);
+      return null;
     }
   };
 
   const fetchFromCloud = async () => {
-    if (isFirstLoadRef.current) setIsInitialLoading(true);
-
+    const fallbackTimer = setTimeout(() => { setIsInitialLoading(false); }, 1000);
     try {
-      // TAHAP 1: Data Kritis (Wajib ada agar aplikasi bisa digunakan)
-      // Diproses secara paralel agar lebih cepat
-      await Promise.all([
-        safeFetch('brand_config', (data) => {
-          if (data && data[0]) setBrandConfig(hydrateDates(data[0]));
-        }, [brandConfig]),
-        safeFetch('loyalty_config', (data) => {
-          if (data && data[0]) setLoyaltyConfig(hydrateDates(data[0]));
-        }, [loyaltyConfig]),
-        safeFetch('staff', (data) => {
-           setStaff(data);
-           const savedUser = localStorage.getItem(STORAGE_USER_KEY);
-           if (savedUser) {
-              const parsed = JSON.parse(savedUser);
-              const freshUser = data.find((s: any) => s.id === parsed.id || s.username === parsed.username);
-              if (freshUser) {
-                  setCurrentUser(freshUser);
-                  localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(freshUser));
-              }
-           }
-        }, INITIAL_STAFF),
-        safeFetch('outlets', setOutlets, OUTLETS),
-        safeFetch('categories', (d) => setCategories(d.sort((a:any, b:any) => (a.sortOrder || 0) - (b.sortOrder || 0)))),
-        safeFetch('products', setProducts, PRODUCTS),
-        safeFetch('inventory', setInventory, INVENTORY_ITEMS),
-        safeFetch('expense_types', setExpenseTypes),
-        safeFetch('membership_tiers', setMembershipTiers),
-        safeFetch('bulk_discounts', setBulkDiscounts),
-        safeFetch('wip_recipes', setWipRecipes),
+      const [brand, loyalty, staffData, outletsData, cats, prods, inv, expT, tiers, bulk, recipes] = await Promise.all([
+        supabase.from('brand_config').select('*').eq('id', 'global').maybeSingle(),
+        supabase.from('loyalty_config').select('*').eq('id', 'global').maybeSingle(),
+        supabase.from('staff').select('*'),
+        supabase.from('outlets').select('*'),
+        supabase.from('categories').select('*').order('sortOrder'),
+        supabase.from('products').select('*'),
+        supabase.from('inventory').select('*'),
+        supabase.from('expense_types').select('*'),
+        supabase.from('membership_tiers').select('*'),
+        supabase.from('bulk_discounts').select('*'),
+        supabase.from('wip_recipes').select('*'),
       ]);
-
-      // SELESAI TAHAP 1: Aplikasi langsung terbuka
+      const manifest = {
+        brandConfig: brand.data ? hydrateDates(brand.data) : brandConfig,
+        loyaltyConfig: loyalty.data ? hydrateDates(loyalty.data) : loyaltyConfig,
+        staff: staffData.data || staff,
+        outlets: outletsData.data || outlets,
+        categories: cats.data || categories,
+        products: prods.data || products,
+        inventory: inv.data || inventory,
+        expenseTypes: expT.data || expenseTypes,
+        membershipTiers: tiers.data || membershipTiers,
+        bulkDiscounts: bulk.data || bulkDiscounts,
+        wipRecipes: recipes.data || wipRecipes
+      };
+      setBrandConfig(manifest.brandConfig);
+      setLoyaltyConfig(manifest.loyaltyConfig);
+      setStaff(manifest.staff);
+      setOutlets(manifest.outlets);
+      setCategories(manifest.categories);
+      setProducts(manifest.products);
+      setInventory(manifest.inventory);
+      setExpenseTypes(manifest.expenseTypes);
+      setMembershipTiers(manifest.membershipTiers);
+      setBulkDiscounts(manifest.bulkDiscounts);
+      setWipRecipes(manifest.wipRecipes);
+      localStorage.setItem(STORAGE_MANIFEST_KEY, JSON.stringify(manifest));
+      clearTimeout(fallbackTimer);
       setIsInitialLoading(false);
-      isFirstLoadRef.current = false;
-
-      // TAHAP 2: Data Riwayat (Background Loading)
-      // Tidak di-await agar tidak menghalangi user masuk ke menu
       Promise.all([
         safeFetch('attendance', setAttendance),
         safeFetch('transactions', setTransactions),
@@ -168,10 +183,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         safeFetch('production_records', setProductionRecords),
         safeFetch('purchases', setPurchases),
         safeFetch('simulations', setSimulations),
-      ]).catch(err => console.warn("Background fetch warning (non-critical)"));
-
+      ]).catch(() => {});
     } catch (e: any) {
-      console.error("Cloud synchronization failed during stage 1, working in offline mode");
+      clearTimeout(fallbackTimer);
       setIsInitialLoading(false);
     }
   };
@@ -196,7 +210,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return { success: true };
         }
       } catch (e) {}
-
       const localUser = INITIAL_STAFF.find(s => s.username === username && s.password === password);
       if (localUser) {
          setCurrentUser(localUser); 
@@ -207,15 +220,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return { success: false, message: "Invalid credentials." };
     },
-    logout: () => { 
-      setIsAuthenticated(false); 
-      setCurrentUser(null); 
-      localStorage.removeItem(STORAGE_USER_KEY); 
-    },
-    clearSession: () => {
-      localStorage.clear();
-      window.location.reload();
-    },
+    logout: () => { setIsAuthenticated(false); setCurrentUser(null); localStorage.removeItem(STORAGE_USER_KEY); },
+    clearSession: () => { localStorage.clear(); window.location.reload(); },
     switchOutlet: (id) => { setSelectedOutletId(id); localStorage.setItem(STORAGE_OUTLET_KEY, id); },
     addToCart: (p) => setOrderCart(prev => {
       const ex = prev.find(i => i.product.id === p.id);
@@ -241,7 +247,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         const total = Math.max(0, subtotal - memberDisc - bulkDisc - (redeem * loyaltyConfig.redemptionValuePerPoint));
         const txPayload = { id: `TX-${Date.now()}`, outletId: selectedOutletId, customerId: selectedCustomerId || null, items: cart, subtotal, total, totalCost, paymentMethod: method, status: OrderStatus.CLOSED, timestamp: new Date().toISOString(), cashierId: currentUser?.id, cashierName: currentUser?.name, pointsEarned: Math.floor(total/1000), pointsRedeemed: redeem };
-        
         const updates: { id: string, newQty: number }[] = [];
         const processDeduction = (p: Product, mult: number) => {
            if (p.isCombo && p.comboItems) {
@@ -251,9 +256,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                  const template = inventory.find(inv => inv.id === b.inventoryItemId);
                  if (template) {
                     const itemInBranch = inventory.find(inv => inv.outletId === selectedOutletId && inv.name === template.name);
-                    if (itemInBranch) {
-                        updates.push({ id: itemInBranch.id, newQty: (itemInBranch.quantity || 0) - (b.quantity * mult) });
-                    }
+                    if (itemInBranch) updates.push({ id: itemInBranch.id, newQty: (itemInBranch.quantity || 0) - (b.quantity * mult) });
                  }
               });
            }
@@ -334,7 +337,150 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await fetchFromCloud(); 
       setIsSaving(false); 
     },
-    exportTableToCSV: (table) => { alert("Exporting " + table); },
+    exportTableToCSV: (table) => {
+      let data: any[] = [];
+      let headers: string[] = [];
+      let fileName = `MOZZABOY_${table.toUpperCase()}_${new Date().toISOString().split('T')[0]}.csv`;
+
+      switch (table) {
+        case 'outlets':
+          data = outlets.map(o => ({
+            "ID Outlet": o.id,
+            "Nama Cabang": o.name,
+            "Alamat": o.address,
+            "Jam Buka": o.openTime,
+            "Jam Tutup": o.closeTime,
+            "Lat": o.latitude,
+            "Lng": o.longitude
+          }));
+          break;
+        case 'staff':
+          data = staff.map(s => ({
+            "ID Karyawan": s.id,
+            "Nama": s.name,
+            "Username": s.username,
+            "Jabatan": s.role,
+            "Status": s.status,
+            "Tgl Gabung": new Date(s.joinedAt).toLocaleDateString(),
+            "WhatsApp": s.phone || '',
+            "Email": s.email || ''
+          }));
+          break;
+        case 'categories':
+          data = categories.map(c => ({
+            "ID Kategori": c.id,
+            "Nama Kategori": c.name,
+            "Urutan Tampil": c.sortOrder
+          }));
+          break;
+        case 'products':
+          data = products.map(p => ({
+            "ID Produk": p.id,
+            "Nama Menu": p.name,
+            "ID Kategori": p.categoryId,
+            "Kategori": categories.find(c => c.id === p.categoryId)?.name || 'N/A',
+            "Harga Jual Default": p.price,
+            "Tipe": p.isCombo ? "PAKET" : "SATUAN",
+            "Status Aktif": p.isAvailable ? "AKTIF" : "OFF"
+          }));
+          break;
+        case 'customers':
+          data = customers.map(c => ({
+            "ID Pelanggan": c.id,
+            "Nama": c.name,
+            "WhatsApp": c.phone,
+            "Poin Terkumpul": c.points,
+            "Tier ID": c.tierId,
+            "Tgl Terdaftar": new Date(c.registeredAt).toLocaleDateString()
+          }));
+          break;
+        case 'inventory':
+          data = inventory.map(i => ({
+            "ID Item": i.id,
+            "Nama Bahan": i.name,
+            "Satuan": i.unit,
+            "Saldo Stok": i.quantity,
+            "Stok Minimal": i.minStock,
+            "Tipe": i.type,
+            "HPP Satuan": i.costPerUnit,
+            "ID Outlet": i.outletId
+          }));
+          break;
+        case 'production_records':
+          data = productionRecords.map(pr => ({
+            "ID Log": pr.id,
+            "Tgl Produksi": new Date(pr.timestamp).toLocaleString(),
+            "ID Item Hasil": pr.resultItemId,
+            "Nama Item": inventory.find(inv => inv.id === pr.resultItemId)?.name || 'N/A',
+            "Jumlah Hasil": pr.resultQuantity,
+            "PIC": pr.staffName,
+            "ID Outlet": pr.outletId
+          }));
+          break;
+        case 'wip_recipes':
+          data = wipRecipes.map(r => ({
+            "ID Resep": r.id,
+            "Nama Resep": r.name,
+            "ID Item Hasil": r.resultItemId,
+            "Hasil Per Batch": r.resultQuantity,
+            "Izin Kasir": r.isCashierOperated ? "YA" : "TIDAK"
+          }));
+          break;
+        case 'membership_tiers':
+          data = membershipTiers.map(t => ({
+            "ID Tier": t.id,
+            "Nama Tier": t.name,
+            "Min Poin": t.minPoints,
+            "Diskon (%)": t.discountPercent
+          }));
+          break;
+        case 'bulk_discounts':
+          data = bulkDiscounts.map(d => ({
+            "ID Promo": d.id,
+            "Nama Promo": d.name,
+            "Min Qty": d.minQty,
+            "Diskon (%)": d.discountPercent,
+            "Status": d.isActive ? "AKTIF" : "OFF"
+          }));
+          break;
+        case 'simulations':
+          data = simulations.map(s => ({
+            "ID Projek": s.id,
+            "Nama Projek": s.name,
+            "Target Harga Jual": s.price,
+            "Komisi (%)": s.shareProfitPercent,
+            "Tgl Update": new Date(s.updatedAt).toLocaleDateString()
+          }));
+          break;
+        default:
+          alert("Tabel tidak dikenal.");
+          return;
+      }
+
+      if (data.length === 0) {
+        alert("Tidak ada data dalam kategori " + table.toUpperCase());
+        return;
+      }
+
+      headers = Object.keys(data[0]);
+      const csvContent = [
+        headers.join(','),
+        ...data.map(row => headers.map(h => {
+          const cell = row[h] === null || row[h] === undefined ? '' : row[h].toString();
+          return `"${cell.replace(/"/g, '""')}"`;
+        }).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', fileName);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    },
     importCSVToTable: async (table, csv) => { return true; },
     addStaff: async (s) => { await supabase.from('staff').insert(s); setStaff(prev => [...(prev || []), hydrateDates(s)]); },
     updateStaff: async (s) => { 
@@ -476,19 +622,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncToCloud: () => { fetchFromCloud(); },
     selectCustomer: setSelectedCustomerId,
     setConnectedPrinter,
+    exportSystemBackup: async () => {
+      const tables = [
+        'staff', 'outlets', 'categories', 'products', 'inventory', 'expense_types', 
+        'membership_tiers', 'bulk_discounts', 'wip_recipes', 'loyalty_config', 'brand_config',
+        'transactions', 'expenses', 'attendance', 'leave_requests', 'daily_closings',
+        'production_records', 'purchases', 'stock_transfers', 'customers'
+      ];
+      
+      const backupData: any = {
+        timestamp: new Date().toISOString(),
+        version: '2.5.0',
+        content: {}
+      };
+
+      for (const table of tables) {
+        const { data } = await supabase.from(table).select('*');
+        backupData.content[table] = data || [];
+      }
+
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `MOZZABOY_BACKUP_${new Date().toISOString().split('T')[0]}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+    importSystemBackup: async (jsonString: string) => {
+      try {
+        const backup = JSON.parse(jsonString);
+        if (!backup.content || typeof backup.content !== 'object') throw new Error("Invalid backup format.");
+        
+        setIsSaving(true);
+        for (const [table, data] of Object.entries(backup.content)) {
+          if (Array.isArray(data) && data.length > 0) {
+            // Kita bersihkan dulu data yang ada untuk menghindari konflik ID jika perlu
+            // Namun untuk keamanan, kita gunakan UPSERT
+            const { error } = await supabase.from(table).upsert(data);
+            if (error) console.error(`Error importing table ${table}:`, error);
+          }
+        }
+        await actions.fetchFromCloud();
+        setIsSaving(false);
+        return { success: true, message: "System Restore Completed Successfully!" };
+      } catch (e: any) {
+        setIsSaving(false);
+        return { success: false, message: e.message || "Failed to restore backup." };
+      }
+    }
   };
 
   const filteredTransactions = selectedOutletId === 'all' ? (transactions || []) : (transactions || []).filter(tx => tx.outletId === selectedOutletId);
 
   return (
     <AppContext.Provider value={{ ...actions, products, categories, inventory, stockTransfers, stockRequests, productionRecords, wipRecipes, transactions, filteredTransactions, outlets, currentUser, isAuthenticated, loginTime, cart, staff, attendance, leaveRequests, selectedOutletId, customers, selectedCustomerId, expenses, expenseTypes, dailyClosings, purchases, connectedPrinter, membershipTiers, bulkDiscounts, simulations, loyaltyConfig, brandConfig, isSaving, isInitialLoading, isDbConnected: true }}>
-      {isInitialLoading ? (
-        <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white">
-           <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-6" style={{ borderColor: brandConfig.primaryColor, borderTopColor: 'transparent' }}></div>
-           <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Initializing {brandConfig.name} System...</p>
-           <p className="text-[8px] text-slate-500 uppercase mt-2 tracking-widest">Optimizing Cloud Engine...</p>
-        </div>
-      ) : children}
+      {children}
     </AppContext.Provider>
   );
 };

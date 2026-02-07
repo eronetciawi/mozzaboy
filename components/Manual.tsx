@@ -9,7 +9,6 @@ export const Manual: React.FC = () => {
     window.print();
   };
 
-  // Fix: added optional flag to children property to resolve TS error in JSX usage
   const Step = ({ num, title, children }: { num: string, title: string, children?: React.ReactNode }) => (
     <div className="mb-12 break-inside-avoid">
       <div className="flex items-center gap-4 mb-4">
@@ -59,7 +58,7 @@ export const Manual: React.FC = () => {
             <li>Daftar di <span className="text-indigo-600 font-bold">Supabase.com</span> (Gratis).</li>
             <li>Buat <b>New Project</b> dengan nama bisnis Anda.</li>
             <li>Masuk ke menu <b>SQL Editor</b> di sidebar kiri Supabase.</li>
-            <li>Klik <b>+ New Query</b>, lalu salin (copy) kode SQL raksasa yang ada di menu <b>Maintenance > Setup Database Cloud</b> di aplikasi ini.</li>
+            <li>Klik <b>+ New Query</b>, lalu salin (copy) kode SQL raksasa yang ada di menu <b>Maintenance &gt; Setup Database Cloud</b> di aplikasi ini.</li>
             <li>Klik <b>RUN</b>. Database Anda kini siap digunakan!</li>
           </ul>
         </Step>
@@ -68,7 +67,7 @@ export const Manual: React.FC = () => {
           <p>Setelah database siap, Anda harus "mengawinkan" aplikasi ini dengan database tersebut.</p>
           <ul className="list-disc pl-5 space-y-2 font-medium">
             <li>Di layar Login aplikasi ini, klik tombol <b>SETUP CLOUD NOW ⚡</b>.</li>
-            <li>Ambil <b>Project URL</b> dan <b>Anon Key</b> dari dashboard Supabase Anda (Menu: Project Settings > API).</li>
+            <li>Ambil <b>Project URL</b> dan <b>Anon Key</b> dari dashboard Supabase Anda (Menu: Project Settings &gt; API).</li>
             <li>Masukkan ke dalam aplikasi dan klik <b>CONNECT</b>.</li>
             <li>Login pertama kali menggunakan: <b>Username:</b> <span className="bg-slate-100 px-2 rounded">admin</span> | <b>Password:</b> <span className="bg-slate-100 px-2 rounded">123</span></li>
           </ul>
