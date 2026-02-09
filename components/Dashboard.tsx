@@ -17,8 +17,9 @@ const CompactMetric: React.FC<{ label: string; value: string; color: string; ico
 
 export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ setActiveTab }) => {
   const { 
-    selectedOutletId, outlets, 
-    currentUser, transactions, expenses, attendance, filteredTransactions, leaveRequests = [], brandConfig
+    selectedOutletId, outlets, products,
+    currentUser, transactions, expenses, attendance, filteredTransactions, leaveRequests = [], brandConfig,
+    isFetching, isInitialLoading, isSaving
   } = useApp();
   
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -34,6 +35,34 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
     [leaveRequests]
   );
 
+  // LOGIKA STATUS OPERASIONAL OUTLET (KHUSUS OWNER)
+  const outletLiveStatus = useMemo(() => {
+    if (!isExecutive) return [];
+    
+    return outlets.map(outlet => {
+      const todayAttendance = (attendance || []).filter(a => {
+        const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
+        return a.outletId === outlet.id && recordDateStr === todayStr;
+      });
+
+      // Cari absen masuk paling awal sebagai penanda jam buka
+      const sortedAttendance = [...todayAttendance].sort((a, b) => 
+        new Date(a.clockIn).getTime() - new Date(b.clockIn).getTime()
+      );
+      
+      const opener = sortedAttendance[0];
+
+      return {
+        id: outlet.id,
+        name: outlet.name,
+        isOpen: todayAttendance.length > 0,
+        openTime: opener ? new Date(opener.clockIn).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null,
+        staffName: opener ? opener.staffName : null,
+        totalStaffPresent: todayAttendance.length
+      };
+    });
+  }, [outlets, attendance, todayStr, isExecutive]);
+
   const myPresenceToday = useMemo(() => {
      if (isExecutive) return true;
      if (!currentUser) return false;
@@ -42,7 +71,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
      if (savedGuard) {
         try {
            const guard = JSON.parse(savedGuard);
-           if (guard.date === todayStr && guard.staffId === currentUser.id && guard.outletId === selectedOutletId) {
+           if (guard.date === todayStr && guard.staffId === currentUser.id) {
               return true;
            }
         } catch (e) {}
@@ -52,10 +81,9 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
         const isMe = a.staffId === currentUser.id;
         const isToday = recordDateStr === todayStr;
-        const isCorrectOutlet = a.outletId === selectedOutletId;
-        return isMe && isToday && isCorrectOutlet;
+        return isMe && isToday;
      });
-  }, [attendance, currentUser, todayStr, isExecutive, selectedOutletId]);
+  }, [attendance, currentUser, todayStr, isExecutive]);
 
   const summary = useMemo(() => {
     const targetTxs = isGlobalView ? transactions : filteredTransactions;
@@ -98,6 +126,22 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-[#fcfdfe] pb-40">
+      
+      {/* CLOUD SYNC INTEL BANNER */}
+      {(isFetching || isInitialLoading || (products.length === 0 && isFetching)) && (
+        <div className="mb-6 p-4 bg-slate-900 rounded-[32px] text-white flex items-center justify-between shadow-2xl border-b-4 border-orange-500 animate-in slide-in-from-top-4 duration-500">
+           <div className="flex items-center gap-4">
+              <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-xl animate-spin">
+                 🔄
+              </div>
+              <div>
+                 <h4 className="text-[10px] font-black uppercase tracking-widest leading-none mb-1 text-orange-400">Menghubungkan ke Cloud...</h4>
+                 <p className="text-[11px] font-bold opacity-80 uppercase leading-tight">Mohon tunggu, sedang memuat katalog menu & aset bisnis.</p>
+              </div>
+           </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-8">
         <div>
            <p className="text-[10px] font-black uppercase tracking-[0.4em]" style={{ color: brandConfig.primaryColor }}>Audit Dashboard</p>
@@ -106,10 +150,61 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
            </h2>
         </div>
         <div className="text-right hidden sm:block">
-           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Last Synced</p>
-           <p className="text-[11px] font-bold text-slate-800 uppercase mt-1">{new Date().toLocaleTimeString()}</p>
+           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Status Cloud</p>
+           <div className="flex items-center gap-2 mt-1">
+              <div className={`w-2 h-2 rounded-full ${isFetching || isSaving ? 'bg-orange-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+              <p className="text-[11px] font-bold text-slate-800 uppercase">{isFetching || isSaving ? 'SYNCING' : 'ONLINE'}</p>
+           </div>
         </div>
       </div>
+
+      {/* MONITORING OPERASIONAL OUTLET (KHUSUS OWNER/MANAGER) */}
+      {isExecutive && isGlobalView && (
+        <div className="mb-10 space-y-4 animate-in slide-in-from-bottom-2 duration-700">
+           <div className="flex items-center gap-3 ml-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></div>
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Live Operational Monitoring</h3>
+           </div>
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {outletLiveStatus.map(status => (
+                <div key={status.id} className={`p-5 rounded-[32px] border-2 transition-all flex flex-col justify-between ${status.isOpen ? 'bg-white border-emerald-100 shadow-lg' : 'bg-slate-50 border-slate-100 opacity-60 grayscale'}`}>
+                   <div className="flex justify-between items-start mb-4">
+                      <div className="min-w-0">
+                         <h4 className="text-[11px] font-black text-slate-800 uppercase truncate leading-none mb-1">{status.name}</h4>
+                         <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">Branch ID: {status.id.slice(-4).toUpperCase()}</p>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${status.isOpen ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-200 text-slate-500'}`}>
+                         {status.isOpen ? 'OPEN' : 'CLOSED'}
+                      </span>
+                   </div>
+                   
+                   {status.isOpen ? (
+                     <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                           <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-xs shadow-inner">⏰</div>
+                           <div>
+                              <p className="text-[7px] font-black text-slate-400 uppercase">Absen Pembuka</p>
+                              <p className="text-[10px] font-black text-emerald-600">{status.openTime} WIB</p>
+                           </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                           <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-xs shadow-inner">👤</div>
+                           <div className="min-w-0">
+                              <p className="text-[7px] font-black text-slate-400 uppercase">PIC Opening</p>
+                              <p className="text-[10px] font-black text-slate-700 truncate uppercase">{status.staffName?.split(' ')[0]}</p>
+                           </div>
+                        </div>
+                     </div>
+                   ) : (
+                     <div className="py-4 text-center">
+                        <p className="text-[9px] font-black text-slate-300 uppercase italic">Belum Ada Aktivitas</p>
+                     </div>
+                   )}
+                </div>
+              ))}
+           </div>
+        </div>
+      )}
 
       {isExecutive && pendingLeaves.length > 0 && (
          <div className="mb-6 p-5 bg-indigo-600 rounded-[32px] text-white flex items-center justify-between shadow-xl shadow-indigo-200 animate-in slide-in-from-top-4">

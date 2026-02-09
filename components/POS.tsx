@@ -27,27 +27,35 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [showAttendanceToast, setShowAttendanceToast] = useState(false);
 
-  const isClockedInToday = useMemo(() => {
+  // FIX: Logika Pengecekan Absensi yang Lebih Tangguh & Langsung
+  const checkIsClockedIn = () => {
     if (currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER) return true;
     if (!currentUser) return false;
 
     const todayStr = new Date().toLocaleDateString('en-CA');
 
+    // 1. Cek Hot Cache (LocalStorage)
     const savedGuard = localStorage.getItem('mozzaboy_last_clockin');
     if (savedGuard) {
        try {
           const guard = JSON.parse(savedGuard);
-          if (guard.date === todayStr && guard.staffId === currentUser.id && guard.outletId === selectedOutletId) {
+          // Jika kru yang sama sudah absen hari ini (di cabang manapun yang dia ditugaskan), izinkan transaksi
+          if (guard.date === todayStr && guard.staffId === currentUser.id) {
              return true;
           }
        } catch (e) {}
     }
     
+    // 2. Cek Real-time State Array (Fallback & Verifikasi State)
     return (attendance || []).some(a => {
        const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
-       return a.staffId === currentUser.id && recordDateStr === todayStr && a.outletId === selectedOutletId;
+       const isMe = a.staffId === currentUser.id;
+       const isToday = recordDateStr === todayStr;
+       return isMe && isToday;
     });
-  }, [attendance, currentUser, selectedOutletId]);
+  };
+
+  const isClockedInToday = checkIsClockedIn();
 
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
@@ -104,7 +112,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     if (isShiftClosed) return alert("Akses Ditolak. Anda sudah melakukan tutup shift hari ini.");
     if (isSaving) return;
 
-    if (!isClockedInToday) {
+    if (!checkIsClockedIn()) {
        setShowAttendanceToast(true);
        return;
     }
@@ -250,7 +258,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         <div className="md:hidden fixed bottom-20 left-0 right-0 px-4 z-[60] animate-in slide-in-from-bottom-5">
           <button 
             onClick={() => {
-              if (!isClockedInToday) {
+              if (!checkIsClockedIn()) {
                   setShowAttendanceToast(true);
               } else {
                   setMobileView('cart');
@@ -322,7 +330,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           <button
             disabled={cart.length === 0 || isShiftClosed || isSaving}
             onClick={() => {
-              if (!isClockedInToday) {
+              if (!checkIsClockedIn()) {
                   setShowAttendanceToast(true);
               } else {
                   setShowCheckout(true);

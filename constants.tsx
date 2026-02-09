@@ -42,6 +42,8 @@ export const INITIAL_STAFF: StaffMember[] = [
     status: 'ACTIVE',
     permissions: { canAccessReports: true, canManageStaff: true, canManageMenu: true, canManageInventory: true, canProcessSales: true, canVoidTransactions: true, canManageSettings: true },
     joinedAt: new Date('2024-01-01'),
+    // Fix: Add required workingDays property
+    workingDays: [0, 1, 2, 3, 4, 5, 6],
     weeklyOffDay: 0
   }
 ];

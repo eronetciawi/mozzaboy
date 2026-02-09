@@ -3,11 +3,15 @@ import React, { useState } from 'react';
 import { useApp } from '../store';
 
 export const Login: React.FC = () => {
-  const { login, brandConfig } = useApp();
+  const { login, brandConfig, cloudConfig, updateCloudConfig } = useApp();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showCloudSetup, setShowCloudSetup] = useState(false);
+  
+  const [tempUrl, setTempUrl] = useState(cloudConfig.url);
+  const [tempKey, setTempKey] = useState(cloudConfig.key);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +24,7 @@ export const Login: React.FC = () => {
         setError(result.message || 'Invalid credentials.');
       }
     } catch (err) {
-      setError('Connection failed.');
+      setError('Connection failed. Periksa URL & Key Cloud Anda.');
     } finally {
       setIsLoading(false);
     }
@@ -106,6 +110,13 @@ export const Login: React.FC = () => {
                 </button>
               </div>
             </form>
+            
+            <button 
+              onClick={() => setShowCloudSetup(true)}
+              className="w-full mt-6 text-[9px] font-black text-slate-400 uppercase tracking-widest hover:text-orange-500 transition-colors"
+            >
+              ⚙️ Konfigurasi Cloud Database
+            </button>
           </div>
         </div>
 
@@ -120,6 +131,32 @@ export const Login: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* CLOUD SETUP MODAL */}
+      {showCloudSetup && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-6">
+           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 shadow-2xl animate-in zoom-in-95">
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-6 tracking-tighter text-center">Cloud Database Hub</h3>
+              <div className="space-y-6">
+                 <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Project URL</label>
+                    <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-bold text-xs" value={tempUrl} onChange={e => setTempUrl(e.target.value)} placeholder="https://xxx.supabase.co" />
+                 </div>
+                 <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Anon Key</label>
+                    <textarea className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-bold text-[10px] h-24" value={tempKey} onChange={e => setTempKey(e.target.value)} placeholder="eyJhbGci..." />
+                 </div>
+                 <button 
+                  onClick={() => { updateCloudConfig(tempUrl, tempKey); setShowCloudSetup(false); alert("Database Disambungkan! Silakan Login."); }}
+                  className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xs uppercase tracking-widest"
+                 >
+                   SAMBUNGKAN SEKARANG ⚡
+                 </button>
+                 <button onClick={() => setShowCloudSetup(false)} className="w-full text-slate-400 text-[10px] font-black uppercase">Tutup</button>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };

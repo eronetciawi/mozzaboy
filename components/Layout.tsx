@@ -1,161 +1,217 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../store';
 import { UserRole } from '../types';
 
 interface SidebarProps { activeTab: string; setActiveTab: (tab: string) => void; closeDrawer?: () => void; }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer }) => {
-  const { currentUser, logout, stockRequests = [], stockTransfers = [], selectedOutletId, connectedPrinter, leaveRequests = [], brandConfig } = useApp();
+  const { currentUser, logout, selectedOutletId, brandConfig } = useApp();
   
-  if (!currentUser || !currentUser.permissions) return <div className="h-full bg-slate-900 animate-pulse"></div>;
+  if (!currentUser) return <div className="h-full bg-slate-900 animate-pulse"></div>;
 
-  const { permissions } = currentUser;
-  const isCashier = currentUser.role === UserRole.CASHIER;
   const isAdmin = currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER;
+  const isOutletSelected = selectedOutletId !== 'all';
   
-  const pendingRequestsCount = (stockRequests || []).filter(r => (selectedOutletId === 'all' || r.outletId === selectedOutletId) && r.status === 'PENDING').length;
-  const pendingLeavesCount = (leaveRequests || []).filter(l => l.status === 'PENDING').length;
-  const incomingMutationsCount = (stockTransfers || []).filter(t => t.toOutletId === selectedOutletId && t.status === 'PENDING').length;
-
-  const menuGroups: { label: string; items: { id: string; label: string; icon: string; visible: boolean; badge?: number | null; status?: string }[] }[] = [
-    { label: 'Operasional', items: [
-      { id: 'dashboard', label: 'Dashboard', icon: '📊', visible: true },
-      { id: 'pos', label: 'Kasir Jualan', icon: '🛒', visible: permissions.canProcessSales && selectedOutletId !== 'all' },
-      { id: 'attendance', label: 'My Portal', icon: '⏰', visible: true },
-      { id: 'expenses', label: 'Pengeluaran', icon: '💸', visible: selectedOutletId !== 'all' },
-      { id: 'closing', label: 'Tutup Buku', icon: '📔', visible: permissions.canProcessSales && selectedOutletId !== 'all' },
-    ]},
-    { label: 'Strategi & Owner', items: [
-      { id: 'reports', label: 'Laporan Bisnis', icon: '📈', visible: permissions.canAccessReports },
-      { id: 'engineering', label: 'Menu Engineering', icon: '📐', visible: isAdmin },
-      { id: 'loyalty', label: 'Loyalty & Promo', icon: '🎁', visible: true },
-    ]},
-    { label: 'Logistik & Stok', items: [
-      { id: 'inventory', label: 'Stok Barang', icon: '📦', visible: true }, 
-      { id: 'production', label: 'Produksi/Mixing', icon: '🧪', visible: (permissions.canManageInventory || isCashier) && selectedOutletId !== 'all' },
-      { id: 'purchases', label: 'Pembelian Stok', icon: '🚛', visible: (permissions.canManageInventory || isCashier) && selectedOutletId !== 'all', badge: pendingRequestsCount > 0 ? pendingRequestsCount : null },
-      { id: 'transfers', label: 'Mutasi Stok', icon: '↔️', visible: selectedOutletId !== 'all', badge: incomingMutationsCount > 0 ? incomingMutationsCount : null },
-    ]},
-    { label: 'Katalog & Pelanggan', items: [
-      { id: 'menu', label: 'Daftar Menu', icon: '📜', visible: permissions.canManageMenu },
-      { id: 'categories', label: 'Kategori Menu', icon: '🏷️', visible: permissions.canManageMenu },
-      { id: 'crm', label: 'Data Pelanggan', icon: '🎖️', visible: true },
-    ]},
-    { label: 'System Setup', items: [
-      { id: 'staff', label: 'Karyawan', icon: '👥', visible: permissions.canManageStaff, badge: (isAdmin && pendingLeavesCount > 0) ? pendingLeavesCount : null },
-      { id: 'outlets', label: 'Daftar Cabang', icon: '🏢', visible: currentUser.role === UserRole.OWNER },
-      { id: 'printer', label: 'Printer BT', icon: '🖨️', visible: true, status: connectedPrinter ? 'connected' : 'none' },
-      { id: 'maintenance', label: 'Maintenance', icon: '🛠️', visible: currentUser.role === UserRole.OWNER },
-    ]}
+  const menuGroups = [
+    { 
+      label: 'Manajemen Operasional', 
+      items: [
+        { id: 'dashboard', label: 'Dashboard Utama', icon: '📊', visible: true },
+        { id: 'pos', label: 'Sistem Kasir', icon: '🛒', visible: isOutletSelected },
+        { id: 'expenses', label: 'Pengeluaran', icon: '💸', visible: isOutletSelected },
+        { id: 'closing', label: 'Tutup Shift', icon: '🏁', visible: isOutletSelected },
+        { id: 'attendance', label: 'Crew Access', icon: '⏰', visible: true },
+      ]
+    },
+    { 
+      label: 'Logistik & Persediaan', 
+      items: [
+        { id: 'inventory', label: 'Stok', icon: '📦', visible: true },
+        { id: 'production', label: 'Produksi & Mixing', icon: '🧪', visible: isOutletSelected },
+        { id: 'transfers', label: 'Transfer Stok', icon: '🚚', visible: isOutletSelected },
+        { id: 'purchases', label: 'Belanja', icon: '🚛', visible: isOutletSelected },
+      ]
+    },
+    { 
+      label: 'Kecerdasan Bisnis', 
+      items: [
+        { id: 'menu', label: 'Produk & Menu', icon: '📜', visible: isAdmin },
+        { id: 'categories', label: 'Kategori', icon: '🏷️', visible: isAdmin },
+        { id: 'engineering', label: 'Menu Engineering', icon: '📐', visible: isAdmin },
+        { id: 'reports', label: 'Laporan Keuangan', icon: '📈', visible: isAdmin },
+      ]
+    },
+    { 
+      label: 'CRM & Pemasaran', 
+      items: [
+        { id: 'crm', label: 'Database Member', icon: '👤', visible: true },
+        { id: 'loyalty', label: 'Loyalty Program', icon: '🎁', visible: true },
+      ]
+    },
+    { 
+      label: 'Administrasi Sistem', 
+      items: [
+        { id: 'outlets', label: 'Data Outlet', icon: '🏢', visible: isAdmin },
+        { id: 'staff', label: 'Manajemen Kru', icon: '👥', visible: isAdmin },
+        { id: 'printer', label: 'Printer & Hardware', icon: '🖨️', visible: true },
+        { id: 'maintenance', label: 'Maintenance', icon: '🛠️', visible: currentUser.role === UserRole.OWNER },
+      ]
+    }
   ];
 
-  const handleNav = (id: string) => { setActiveTab(id); if (closeDrawer) closeDrawer(); };
-
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-slate-300">
-      <div className="p-6 flex items-center gap-3 shrink-0">
-        {brandConfig.logoUrl ? (
-          <img src={brandConfig.logoUrl} className="w-12 h-12 object-contain" alt="Logo" />
-        ) : (
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg transform -rotate-2 select-none" style={{ backgroundColor: brandConfig.primaryColor }}>
-            {brandConfig.name.charAt(0)}
-          </div>
-        )}
-        <div>
-          <div className="font-black text-white text-sm tracking-tighter uppercase leading-none">{brandConfig.name}</div>
-          <div className="text-[8px] font-black uppercase tracking-widest mt-1" style={{ color: brandConfig.primaryColor }}>{brandConfig.tagline}</div>
+    <div className="flex flex-col h-full bg-[#0f172a] text-slate-300 border-r border-slate-800">
+      {/* Brand Header */}
+      <div className="p-6 flex items-center gap-3 shrink-0 mb-2 border-b border-slate-800/50">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg transform -rotate-3 shrink-0" style={{ backgroundColor: brandConfig.primaryColor }}>
+          {brandConfig.name.charAt(0)}
+        </div>
+        <div className="min-w-0">
+          <div className="font-black text-white text-[13px] tracking-tight uppercase leading-none truncate">{brandConfig.name}</div>
+          <div className="text-[7px] font-bold uppercase tracking-[0.1em] mt-1.5 text-slate-500 truncate">{brandConfig.tagline}</div>
         </div>
       </div>
-      <nav className="flex-1 px-3 space-y-6 overflow-y-auto custom-scrollbar pb-10">
+
+      {/* Navigation */}
+      <nav className="flex-1 px-3 mt-4 space-y-6 overflow-y-auto custom-scrollbar pb-10">
         {menuGroups.map((group, gIdx) => {
           const visibleItems = group.items.filter(i => i.visible);
           if (visibleItems.length === 0) return null;
           return (
             <div key={gIdx} className="space-y-1">
-              <h5 className="px-4 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">{group.label}</h5>
-              {visibleItems.map((item) => (
-                <button 
-                  key={item.id} 
-                  onClick={() => handleNav(item.id)} 
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl transition-all duration-200 group relative ${activeTab === item.id ? 'text-white font-bold shadow-lg' : 'hover:bg-slate-800 text-slate-400'}`}
-                  style={activeTab === item.id ? { backgroundColor: brandConfig.primaryColor } : {}}
-                >
-                  <span className="text-base">{item.icon}</span>
-                  <span className="text-[10px] uppercase font-black tracking-widest flex-1 text-left">{item.label}</span>
-                  {item.badge && <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full ring-2 ring-slate-900 animate-pulse">{item.badge}</span>}
-                </button>
-              ))}
+              <h5 className="px-4 text-[9px] font-black text-slate-500 uppercase tracking-wider mb-2 opacity-70">{group.label}</h5>
+              <div className="space-y-0.5">
+                {visibleItems.map((item) => (
+                  <button 
+                    key={item.id} 
+                    onClick={() => { setActiveTab(item.id); if(closeDrawer) closeDrawer(); }} 
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group ${activeTab === item.id ? 'text-white shadow-xl' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}
+                    style={activeTab === item.id ? { backgroundColor: brandConfig.primaryColor } : {}}
+                  >
+                    <span className={`text-[16px] w-6 flex justify-center shrink-0 transition-transform group-hover:scale-110 ${activeTab === item.id ? 'opacity-100' : 'opacity-50'}`}>
+                      {item.icon}
+                    </span>
+                    <span className={`text-[11px] font-semibold tracking-normal whitespace-nowrap truncate ${activeTab === item.id ? 'font-bold' : ''}`}>
+                      {item.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           );
         })}
       </nav>
-      <div className="p-4 border-t border-slate-800 bg-slate-900/50 shrink-0">
-        <div className="flex items-center gap-3 p-3 bg-slate-800/40 rounded-2xl border border-slate-800 mb-3">
-          <div className="w-8 h-8 rounded-xl bg-slate-700 flex items-center justify-center text-[10px] font-black text-white uppercase">{currentUser.name.charAt(0)}</div>
-          <div className="text-[9px] truncate flex-1">
-            <p className="text-white font-black uppercase truncate">{currentUser.name}</p>
-            <p className="text-slate-500 font-bold uppercase mt-0.5">{currentUser.role}</p>
-          </div>
+
+      {/* User Info & Logout */}
+      <div className="p-4 border-t border-slate-800/50 shrink-0 bg-slate-900/40">
+        <div className="flex items-center gap-3 px-2 mb-4">
+           <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-xs shrink-0">👤</div>
+           <div className="min-w-0">
+              <p className="text-[10px] font-bold text-white truncate leading-none uppercase">{currentUser.name}</p>
+              <p className="text-[8px] font-medium text-slate-500 mt-1 uppercase tracking-wider">{currentUser.role}</p>
+           </div>
         </div>
-        <button onClick={logout} className="w-full text-[8px] font-black tracking-[0.2em] py-3 bg-red-500/10 text-red-500 rounded-xl border border-red-500/10">LOGOUT</button>
+        <button 
+          onClick={logout} 
+          className="w-full text-[10px] font-black tracking-widest py-3 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all duration-300 uppercase"
+        >
+          Keluar Sesi
+        </button>
       </div>
     </div>
   );
 };
 
 export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; setActiveTab: (tab: string) => void }> = ({ children, activeTab, setActiveTab }) => {
-  const { outlets = [], selectedOutletId, switchOutlet, isSaving, currentUser, brandConfig } = useApp();
+  const { outlets = [], selectedOutletId, switchOutlet, isSaving, assetsOptimized, brandConfig, currentUser } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  
-  const assignedIds = currentUser?.assignedOutletIds || [];
-  const accessibleOutlets = currentUser?.role === UserRole.OWNER ? outlets : (outlets || []).filter(o => assignedIds.includes(o.id));
-  const isGlobalManager = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
+
+  // SECURITY FILTER: Hanya tampilkan cabang yang diizinkan untuk user aktif
+  const allowedOutlets = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) {
+        return outlets;
+    }
+    return outlets.filter(o => currentUser.assignedOutletIds.includes(o.id));
+  }, [outlets, currentUser]);
+
+  const showGlobalOption = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden font-sans select-none">
-      <div className="hidden md:block w-56 shrink-0 h-full no-print">
+    <div className="flex h-screen bg-white overflow-hidden font-sans select-none text-slate-900">
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block w-60 shrink-0 h-full no-print">
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       </div>
+
+      {/* Mobile Drawer */}
       {isMenuOpen && (
-        <div className="fixed inset-0 z-[100] md:hidden bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setIsMenuOpen(false)}>
-           <div className="w-64 h-full animate-in slide-in-from-left duration-300" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[100] lg:hidden bg-slate-950/80 backdrop-blur-sm transition-all duration-300" onClick={() => setIsMenuOpen(false)}>
+           <div className="w-64 h-full animate-in slide-in-from-left duration-300 shadow-2xl" onClick={e => e.stopPropagation()}>
               <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} closeDrawer={() => setIsMenuOpen(false)} />
            </div>
         </div>
       )}
+
+      {/* Main Container */}
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        <header className="h-16 md:h-20 bg-white border-b border-slate-100 px-4 md:px-8 flex items-center justify-between shadow-sm z-40 shrink-0 no-print">
-          <div className="flex items-center gap-3">
-             <button onClick={() => setIsMenuOpen(true)} className="md:hidden w-12 h-12 flex items-center justify-center text-xl bg-slate-50 rounded-2xl">☰</button>
-             <div className="hidden md:block w-1.5 h-8 rounded-full" style={{ backgroundColor: brandConfig.primaryColor }}></div>
+        {/* Header */}
+        <header className="h-16 lg:h-20 bg-white border-b border-slate-100 px-4 lg:px-8 flex items-center justify-between shadow-sm z-40 shrink-0 no-print">
+          <div className="flex items-center gap-4">
+             <button onClick={() => setIsMenuOpen(true)} className="lg:hidden w-10 h-10 flex items-center justify-center text-xl bg-slate-50 border border-slate-100 rounded-xl text-slate-600">☰</button>
              <div className="flex flex-col">
-               <h1 className="text-[12px] md:text-sm font-black text-slate-900 uppercase tracking-tighter leading-none">
-                 {selectedOutletId === 'all' ? 'Network Hub' : (accessibleOutlets || []).find(o=>o.id===selectedOutletId)?.name || 'Outlet'}
-               </h1>
-               <div className="flex items-center gap-1.5 mt-1">
+               <div className="flex items-center gap-2">
+                 <span className="text-[10px] lg:text-[11px] font-black text-slate-400 uppercase tracking-widest">Cabang Aktif:</span>
+                 <h1 className="text-[11px] lg:text-sm font-black text-slate-900 uppercase tracking-tighter leading-none">
+                   {selectedOutletId === 'all' ? 'Pusat Kontrol Global' : outlets.find(o=>o.id===selectedOutletId)?.name || 'Outlet'}
+                 </h1>
+               </div>
+               <div className="flex items-center gap-1.5 mt-1.5">
                  <div className={`w-1.5 h-1.5 rounded-full ${isSaving ? 'animate-pulse bg-orange-500' : 'bg-emerald-500'}`}></div>
-                 <span className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                    {isSaving ? 'Syncing...' : 'System Online'}
+                 <span className="text-[7px] lg:text-[8px] font-bold uppercase tracking-widest text-slate-400">
+                    {isSaving ? 'Menyinkronkan Cloud...' : assetsOptimized ? 'Terhubung & Terverifikasi ✓' : 'Mengoptimalkan Aset...'}
                  </span>
                </div>
              </div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="bg-slate-50 border-2 border-slate-100 p-1.5 md:p-2 rounded-2xl flex items-center gap-2">
-              <select className="text-[11px] md:text-[13px] font-black bg-transparent focus:outline-none cursor-pointer max-w-[120px] md:max-w-none" style={{ color: brandConfig.primaryColor }} value={selectedOutletId} onChange={(e) => switchOutlet(e.target.value)}>
-                {isGlobalManager && <option value="all">🌍 ALL BRANCHES</option>}
-                {(accessibleOutlets || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
-            </div>
+
+          <div className="bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl flex items-center gap-2 group hover:border-orange-200 transition-all">
+            <span className="text-xs opacity-40">🌍</span>
+            <select 
+              className="text-[10px] font-black bg-transparent outline-none cursor-pointer text-slate-700 uppercase tracking-wider" 
+              value={selectedOutletId} 
+              onChange={(e) => switchOutlet(e.target.value)}
+            >
+              {showGlobalOption && <option value="all">Kontrol Global</option>}
+              {allowedOutlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
           </div>
         </header>
-        <div className="flex-1 overflow-hidden relative">{children}</div>
-        <nav className="md:hidden h-20 bg-white border-t border-slate-100 flex items-center justify-around px-4 pb-safe z-50 no-print shrink-0 shadow-[0_-10px_30px_rgba(0,0,0,0.03)]">
-           <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'dashboard' ? 'opacity-100' : 'text-slate-300 opacity-60'}`} style={activeTab === 'dashboard' ? { color: brandConfig.primaryColor } : {}}><span className="text-2xl">📊</span><span className="text-[9px] font-black uppercase tracking-tighter">Stats</span></button>
-           <button disabled={selectedOutletId === 'all'} onClick={() => setActiveTab('pos')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'pos' ? 'opacity-100' : 'text-slate-300 opacity-60'} ${selectedOutletId === 'all' ? 'opacity-20' : ''}`} style={activeTab === 'pos' ? { color: brandConfig.primaryColor } : {}}><span className="text-2xl">🛒</span><span className="text-[9px] font-black uppercase tracking-tighter">POS</span></button>
-           <button onClick={() => setActiveTab('attendance')} className={`flex flex-col items-center gap-1.5 flex-1 transition-all ${activeTab === 'attendance' ? 'opacity-100' : 'text-slate-300 opacity-60'}`} style={activeTab === 'attendance' ? { color: brandConfig.primaryColor } : {}}><span className="text-2xl">⏰</span><span className="text-[9px] font-black uppercase tracking-tighter">Portal</span></button>
-           <button onClick={() => setIsMenuOpen(true)} className="flex flex-col items-center gap-1.5 flex-1 text-slate-300 opacity-60"><span className="text-2xl">⚙️</span><span className="text-[9px] font-black uppercase tracking-tighter">Menu</span></button>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-hidden relative bg-[#fcfdfe]">
+          {children}
+        </div>
+
+        {/* Mobile Quick Nav */}
+        <nav className="lg:hidden h-16 bg-white border-t border-slate-100 flex items-center justify-around z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
+           <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 flex-1 py-1 transition-all ${activeTab === 'dashboard' ? 'text-orange-600 scale-110' : 'text-slate-300 opacity-60'}`}>
+              <span className="text-xl">📊</span>
+              <span className="text-[7px] font-black uppercase tracking-tighter">Stats</span>
+           </button>
+           <button disabled={selectedOutletId === 'all'} onClick={() => setActiveTab('pos')} className={`flex flex-col items-center gap-1 flex-1 py-1 transition-all ${activeTab === 'pos' ? 'text-orange-600 scale-110' : 'text-slate-300 opacity-60'} ${selectedOutletId === 'all' ? 'opacity-20 grayscale' : ''}`}>
+              <span className="text-xl">🛒</span>
+              <span className="text-[7px] font-black uppercase tracking-tighter">Kasir</span>
+           </button>
+           <button onClick={() => setActiveTab('attendance')} className={`flex flex-col items-center gap-1 flex-1 py-1 transition-all ${activeTab === 'attendance' ? 'text-orange-600 scale-110' : 'text-slate-300 opacity-60'}`}>
+              <span className="text-xl">⏰</span>
+              <span className="text-[7px] font-black uppercase tracking-tighter">Portal</span>
+           </button>
+           <button onClick={() => setIsMenuOpen(true)} className="flex flex-col items-center gap-1 flex-1 py-1 text-slate-300 opacity-60">
+              <span className="text-xl">☰</span>
+              <span className="text-[7px] font-black uppercase tracking-tighter">Menu</span>
+           </button>
         </nav>
       </main>
     </div>

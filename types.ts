@@ -92,7 +92,8 @@ export interface StaffMember {
   status: 'ACTIVE' | 'INACTIVE';
   permissions: Permissions;
   joinedAt: Date;
-  weeklyOffDay?: number;
+  workingDays: number[]; // Array of days: 0 (Sun) to 6 (Sat)
+  weeklyOffDay?: number; // Deprecated but kept for compatibility
   specialHolidays?: string[];
   shiftStartTime?: string; // HH:mm
   shiftEndTime?: string; // HH:mm

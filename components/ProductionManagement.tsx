@@ -17,12 +17,11 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const { 
     inventory = [], selectedOutletId, outlets = [], processProduction, 
     wipRecipes = [], addWIPRecipe, updateWIPRecipe, deleteWIPRecipe, productionRecords = [],
-    currentUser, fetchFromCloud, isSaving, dailyClosings = []
+    currentUser, isSaving, dailyClosings = []
   } = useApp();
   
   const [activeSubTab, setActiveSubTab] = useState<'recipes' | 'logs'>('recipes');
   const [activeRecipe, setActiveRecipe] = useState<WIPRecipe | null>(null);
-  const [recipeToDelete, setRecipeToDelete] = useState<WIPRecipe | null>(null);
   const [isEditingMode, setIsEditingMode] = useState(false);
   const [view, setView] = useState<'list' | 'form'>('list');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -55,16 +54,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const isGlobalView = selectedOutletId === 'all';
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
 
-  useEffect(() => {
-    // Hanya fetch data saat komponen mount, tidak perlu setiap saat
-    fetchFromCloud();
-  }, []);
-  
-  const allMaterials = useMemo(() => 
-    isGlobalView ? inventory : inventory.filter(i => i.outletId === selectedOutletId), 
-    [inventory, selectedOutletId, isGlobalView]
-  );
-
   const filteredRecipes = useMemo(() => {
     let base = wipRecipes.filter(r => isGlobalView || (r.assignedOutletIds || []).includes(selectedOutletId));
     if (isCashier) base = base.filter(r => r.isCashierOperated === true);
@@ -78,6 +67,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [productionRecords, selectedOutletId, isGlobalView]);
 
+  // Dinamis menghitung kebutuhan bahan real-time berdasarkan input kuantitas produksi
   useEffect(() => {
     if (activeRecipe && !isEditingMode) {
        const ratio = resultQuantity / activeRecipe.resultQuantity;
@@ -90,7 +80,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   }, [resultQuantity, activeRecipe, isEditingMode]);
 
   const startNewRecipe = () => {
-    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
+    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan Tutup Shift hari ini.");
     setRecipeName(''); setResultItemId(''); setResultQuantity(1); setComponents([]);
     setIsCashierOperatedFlag(false); 
     setSelectedBranches(isGlobalView ? outlets.map(o => o.id) : [selectedOutletId]);
@@ -98,7 +88,6 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   };
 
   const handleEditRecipe = (r: WIPRecipe) => {
-    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
     setActiveRecipe(r); setRecipeName(r.name); setResultItemId(r.resultItemId);
     setResultQuantity(r.resultQuantity); setIsCashierOperatedFlag(r.isCashierOperated || false);
     setSelectedBranches(r.assignedOutletIds || []);
@@ -106,21 +95,8 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
     setIsEditingMode(true); setView('form');
   };
 
-  const toggleBranch = (outletId: string) => {
-    setSelectedBranches(prev => 
-      prev.includes(outletId) ? prev.filter(id => id !== outletId) : [...prev, outletId]
-    );
-  };
-
-  const handleDeleteRecipe = async () => {
-    if (recipeToDelete) {
-      await deleteWIPRecipe(recipeToDelete.id);
-      setRecipeToDelete(null);
-    }
-  };
-
   const handleExecuteMode = (r: WIPRecipe) => {
-    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
+    if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan Tutup Shift hari ini.");
     if (isGlobalView) return alert("Pilih cabang spesifik terlebih dahulu!");
     setActiveRecipe(r); 
     setResultItemId(r.resultItemId);
@@ -129,17 +105,49 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
     setView('form');
   };
 
-  const saveMaster = async () => {
-    if (isShiftClosed || isProcessingLocal || isSaving) return;
-    if (!recipeName || !resultItemId || components.length === 0) return alert("Mohon lengkapi Nama Resep, Item Hasil, dan Bahan Baku!");
-    if (selectedBranches.length === 0) return alert("Pilih minimal satu cabang untuk mengaktifkan resep ini!");
+  const finishProduction = async () => {
+    if (isProcessingLocal) return;
     
+    // VALIDASI STOK: Pastikan semua bahan di outlet ini cukup
+    const insufficient = components.filter(c => {
+       const sourceItemInfo = inventory.find(i => i.id === c.inventoryItemId);
+       if (!sourceItemInfo) return true;
+       const localMat = inventory.find(i => i.name === sourceItemInfo.name && i.outletId === selectedOutletId);
+       return (localMat?.quantity || 0) < c.quantity;
+    });
+    
+    if (insufficient.length > 0) {
+       const firstBadItem = inventory.find(i => i.id === insufficient[0].inventoryItemId)?.name;
+       return alert(`⚠️ STOK TIDAK CUKUP: ${firstBadItem} tidak mencukupi untuk batch ini!`);
+    }
+
+    setIsProcessingLocal(true);
+    
+    try {
+      setShowSuccessToast(true);
+      setView('list');
+      setActiveSubTab('logs');
+      
+      // Update store & cloud
+      await processProduction({ resultItemId, resultQuantity, components });
+      
+      setTimeout(() => {
+        setShowSuccessToast(false);
+        setIsProcessingLocal(false);
+      }, 1500);
+    } catch (err) {
+      setIsProcessingLocal(false);
+      alert("⚠️ Gangguan koneksi saat update database.");
+    }
+  };
+
+  const saveMaster = async () => {
+    if (isProcessingLocal) return;
+    if (!recipeName || !resultItemId || components.length === 0) return alert("Lengkapi data master resep!");
     setIsProcessingLocal(true);
     try {
       const payload = {
-        name: recipeName, 
-        resultItemId, 
-        resultQuantity, 
+        name: recipeName, resultItemId, resultQuantity, 
         isCashierOperated: isCashierOperatedFlag,
         assignedOutletIds: selectedBranches,
         components: components.map(({ inventoryItemId, quantity }) => ({ inventoryItemId, quantity }))
@@ -152,62 +160,18 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
     }
   };
 
-  const finishProduction = async () => {
-    // SECURITY GUARD: Mencegah eksekusi ganda
-    if (isShiftClosed || isProcessingLocal || isSaving) return;
-    
-    setIsProcessingLocal(true);
-    
-    try {
-      const insufficient = components.filter(c => {
-         const sourceItemInfo = inventory.find(i => i.id === c.inventoryItemId);
-         if (!sourceItemInfo) return true;
-         const localMat = inventory.find(i => i.name === sourceItemInfo.name && i.outletId === selectedOutletId);
-         return (localMat?.quantity || 0) < c.quantity;
-      });
-      
-      if (insufficient.length > 0) {
-         const firstBadItem = inventory.find(i => i.id === insufficient[0].inventoryItemId)?.name;
-         alert(`Stok ${firstBadItem} tidak mencukupi untuk produksi batch ini!`);
-         setIsProcessingLocal(false);
-         return;
-      }
-      
-      // OPTIMISTIC NAVIGATION: Langsung pindah layar, sinkronisasi jalan di background
-      setShowSuccessToast(true);
-      setView('list');
-      setActiveSubTab('logs');
-      
-      // Panggil proses (logika store sudah dioptimalkan untuk update lokal instan)
-      await processProduction({ resultItemId, resultQuantity, components });
-      
-      // Reset status local setelah background process selesai
-      setIsProcessingLocal(false);
-      setTimeout(() => setShowSuccessToast(false), 2000);
-    } catch (err) {
-      console.error("Finish Production Error:", err);
-      alert("Gagal sinkron cloud. Stok tetap terpotong lokal, silakan refresh nanti.");
-      setIsProcessingLocal(false);
-    }
-  };
-
   const addComponentRow = (item?: InventoryItem) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setComponents([...components, { 
-      id, 
-      inventoryItemId: item?.id || '', 
-      quantity: 1 
-    }]);
+    setComponents([...components, { id, inventoryItemId: item?.id || '', quantity: 1 }]);
     setPickerModal(null);
   };
 
   const filteredPickerItems = useMemo(() => {
     if (!pickerModal) return [];
     const uniqueNames = new Set();
-    return inventory
-      .filter(i => {
+    return inventory.filter(i => {
          const matchesSearch = i.name.toLowerCase().includes(pickerQuery.toLowerCase());
-         const isCorrectType = pickerModal.type === 'wip' ? i.type === InventoryItemType.WIP : (i.type === InventoryItemType.RAW || i.type === InventoryItemType.WIP);
+         const isCorrectType = pickerModal.type === 'wip' ? i.type === InventoryItemType.WIP : true;
          const isNew = !uniqueNames.has(i.name.toLowerCase());
          if (matchesSearch && isCorrectType && isNew) {
             uniqueNames.add(i.name.toLowerCase());
@@ -224,8 +188,8 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
            <div className="bg-slate-900 text-white px-10 py-5 rounded-[40px] shadow-2xl flex items-center gap-5 border-2 border-indigo-500/30">
               <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-3xl shadow-lg animate-bounce">👨‍🍳</div>
               <div>
-                <p className="text-[12px] font-black uppercase tracking-[0.3em] leading-none text-indigo-400">Sedang Diproses!</p>
-                <p className="text-[10px] font-bold text-slate-300 uppercase mt-1.5 tracking-widest">Stok diperbarui instan.</p>
+                <p className="text-[12px] font-black uppercase tracking-[0.3em] leading-none text-indigo-400">Berhasil!</p>
+                <p className="text-[10px] font-bold text-slate-300 uppercase mt-1.5 tracking-widest">Stok telah diperbarui.</p>
               </div>
            </div>
         </div>
@@ -242,15 +206,15 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
             </div>
             {view === 'list' && !isCashier && activeSubTab === 'recipes' && (
               <button 
-                disabled={isShiftClosed || isSaving || isProcessingLocal}
+                disabled={isShiftClosed || isProcessingLocal}
                 onClick={startNewRecipe} 
-                className={`px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all ${isShiftClosed || isSaving || isProcessingLocal ? 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                className={`px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all ${isShiftClosed || isProcessingLocal ? 'bg-slate-200 text-slate-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
               >
-                {isShiftClosed ? '🔒 LOCKED' : (isSaving || isProcessingLocal) ? '⏳ WAIT' : '+ Master Baru'}
+                + Master Baru
               </button>
             )}
             {view === 'form' && (
-               <button onClick={() => setView('list')} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">✕</button>
+               <button onClick={() => setView('list')} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400">✕</button>
             )}
          </div>
 
@@ -258,10 +222,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
            <div className="px-4 md:px-6 pb-3">
               <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full md:w-fit border shadow-inner">
                  <button onClick={() => setActiveSubTab('recipes')} className={`flex-1 md:flex-none px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'recipes' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>Master Resep</button>
-                 <button onClick={() => setActiveSubTab('logs')} className={`flex-1 md:flex-none px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${activeSubTab === 'logs' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>
-                   Riwayat
-                   {filteredLogs.length > 0 && <span className="ml-2 bg-indigo-600 text-white px-2 py-0.5 rounded-full text-[8px]">{filteredLogs.length}</span>}
-                 </button>
+                 <button onClick={() => setActiveSubTab('logs')} className={`flex-1 md:flex-none px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${activeSubTab === 'logs' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400'}`}>Riwayat</button>
               </div>
            </div>
          )}
@@ -274,32 +235,30 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filteredRecipes.map(r => (
                     <div key={r.id} className="bg-white p-6 md:p-8 rounded-[40px] border border-slate-100 shadow-sm flex flex-col justify-between group hover:border-indigo-500 hover:shadow-2xl transition-all">
-                       <div className="flex justify-between items-start mb-6">
-                          <div className="flex items-center gap-4">
-                             <div className="w-14 h-14 bg-indigo-50 rounded-[28px] flex items-center justify-center text-3xl shadow-inner text-indigo-600">🍳</div>
-                             <div>
-                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight leading-tight">{r.name}</h4>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">Target Batch: {r.resultQuantity} {inventory.find(i => i.id === r.resultItemId)?.unit || 'Unit'}</p>
-                             </div>
+                       <div className="flex items-center gap-4 mb-6">
+                          <div className="w-14 h-14 bg-indigo-50 rounded-[28px] flex items-center justify-center text-3xl shadow-inner text-indigo-600">🍳</div>
+                          <div>
+                             <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight leading-tight">{r.name}</h4>
+                             <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">Standard Batch: {r.resultQuantity} {inventory.find(i => i.id === r.resultItemId)?.unit || 'Unit'}</p>
                           </div>
                        </div>
                        <div className="flex gap-3">
                           <button 
-                            disabled={isShiftClosed || isSaving || isProcessingLocal}
+                            disabled={isShiftClosed || isProcessingLocal}
                             onClick={() => handleExecuteMode(r)} 
-                            className={`flex-[4] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl transition-all ${isShiftClosed || isSaving || isProcessingLocal ? 'bg-slate-100 text-slate-300 shadow-none grayscale cursor-not-allowed' : 'bg-indigo-600 text-white shadow-indigo-200 active:scale-95'}`}
+                            className={`flex-[4] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl transition-all ${isShiftClosed || isProcessingLocal ? 'bg-slate-100 text-slate-300' : 'bg-indigo-600 text-white active:scale-95'}`}
                           >
-                            {isShiftClosed ? '🔒 SHIFT CLOSED' : (isSaving || isProcessingLocal) ? 'MEMPROSES...' : 'MULAI MASAK ⚡'}
+                            MULAI MASAK ⚡
                           </button>
                           {!isCashier && (
-                            <div className="flex flex-1 gap-2">
-                               <button onClick={() => handleEditRecipe(r)} className="flex-1 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black text-[11px] uppercase border border-slate-100 hover:bg-slate-100 transition-all text-center">Edit</button>
-                               <button onClick={() => setRecipeToDelete(r)} className="w-12 h-14 bg-red-50 text-red-400 rounded-2xl flex items-center justify-center border border-red-100 hover:bg-red-500 hover:text-white transition-all">🗑️</button>
-                            </div>
+                            <button onClick={() => handleEditRecipe(r)} className="w-14 h-14 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center border border-slate-100">✏️</button>
                           )}
                        </div>
                     </div>
                   ))}
+                  {filteredRecipes.length === 0 && (
+                    <div className="col-span-full py-20 text-center opacity-30 italic text-xs font-black uppercase">Belum ada resep produksi</div>
+                  )}
                </div>
              ) : (
                <div className="space-y-4">
@@ -307,25 +266,17 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                     const resultItem = inventory.find(i => i.id === log.resultItemId);
                     return (
                       <div key={log.id} className="bg-white p-6 md:p-8 rounded-[40px] border border-slate-100 shadow-sm flex flex-col gap-6">
-                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                         <div className="flex flex-col md:flex-row justify-between items-center">
                             <div className="flex gap-5 items-center">
                                <div className="w-16 h-16 bg-slate-900 rounded-[32px] flex items-center justify-center shrink-0">
-                                  <span className="text-[14px] font-black text-white">{(new Date(log.timestamp)).getHours().toString().padStart(2,'0')}:{(new Date(log.timestamp)).getMinutes().toString().padStart(2,'0')}</span>
+                                  <span className="text-[14px] font-black text-white">{new Date(log.timestamp).getHours().toString().padStart(2,'0')}:{new Date(log.timestamp).getMinutes().toString().padStart(2,'0')}</span>
                                </div>
                                <div>
-                                  <h4 className="text-base font-black text-slate-900 uppercase">{resultItem?.name || 'Item Olahan'}</h4>
-                                  <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">PIC: {log.staffName} • {new Date(log.timestamp).toLocaleDateString()}</p>
+                                  <h4 className="text-base font-black text-slate-900 uppercase">{resultItem?.name}</h4>
+                                  <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Operator: {log.staffName}</p>
                                </div>
                             </div>
-                            <p className="text-2xl font-black text-indigo-600">+{log.resultQuantity} {resultItem?.unit}</p>
-                         </div>
-                         <div className="bg-slate-50 rounded-3xl p-5 border border-slate-100 grid grid-cols-2 md:grid-cols-4 gap-3">
-                            {(log.components || []).map((comp, idx) => (
-                               <div key={idx} className="bg-white p-3 rounded-xl border flex justify-between items-center">
-                                  <span className="text-[9px] font-black uppercase text-slate-500 truncate pr-2">{inventory.find(i => i.id === comp.inventoryItemId)?.name || '??'}</span>
-                                  <span className="text-[10px] font-black text-red-500">-{comp.quantity}</span>
-                               </div>
-                            ))}
+                            <p className="text-2xl font-black text-indigo-600">+ {log.resultQuantity} {resultItem?.unit}</p>
                          </div>
                       </div>
                     );
@@ -334,172 +285,104 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
              )}
           </div>
         ) : (
-           <div className="max-w-3xl mx-auto pb-20">
+           <div className="max-w-5xl mx-auto pb-20">
               {isEditingMode ? (
-                 <div className="space-y-8 animate-in slide-in-from-bottom-5">
-                    <div className="bg-white p-8 md:p-10 rounded-[48px] border-2 border-indigo-100 shadow-xl space-y-8">
-                       <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter text-center">Konfigurasi Master Resep</h3>
-                       
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div>
-                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Nama Resep</label>
-                             <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-indigo-500" placeholder="Contoh: Boba Brown Sugar" value={recipeName} onChange={e => setRecipeName(e.target.value)} />
+                 <div className="bg-white p-8 md:p-10 rounded-[48px] border shadow-xl space-y-8 animate-in slide-in-from-bottom-5">
+                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter text-center">Master Resep & Mixing</h3>
+                    <div className="space-y-6">
+                       <input type="text" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm" placeholder="Nama Hasil Mixing..." value={recipeName} onChange={e => setRecipeName(e.target.value)} />
+                       <div className="grid grid-cols-2 gap-4">
+                          <button onClick={() => setPickerModal({rowId: 'result', type: 'wip'})} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-xs text-left truncate">
+                             {inventory.find(i => i.id === resultItemId)?.name || '-- Pilih Item Hasil --'}
+                          </button>
+                          <input type="number" className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm" value={resultQuantity} onChange={e => setResultQuantity(parseFloat(e.target.value) || 0)} />
+                       </div>
+                       <div className="space-y-3">
+                          <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Komposisi Bahan Baku (BOM)</label>
+                          {components.map(comp => (
+                             <div key={comp.id} className="p-4 bg-white border-2 border-slate-50 rounded-2xl flex items-center gap-4">
+                                <span className="flex-1 font-black uppercase text-[11px] truncate">{inventory.find(i => i.id === comp.inventoryItemId)?.name || 'Pilih Bahan'}</span>
+                                <div className="flex items-center gap-2">
+                                  <input type="number" step="any" className="w-24 p-2 bg-slate-50 border rounded-xl font-black text-center text-xs" value={comp.quantity} onChange={e => setComponents(prev => prev.map(c => c.id === comp.id ? {...c, quantity: parseFloat(e.target.value) || 0} : c))} />
+                                  <button onClick={() => setComponents(prev => prev.filter(c => c.id !== comp.id))} className="text-rose-500 p-2">✕</button>
+                                </div>
+                             </div>
+                          ))}
+                          <button onClick={() => setPickerModal({rowId: 'new', type: 'material'})} className="w-full py-4 border-2 border-dashed rounded-2xl text-[10px] font-black uppercase text-slate-400 hover:border-indigo-400 transition-all">+ Tambah Bahan</button>
+                       </div>
+                       <button onClick={saveMaster} className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black text-xs uppercase tracking-widest shadow-xl">SIMPAN MASTER 💾</button>
+                    </div>
+                 </div>
+              ) : (
+                 <div className="space-y-6 animate-in slide-in-from-bottom-5">
+                    {/* LEGA & PROFESSIONAL FORM EXECUTION */}
+                    <div className="bg-white p-8 md:p-14 rounded-[56px] shadow-2xl">
+                       <div className="text-center mb-12">
+                          <p className="text-[11px] font-black text-indigo-600 uppercase mb-4 tracking-[0.3em]">PROSES MASAK: {activeRecipe?.name}</p>
+                          <div className="flex items-center justify-center gap-6">
+                             <div className="relative">
+                                <input 
+                                   type="number" 
+                                   className="bg-slate-50 border-4 border-indigo-600 font-black text-6xl text-center w-48 h-32 rounded-[40px] text-slate-900 shadow-inner outline-none focus:ring-4 focus:ring-indigo-100" 
+                                   value={resultQuantity} 
+                                   onChange={e => setResultQuantity(parseFloat(e.target.value) || 0)} 
+                                />
+                                <div className="absolute -top-3 -right-3 w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shadow-lg">QTY</div>
+                             </div>
+                             <span className="text-4xl font-black text-slate-300 uppercase tracking-tighter">{inventory.find(m => m.id === resultItemId)?.unit}</span>
                           </div>
-                          <div>
-                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1 flex justify-between">
-                                <span>Operasional Kasir?</span>
-                                <span className="text-indigo-600">{isCashierOperatedFlag ? 'AKTIF' : 'OFF'}</span>
-                             </label>
-                             <button onClick={() => setIsCashierOperatedFlag(!isCashierOperatedFlag)} className={`w-full p-4 border-2 rounded-2xl font-black text-[10px] uppercase transition-all ${isCashierOperatedFlag ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
-                                {isCashierOperatedFlag ? 'Kasir Bisa Memasak ✓' : 'Hanya Akses Dapur'}
-                             </button>
-                          </div>
+                          <p className="text-[9px] text-slate-400 font-bold uppercase mt-6 italic">Ubah kuantitas di atas, takaran bahan di bawah otomatis menyesuaikan.</p>
                        </div>
 
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div>
-                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Item Hasil (WIP)</label>
-                             <button onClick={() => setPickerModal({rowId: 'result', type: 'wip'})} className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-xs text-left flex justify-between items-center hover:bg-slate-100 transition-colors">
-                                <span>{inventory.find(i => i.id === resultItemId)?.name || '-- Pilih Produk Jadi --'}</span>
-                                <span className="opacity-30">🔍</span>
-                             </button>
-                          </div>
-                          <div>
-                             <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block ml-1">Hasil per Batch ({inventory.find(i => i.id === resultItemId)?.unit || ''})</label>
-                             <input 
-                               type="number" 
-                               inputMode="decimal"
-                               onFocus={e => e.currentTarget.select()}
-                               className="w-full p-4 bg-slate-50 border-2 rounded-2xl font-black text-sm outline-none focus:border-indigo-500" 
-                               value={resultQuantity === 0 ? "" : resultQuantity} 
-                               onChange={e => setResultQuantity(parseFloat(e.target.value) || 0)} 
-                               placeholder="0"
-                             />
-                          </div>
-                       </div>
-
-                       <div className="p-6 bg-slate-900 rounded-[32px] text-white">
-                          <p className="text-[9px] font-black text-orange-500 uppercase tracking-[0.2em] mb-4">Aktif di Cabang:</p>
-                          <div className="flex flex-wrap gap-2">
-                             {outlets.map(o => (
-                                <button 
-                                 key={o.id} 
-                                 onClick={() => toggleBranch(o.id)}
-                                 className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase border-2 transition-all ${selectedBranches.includes(o.id) ? 'bg-orange-500 border-orange-500 text-white' : 'bg-transparent border-white/10 text-white/40'}`}>
-                                  {o.name}
-                                </button>
-                             ))}
-                          </div>
-                       </div>
-
-                       <div className="space-y-4">
-                          <div className="flex justify-between items-center px-1">
-                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Komposisi Bahan (Mentah/WIP)</label>
-                             <button onClick={() => setPickerModal({rowId: 'new', type: 'material'})} className="text-[9px] font-black text-indigo-600">+ Tambah Bahan</button>
-                          </div>
-                          <div className="space-y-3">
-                             {components.map(comp => {
-                                const item = inventory.find(i => i.id === comp.inventoryItemId);
+                       {/* DETAIL BAHAN BAKU - RAPI & LEGA */}
+                       <div className="text-left bg-slate-50 p-6 md:p-10 rounded-[48px] border-2 border-slate-100">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-8 border-b pb-4">Estimasi Penggunaan Material:</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             {components.map((comp, idx) => {
+                                const baseItem = inventory.find(i => i.id === comp.inventoryItemId);
+                                const realStok = inventory.find(i => i.name === baseItem?.name && i.outletId === selectedOutletId);
+                                const isShort = (realStok?.quantity || 0) < comp.quantity;
+                                
                                 return (
-                                   <div key={comp.id} className="p-4 bg-white border-2 border-slate-50 rounded-2xl flex items-center gap-4 group hover:border-indigo-200 transition-all">
-                                      <div className="flex-1 min-w-0">
-                                         <div className="flex items-center gap-2">
-                                            <p className="text-[11px] font-black text-slate-800 uppercase truncate">{item?.name || 'Pilih Bahan...'}</p>
-                                            <span className={`text-[6px] font-black px-1 py-0.5 rounded ${item?.type === InventoryItemType.WIP ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>
-                                               {item?.type === InventoryItemType.WIP ? 'WIP' : 'RAW'}
-                                            </span>
-                                         </div>
-                                         <p className="text-[8px] font-bold text-slate-400 uppercase">{item?.unit}</p>
+                                   <div key={idx} className={`flex justify-between items-center p-5 bg-white rounded-[28px] border-2 transition-all ${isShort ? 'border-rose-200 bg-rose-50/30' : 'border-slate-50 shadow-sm'}`}>
+                                      <div className="min-w-0 flex-1 pr-4">
+                                         <p className="text-[11px] font-black uppercase text-slate-800 truncate">{baseItem?.name}</p>
+                                         <p className={`text-[8px] font-bold uppercase mt-1 ${isShort ? 'text-rose-500' : 'text-slate-400'}`}>
+                                            Stok: <span className="font-black">{(realStok?.quantity || 0).toLocaleString()} {baseItem?.unit}</span>
+                                         </p>
                                       </div>
-                                      <input 
-                                        type="number" 
-                                        step="any" 
-                                        inputMode="decimal"
-                                        onFocus={e => e.currentTarget.select()}
-                                        className="w-24 p-2 bg-slate-50 border rounded-xl font-black text-center text-xs outline-none focus:ring-2 focus:ring-indigo-200" 
-                                        value={comp.quantity === 0 ? "" : comp.quantity} 
-                                        onChange={e => setComponents(prev => prev.map(c => c.id === comp.id ? {...c, quantity: parseFloat(e.target.value) || 0} : c))} 
-                                        placeholder="0"
-                                      />
-                                      <button onClick={() => setComponents(prev => prev.filter(c => c.id !== comp.id))} className="text-red-400 opacity-20 group-hover:opacity-100 hover:text-red-600 transition-all">✕</button>
+                                      <div className="text-right shrink-0">
+                                         <p className={`text-sm font-black ${isShort ? 'text-rose-600' : 'text-indigo-600'}`}>
+                                            -{comp.quantity.toLocaleString()}
+                                         </p>
+                                         <p className="text-[7px] font-black text-slate-300 uppercase">{baseItem?.unit}</p>
+                                      </div>
                                    </div>
                                 );
                              })}
                           </div>
                        </div>
+                    </div>
+
+                    <div className="px-2">
                        <button 
-                         disabled={isProcessingLocal || isSaving}
-                         onClick={saveMaster} 
-                         className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50"
+                          onClick={finishProduction} 
+                          disabled={isProcessingLocal} 
+                          className="w-full py-8 bg-indigo-600 text-white rounded-[40px] font-black text-sm uppercase shadow-xl shadow-indigo-100 active:scale-95 flex items-center justify-center gap-4 border-b-8 border-indigo-800 transition-all disabled:opacity-50"
                        >
-                         {isProcessingLocal || isSaving ? 'MENYIMPAN...' : 'SIMPAN MASTER RESEP 💾'}
+                          {isProcessingLocal ? (
+                             <>
+                                <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                <span>MEMPROSES DATA...</span>
+                             </>
+                          ) : (
+                             <>
+                                <span>KONFIRMASI PROSES MASAK</span>
+                                <span className="text-2xl">✅</span>
+                             </>
+                          )}
                        </button>
                     </div>
-                 </div>
-              ) : (
-                 <div className="space-y-6 animate-in slide-in-from-bottom-5">
-                    <div className="bg-white p-10 rounded-[56px] shadow-2xl border-4 border-indigo-50 text-center relative overflow-hidden">
-                       <p className="text-[11px] font-black text-indigo-600 uppercase tracking-[0.3em] mb-8">Berapa Banyak {activeRecipe?.name} yang dibuat?</p>
-                       <div className="flex items-center justify-center gap-5">
-                          <input 
-                            disabled={isProcessingLocal || isSaving}
-                            type="number" 
-                            inputMode="decimal"
-                            onFocus={e => e.currentTarget.select()}
-                            className="bg-slate-50 border-4 border-indigo-600 font-black text-6xl text-center outline-none w-44 h-28 rounded-[40px] text-slate-900 shadow-inner focus:bg-white transition-all disabled:opacity-50" 
-                            value={resultQuantity === 0 ? "" : resultQuantity} 
-                            onChange={e => setResultQuantity(parseFloat(e.target.value) || 0)} 
-                            placeholder="0"
-                          />
-                          <span className="text-3xl font-black text-slate-300 uppercase">{inventory.find(m => m.id === resultItemId)?.unit}</span>
-                       </div>
-                    </div>
-                    <div className="bg-white p-10 rounded-[56px] border-2 border-slate-100 shadow-xl space-y-6">
-                       <p className="text-[10px] font-black text-slate-900 uppercase tracking-widest border-b pb-4 mb-4">Checklist Penggunaan Stok</p>
-                       <div className="space-y-3">
-                          {components.map(comp => {
-                             const sourceItemInfo = inventory.find(i => i.id === comp.inventoryItemId);
-                             const localMaterial = inventory.find(m => m.name === sourceItemInfo?.name && m.outletId === selectedOutletId);
-                             
-                             const isShort = (localMaterial?.quantity || 0) < comp.quantity;
-                             return (
-                               <div key={comp.id} className={`p-5 rounded-[28px] border-2 flex justify-between items-center transition-all ${isShort ? 'bg-red-50 border-red-200 shadow-inner' : 'bg-slate-50 border-slate-100'}`}>
-                                  <div>
-                                     <div className="flex items-center gap-2 mb-1.5">
-                                        <p className="text-xs font-black text-slate-800 uppercase leading-none">{localMaterial?.name || sourceItemInfo?.name || '??'}</p>
-                                        <span className={`text-[5px] font-black px-1 py-0.5 rounded border ${localMaterial?.type === InventoryItemType.WIP ? 'border-purple-200 text-purple-500' : 'border-orange-200 text-orange-500'}`}>
-                                           {localMaterial?.type === InventoryItemType.WIP ? 'WIP' : 'RAW'}
-                                        </span>
-                                     </div>
-                                     <p className={`text-[8px] font-bold uppercase ${isShort ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
-                                        {isShort ? `⚠️ KURANG: ${(comp.quantity - (localMaterial?.quantity || 0)).toFixed(1)} ${localMaterial?.unit}` : `Ready: ${localMaterial?.quantity} ${localMaterial?.unit}`}
-                                     </p>
-                                  </div>
-                                  <div className="text-right">
-                                     <p className={`text-xl font-black ${isShort ? 'text-red-700' : 'text-indigo-600'}`}>{comp.quantity} <span className="text-[9px] uppercase">{localMaterial?.unit}</span></p>
-                                  </div>
-                               </div>
-                             );
-                          })}
-                       </div>
-                    </div>
-                    <button 
-                      disabled={isProcessingLocal || isSaving}
-                      onClick={finishProduction} 
-                      className="w-full py-8 bg-indigo-600 text-white rounded-[40px] font-black text-sm uppercase tracking-[0.4em] shadow-xl hover:bg-indigo-700 active:scale-95 disabled:bg-slate-300 disabled:shadow-none transition-all flex items-center justify-center gap-4"
-                    >
-                       {isProcessingLocal || isSaving ? (
-                         <>
-                           <div className="w-6 h-6 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
-                           <span>SINKRONISASI CLOUD...</span>
-                         </>
-                       ) : (
-                         <>
-                           <span>KONFIRMASI PROSES MASAK</span>
-                           <span className="text-2xl">✅</span>
-                         </>
-                       )}
-                    </button>
                  </div>
               )}
            </div>
@@ -508,52 +391,29 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
 
       {pickerModal && (
          <div className="fixed inset-0 z-[300] bg-slate-950/90 backdrop-blur-xl p-4 flex flex-col animate-in fade-in duration-200">
-            <div className="flex justify-between items-center mb-6">
-               <div>
-                  <h3 className="text-white font-black uppercase text-lg">{pickerModal.type === 'wip' ? 'Pilih Hasil Olahan' : 'Pilih Bahan Baku'}</h3>
-                  <p className="text-indigo-400 text-[9px] font-black uppercase tracking-widest">{pickerModal.type === 'wip' ? 'Khusus Item Tipe WIP' : 'Mendukung RAW & WIP'}</p>
-               </div>
-               <button onClick={() => setPickerModal(null)} className="w-10 h-10 bg-white/10 text-white rounded-full flex items-center justify-center">✕</button>
+            <div className="flex justify-between items-center mb-6 text-white max-w-2xl mx-auto w-full">
+               <h3 className="font-black uppercase text-lg">Pilih Item Database</h3>
+               <button onClick={() => setPickerModal(null)} className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-xl">✕</button>
             </div>
-            <input autoFocus type="text" placeholder="Cari nama item..." className="w-full p-5 bg-white rounded-2xl font-black text-xl mb-6 outline-none border-4 border-indigo-50 shadow-2xl text-slate-900" value={pickerQuery} onChange={e => setPickerQuery(e.target.value)} />
-            <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
-               {filteredPickerItems.map(item => (
-                  <button key={item.id} onClick={() => {
-                        if (pickerModal.rowId === 'result') setResultItemId(item.id);
-                        else if (pickerModal.rowId === 'new') addComponentRow(item);
-                        setPickerModal(null); setPickerQuery('');
-                    }} className="w-full p-6 bg-white/5 border border-white/10 rounded-[32px] text-left hover:bg-indigo-600 transition-all group flex justify-between items-center">
-                     <div>
-                        <div className="flex items-center gap-2">
-                           <p className="text-white font-black uppercase text-sm">{item.name}</p>
-                           <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border ${item.type === InventoryItemType.WIP ? 'border-purple-400 text-purple-400' : 'border-orange-400 text-orange-400'}`}>
-                              {item.type === InventoryItemType.WIP ? 'SETENGAH JADI' : 'BAHAN MENTAH'}
-                           </span>
+            <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col">
+               <input autoFocus type="text" placeholder="Cari item..." className="w-full p-5 bg-white rounded-2xl font-black text-xl mb-6 outline-none border-4 border-indigo-50 shadow-2xl text-slate-900" value={pickerQuery} onChange={e => setPickerQuery(e.target.value)} />
+               <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2 pb-10">
+                  {filteredPickerItems.map(item => (
+                     <button key={item.id} onClick={() => {
+                           if (pickerModal.rowId === 'result') setResultItemId(item.id);
+                           else if (pickerModal.rowId === 'new') addComponentRow(item);
+                           setPickerModal(null); setPickerQuery('');
+                       }} className="w-full p-6 bg-white/5 border border-white/10 rounded-[32px] text-left hover:bg-indigo-600 transition-all text-white flex justify-between items-center group">
+                        <div>
+                           <p className="font-black uppercase text-sm group-hover:text-white transition-colors">{item.name}</p>
+                           <p className="text-white/40 text-[9px] uppercase mt-1">Unit: {item.unit}</p>
                         </div>
-                        <p className="text-white/40 text-[9px] font-bold uppercase mt-1">Unit: {item.unit}</p>
-                     </div>
-                     <span className="text-indigo-400 group-hover:text-white text-xl">＋</span>
-                  </button>
-               ))}
+                        <span className="text-indigo-400 group-hover:text-white transition-colors">＋</span>
+                     </button>
+                  ))}
+               </div>
             </div>
          </div>
-      )}
-
-      {/* DELETE CONFIRM */}
-      {recipeToDelete && (
-        <div className="fixed inset-0 z-[500] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-6">
-           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in-95">
-              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[32px] flex items-center justify-center text-4xl mx-auto mb-6 shadow-inner">🗑️</div>
-              <h3 className="text-xl font-black text-slate-800 uppercase mb-2 tracking-tighter">Hapus Resep?</h3>
-              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8 leading-relaxed">
-                 Master resep <span className="text-red-600 font-black">"{recipeToDelete.name}"</span> akan dihapus dari sistem.
-              </p>
-              <div className="flex flex-col gap-3">
-                 <button onClick={handleDeleteRecipe} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700">IYA, HAPUS PERMANEN</button>
-                 <button onClick={() => setRecipeToDelete(null)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
-              </div>
-           </div>
-        </div>
       )}
     </div>
   );

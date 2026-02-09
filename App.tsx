@@ -27,17 +27,20 @@ const MainApp: React.FC = () => {
   const { isAuthenticated, isInitialLoading, brandConfig } = useApp();
   const [activeTab, setActiveTab] = useState('dashboard');
 
+  // SPEED-OF-LIGHT BOOTING: 
+  // Jika belum login, jangan tampilkan loading apapun. Langsung lempar ke form login.
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
+  // Jika sudah login, loading screen hanya muncul saat inisialisasi cloud yang sangat kritis
   if (isInitialLoading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white">
         <div className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin mb-6" style={{ borderColor: brandConfig.primaryColor || '#f97316', borderTopColor: 'transparent' }}></div>
-        <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Initializing {brandConfig.name || 'Mozza Boy'} System...</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.4em] animate-pulse">Synchronizing {brandConfig.name || 'Mozza Boy'}...</p>
       </div>
     );
-  }
-
-  if (!isAuthenticated) {
-    return <Login />;
   }
 
   const renderContent = () => {
@@ -68,7 +71,7 @@ const MainApp: React.FC = () => {
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
       <div className="h-full relative">
-        <Suspense fallback={<div className="p-10 text-center animate-pulse">Memuat...</div>}>
+        <Suspense fallback={<div className="p-10 text-center animate-pulse">Memuat Modul...</div>}>
           {renderContent()}
         </Suspense>
       </div>
