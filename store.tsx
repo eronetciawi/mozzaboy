@@ -118,6 +118,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [connectedPrinter, setConnectedPrinter] = useState<any | null>(null);
 
+  // Sync Brand Name to Browser Tab Title
+  useEffect(() => {
+    if (brandConfig && brandConfig.name) {
+      document.title = `${brandConfig.name} Cloud POS`;
+    }
+  }, [brandConfig?.name]);
+
   const updateManifestCache = (updates: any) => {
     try {
       const current = getSyncCache();
