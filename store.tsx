@@ -439,10 +439,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteSimulation: async (id) => { setSimulations(prev => prev.filter(s => s.id !== id)); await supabase.from('simulations').delete().eq('id', id); },
     updateLoyaltyConfig: async (c) => { setLoyaltyConfig(c); await supabase.from('loyalty_config').upsert({ ...c, id: 'global' }); },
     updateBrandConfig: async (c) => { 
-      const finalConfig = { ...c };
-      setBrandConfig(finalConfig); 
-      updateManifestCache({ brandConfig: finalConfig });
-      await supabase.from('brand_config').upsert({ ...finalConfig, id: 'global' }); 
+      setIsSaving(true);
+      try {
+        const finalConfig = { ...c, id: 'global' };
+        setBrandConfig(finalConfig); 
+        updateManifestCache({ brandConfig: finalConfig });
+        await supabase.from('brand_config').upsert(finalConfig); 
+      } finally {
+        // Beri jeda sedikit agar DB selesai memproses sebelum fetch diizinkan lagi
+        setTimeout(() => setIsSaving(false), 800);
+      }
     },
     addExpense: async (expense) => {
       const payload = { ...expense, id: `exp-${Date.now()}`, timestamp: new Date().toISOString(), staffId: currentUser?.id, staffName: currentUser?.name, outletId: selectedOutletId };
