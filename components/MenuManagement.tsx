@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../store';
 import { Product, BOMComponent, UserRole, ComboItem, OutletSetting, InventoryItem } from '../types';
 
@@ -18,8 +18,6 @@ export const MenuManagement: React.FC = () => {
   const [activeModalTab, setActiveModalTab] = useState<'info' | 'logic' | 'branches'>('info');
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [formData, setFormData] = useState<Partial<Product>>({ 
     name: '', price: 0, categoryId: '', image: '', bom: [], isAvailable: true, isCombo: false, comboItems: [], outletSettings: {}
   });
@@ -64,27 +62,6 @@ export const MenuManagement: React.FC = () => {
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, image: reader.result as string });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const applyToAllBranches = () => {
-     if (!formData.price) return alert("Masukkan harga default dulu.");
-     const newSettings: Record<string, OutletSetting> = {};
-     outlets.forEach(o => {
-        newSettings[o.id] = { price: formData.price || 0, isAvailable: true };
-     });
-     setFormData({ ...formData, outletSettings: newSettings });
-     alert("Sinkronisasi harga antar cabang berhasil!");
-  };
-
   const handleEditClick = (p: Product) => {
     setEditingProduct(p);
     setFormData(p);
@@ -112,7 +89,6 @@ export const MenuManagement: React.FC = () => {
   const filteredPickerItems = useMemo(() => {
     if (!pickerModal) return [];
     if (pickerModal.type === 'material') {
-      // DEDUPLIKASI LOGIC: Hanya tampilkan satu item per nama unik
       const uniqueNames = new Set();
       return inventory
         .filter(i => {
@@ -142,12 +118,24 @@ export const MenuManagement: React.FC = () => {
     setPickerSearch('');
   };
 
+  const applyToAllBranches = () => {
+    const defaultPrice = formData.price || 0;
+    const nextSettings: Record<string, OutletSetting> = {};
+    outlets.forEach(o => {
+      nextSettings[o.id] = {
+        price: defaultPrice,
+        isAvailable: formData.outletSettings?.[o.id]?.isAvailable ?? true
+      };
+    });
+    setFormData(prev => ({ ...prev, outletSettings: nextSettings }));
+  };
+
   return (
     <div className="p-3 md:p-5 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
           <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tighter">Katalog Menu</h2>
-          <p className="text-slate-500 font-medium text-[8px] md:text-[9px] uppercase tracking-widest italic leading-none mt-1">Master Data, Resep & Harga Regional</p>
+          <p className="text-slate-500 font-medium text-[8px] md:text-[9px] uppercase tracking-widest italic leading-none mt-1">Master Data & Cloud Hosting Optimizaton</p>
         </div>
         <button 
           onClick={() => {
@@ -164,7 +152,6 @@ export const MenuManagement: React.FC = () => {
         </button>
       </div>
 
-      {/* GRID MENU */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-2.5">
         {products.map(p => (
           <div key={p.id} className="bg-white rounded-2xl border border-slate-100 p-2.5 flex flex-col shadow-sm hover:border-orange-200 transition-all group relative overflow-hidden">
@@ -219,33 +206,40 @@ export const MenuManagement: React.FC = () => {
                       
                       <div className="flex flex-col md:flex-row gap-6 items-start">
                          <div className="w-full md:w-32 shrink-0 space-y-2">
-                            <div 
-                              onClick={() => fileInputRef.current?.click()}
-                              className="aspect-square w-full rounded-2xl bg-slate-50 border-2 border-white shadow-md overflow-hidden cursor-pointer group relative"
-                            >
-                               <img src={formData.image || 'https://api.dicebear.com/7.x/food/svg?seed=placeholder'} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
-                               <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <span className="text-white font-black text-[7px] uppercase">Ganti Foto</span>
-                                </div>
+                            <div className="aspect-square w-full rounded-2xl bg-slate-50 border-2 border-white shadow-md overflow-hidden relative">
+                               <img src={formData.image || 'https://api.dicebear.com/7.x/food/svg?seed=placeholder'} className="w-full h-full object-cover" />
                             </div>
-                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                            <p className="text-[7px] text-slate-400 font-bold uppercase text-center">Live Preview</p>
                          </div>
 
                          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                            <div className="col-span-full">
-                             <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block">Nama Produk</label>
-                             <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-[10px] outline-none focus:border-orange-500 text-slate-900" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Contoh: Corndog Mozza Jumbo" />
+                             <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block tracking-widest">Nama Produk</label>
+                             <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] outline-none focus:border-orange-500 text-slate-900" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Contoh: Corndog Mozza Jumbo" />
                            </div>
+
+                           <div className="col-span-full">
+                             <label className="text-[8px] font-black text-indigo-600 uppercase mb-1 block tracking-widest">Direct Image URL (Flickr, Google Photos, dll)</label>
+                             <input 
+                                type="text" 
+                                className="w-full p-3 bg-indigo-50/30 border border-indigo-100 rounded-xl font-mono text-[9px] outline-none focus:border-indigo-500 text-slate-700" 
+                                value={formData.image || ''} 
+                                onChange={e => setFormData({...formData, image: e.target.value})} 
+                                placeholder="Contoh: https://live.staticflickr.com/.../photo.jpg" 
+                             />
+                             <p className="text-[7px] text-slate-400 mt-2 italic">*Tempelkan link langsung ke file gambar agar muncul. Cara ini 100% bebas biaya Egress Supabase.</p>
+                           </div>
+
                            <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block">Kategori</label>
-                             <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] outline-none text-slate-900" value={formData.categoryId || ''} onChange={e => setFormData({...formData, categoryId: e.target.value})}>
+                             <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block tracking-widest">Kategori</label>
+                             <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-[10px] outline-none text-slate-900" value={formData.categoryId || ''} onChange={e => setFormData({...formData, categoryId: e.target.value})}>
                                 <option value="">-- Pilih Kategori --</option>
                                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                              </select>
                            </div>
                            <div>
-                             <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block">Harga Jual Default</label>
-                             <input type="number" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-[10px] outline-none focus:border-orange-500 text-slate-900" value={formData.price ?? 0} onChange={e => setFormData({...formData, price: parseInt(e.target.value) || 0})} />
+                             <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block tracking-widest">Harga Jual Default</label>
+                             <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] outline-none focus:border-orange-500 text-slate-900" value={formData.price ?? 0} onChange={e => setFormData({...formData, price: parseInt(e.target.value) || 0})} />
                            </div>
                          </div>
                       </div>
@@ -348,7 +342,7 @@ export const MenuManagement: React.FC = () => {
               </div>
 
               <div className="relative mb-4">
-                 <input autoFocus type="text" placeholder="Ketik nama..." className="w-full p-4 bg-white rounded-2xl font-black text-sm text-slate-900 outline-none border-4 border-indigo-500 shadow-2xl" value={pickerSearch} onChange={e => setPickerSearch(e.target.value)} />
+                 <input autoFocus type="text" placeholder="Ketik nama..." className="w-full p-4 bg-white rounded-2xl font-black text-sm text-slate-900 outline-none border-4 border-indigo-50 shadow-2xl" value={pickerSearch} onChange={e => setPickerSearch(e.target.value)} />
               </div>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pb-10">
