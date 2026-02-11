@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   Product, Category, InventoryItem, Transaction, Outlet, 
@@ -18,7 +18,6 @@ const STORAGE_EXTERNAL_DB = 'mozzaboy_external_db';
 
 export const getTodayDateString = () => new Date().toLocaleDateString('en-CA');
 
-// DATA DATABASE BARU (Baseline)
 const DEFAULT_CLOUD = { 
   url: 'https://wwpexrtpnvwksgdpresl.supabase.co', 
   key: 'sb_publishable_YjGlVWY7EqTVNLkG2ggbjg_Y7RDPXAH' 
@@ -71,7 +70,7 @@ interface AppState {
 }
 
 interface AppActions {
-  updateCloudConfig: (url: string, key: string) => void; login: (username: string, password?: string) => Promise<{ success: boolean; message?: string }>; logout: () => void; switchOutlet: (id: string) => void; addToCart: (product: Product) => void; removeFromCart: (productId: string) => void; updateCartQuantity: (productId: string, delta: number) => void; clearCart: () => void; checkout: (paymentMethod: PaymentMethod, redeemPoints?: number, membershipDiscount?: number, bulkDiscount?: number) => Promise<void>; addStaff: (member: StaffMember) => Promise<void>; updateStaff: (member: StaffMember) => Promise<void>; deleteStaff: (id: string) => Promise<void>; clockIn: () => Promise<{ success: boolean; message?: string }>; clockOut: () => Promise<void>; addProduct: (product: Product) => Promise<void>; updateProduct: (product: Product) => Promise<void>; deleteProduct: (id: string) => Promise<void>; addInventoryItem: (item: any, outletIds?: string[]) => Promise<void>; updateInventoryItem: (item: InventoryItem) => Promise<void>; deleteInventoryItem: (id: string) => Promise<void>; performClosing: (cash: number, notes: string, opening: number, shift: string, cashSales: number, qrisSales: number, expenses: number, discrepancy: number) => Promise<void>; addPurchase: (purchase: any) => Promise<void>; selectCustomer: (id: string | null) => void; addCustomer: (customer: any) => Promise<void>; updateCustomer: (customer: Customer) => Promise<void>; deleteCustomer: (id: string) => Promise<void>; processProduction: (data: { resultItemId: string; resultQuantity: number; components: { inventoryItemId: string; quantity: number }[] }) => Promise<void>; fetchFromCloud: () => Promise<void>; syncToCloud: () => void; addExpense: (expense: any) => Promise<void>; updateExpense: (id: string, expense: any) => Promise<void>; deleteExpense: (id: string) => Promise<void>; addExpenseType: (name: string) => Promise<void>; updateExpenseType: (id: string, name: string) => Promise<void>; deleteExpenseType: (id: string) => Promise<void>; addCategory: (name: string) => Promise<void>; updateCategory: (id: string, name: string) => Promise<void>; deleteCategory: (id: string) => Promise<void>; reorderCategories: (categories: Category[]) => Promise<void>; updateLeaveStatus: (id: string, status: 'APPROVED' | 'REJECTED') => Promise<void>; addOutlet: (outlet: any) => Promise<void>; updateOutlet: (outlet: Outlet) => Promise<void>; deleteOutlet: (id: string) => Promise<void>; transferStock: (fromOutletId: string, toOutletId: string, itemName: string, quantity: number) => Promise<void>; respondToTransfer: (id: string, status: 'ACCEPTED' | 'REJECTED') => Promise<void>; updateLoyaltyConfig: (config: LoyaltyConfig) => Promise<void>; addMembershipTier: (tier: any) => Promise<void>; updateMembershipTier: (tier: MembershipTier) => Promise<void>; deleteMembershipTier: (id: string) => Promise<void>; addBulkDiscount: (rule: any) => Promise<void>; updateBulkDiscount: (rule: BulkDiscountRule) => Promise<void>; deleteBulkDiscount: (id: string) => Promise<void>; addWIPRecipe: (recipe: any) => Promise<void>; updateWIPRecipe: (recipe: WIPRecipe) => Promise<void>; deleteWIPRecipe: (id: string) => Promise<void>; submitLeave: (data: { startDate: string; endDate: string; reason: string }) => Promise<void>; saveSimulation: (simulation: MenuSimulation) => Promise<void>; deleteSimulation: (id: string) => Promise<void>; resetOutletData: (id: string) => Promise<void>; resetGlobalData: () => Promise<void>; updateBrandConfig: (config: BrandConfig) => Promise<void>; updateExternalDbConfig: (config: any) => void; exportDatabaseSQL: () => Promise<void>; importSystemBackup: (jsonString: string) => Promise<{ success: boolean; message: string }>; exportTableToCSV: (table: string) => void; exportSystemBackup: () => Promise<void>; setConnectedPrinter: (device: any) => void;
+  updateCloudConfig: (url: string, key: string) => void; login: (username: string, password?: string) => Promise<{ success: boolean; message?: string }>; logout: () => void; switchOutlet: (id: string) => void; addToCart: (product: Product) => void; removeFromCart: (productId: string) => void; updateCartQuantity: (productId: string, delta: number) => void; clearCart: () => void; checkout: (paymentMethod: PaymentMethod, redeemPoints?: number, membershipDiscount?: number, bulkDiscount?: number) => Promise<void>; addStaff: (member: StaffMember) => Promise<void>; updateStaff: (member: StaffMember) => Promise<void>; deleteStaff: (id: string) => Promise<void>; clockIn: () => Promise<{ success: boolean; message?: string }>; clockOut: () => Promise<void>; addProduct: (product: Product) => Promise<void>; updateProduct: (product: Product) => Promise<void>; deleteProduct: (id: string) => Promise<void>; addInventoryItem: (item: any, outletIds?: string[]) => Promise<void>; updateInventoryItem: (item: InventoryItem) => Promise<void>; deleteInventoryItem: (id: string) => Promise<void>; performClosing: (cash: number, notes: string, opening: number, shift: string, cashSales: number, qrisSales: number, expenses: number, discrepancy: number) => Promise<void>; addPurchase: (purchase: any) => Promise<void>; selectCustomer: (id: string | null) => void; addCustomer: (customer: any) => Promise<void>; updateCustomer: (customer: Customer) => Promise<void>; deleteCustomer: (id: string) => Promise<void>; processProduction: (data: { resultItemId: string; resultQuantity: number; components: { inventoryItemId: string; quantity: number }[] }) => Promise<void>; fetchFromCloud: (isInitial?: boolean) => Promise<void>; syncToCloud: () => void; addExpense: (expense: any) => Promise<void>; updateExpense: (id: string, expense: any) => Promise<void>; deleteExpense: (id: string) => Promise<void>; addExpenseType: (name: string) => Promise<void>; updateExpenseType: (id: string, name: string) => Promise<void>; deleteExpenseType: (id: string) => Promise<void>; addCategory: (name: string) => Promise<void>; updateCategory: (id: string, name: string) => Promise<void>; deleteCategory: (id: string) => Promise<void>; reorderCategories: (categories: Category[]) => Promise<void>; updateLeaveStatus: (id: string, status: 'APPROVED' | 'REJECTED') => Promise<void>; addOutlet: (outlet: any) => Promise<void>; updateOutlet: (outlet: Outlet) => Promise<void>; deleteOutlet: (id: string) => Promise<void>; transferStock: (fromOutletId: string, toOutletId: string, itemName: string, quantity: number) => Promise<void>; respondToTransfer: (id: string, status: 'ACCEPTED' | 'REJECTED') => Promise<void>; updateLoyaltyConfig: (config: LoyaltyConfig) => Promise<void>; addMembershipTier: (tier: any) => Promise<void>; updateMembershipTier: (tier: MembershipTier) => Promise<void>; deleteMembershipTier: (id: string) => Promise<void>; addBulkDiscount: (rule: any) => Promise<void>; updateBulkDiscount: (rule: BulkDiscountRule) => Promise<void>; deleteBulkDiscount: (id: string) => Promise<void>; addWIPRecipe: (recipe: any) => Promise<void>; updateWIPRecipe: (recipe: WIPRecipe) => Promise<void>; deleteWIPRecipe: (id: string) => Promise<void>; submitLeave: (data: { startDate: string; endDate: string; reason: string }) => Promise<void>; saveSimulation: (simulation: MenuSimulation) => Promise<void>; deleteSimulation: (id: string) => Promise<void>; resetOutletData: (id: string) => Promise<void>; resetGlobalData: () => Promise<void>; updateBrandConfig: (config: BrandConfig) => Promise<void>; updateExternalDbConfig: (config: any) => void; exportDatabaseSQL: () => Promise<void>; importSystemBackup: (jsonString: string) => Promise<{ success: boolean; message: string }>; exportTableToCSV: (table: string) => void; exportSystemBackup: () => Promise<void>; setConnectedPrinter: (device: any) => void;
 }
 
 const AppContext = createContext<(AppState & AppActions) | undefined>(undefined);
@@ -114,6 +113,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [connectedPrinter, setConnectedPrinter] = useState<any | null>(null);
   const [cloudConfig, setCloudConfig] = useState(loadCloudConfig());
   
+  const syncTimeoutRef = useRef<any>(null);
+
   const [externalDbConfig, setExternalDbConfig] = useState(() => {
     const saved = localStorage.getItem(STORAGE_EXTERNAL_DB);
     return saved ? JSON.parse(saved) : { gatewayUrl: '', host: '', port: '5432', user: '', password: '', status: 'IDLE' };
@@ -142,9 +143,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const fetchFromCloud = async () => {
+  const fetchFromCloud = useCallback(async (isInitial = false) => {
     if (isFetching) return;
+    if (isInitial) setIsInitialLoading(true);
     setIsFetching(true);
+    
     try {
       const [catsData, prodsData, outletsData, staffData, invData, custData, tierData, discData, simData, recipeData, trxData, closeData, expData, expTypesData, attendData, leaveData, buyData, trfData, prodData] = await Promise.all([
         supabase.from('categories').select('*').order('sortOrder', { ascending: true }),
@@ -237,7 +240,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           staffName: p.staffName || p.staff_name
         })));
       }
-
       if (trfData.data) {
         setStockTransfers(trfData.data.map((t: any) => ({
           ...t,
@@ -251,7 +253,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status: t.status || 'PENDING'
         })));
       }
-      
       if (prodData.data) {
         setProductionRecords(prodData.data.map((p: any) => ({
           ...p,
@@ -262,13 +263,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           staffName: p.staffName || p.staff_name
         })));
       }
-      await fetchPublicConfig(); // Refresh brand & loyalty to be sure
+      await fetchPublicConfig();
     } catch (e) {
       console.error("Cloud Retrieval Error:", e);
     } finally {
       setIsFetching(false);
+      setIsInitialLoading(false);
     }
-  };
+  }, [isFetching]);
+
+  const debouncedFetch = useCallback(() => {
+     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+     syncTimeoutRef.current = setTimeout(() => {
+        fetchFromCloud();
+     }, 1000); // Tunggu 1 detik sebelum refetch untuk meredam spam event
+  }, [fetchFromCloud]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const channel = supabase
+      .channel('realtime-pos-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => debouncedFetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => debouncedFetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => debouncedFetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => debouncedFetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_transfers' }, () => debouncedFetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_closings' }, () => debouncedFetch())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [isAuthenticated, debouncedFetch]);
 
   const actions: AppActions = {
     fetchFromCloud,
@@ -373,34 +396,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           bulkDiscount: bulkDiscount,
           pointsEarned: Math.floor(sub / (loyaltyConfig.earningAmountPerPoint || 1000))
         };
-        
         for (const cartItem of cart) {
            for (const bom of (cartItem.product.bom || [])) {
               const refItem = inventory.find(i => i.id === bom.inventoryItemId);
               if (refItem) {
-                 const { data: localItem } = await supabase.from('inventory')
-                    .select('id, quantity')
-                    .eq('name', refItem.name)
-                    .eq('outletId', selectedOutletId)
-                    .maybeSingle();
-
+                 const { data: localItem } = await supabase.from('inventory').select('id, quantity').eq('name', refItem.name).eq('outletId', selectedOutletId).maybeSingle();
                  if (localItem) {
-                    await supabase.from('inventory')
-                       .update({ quantity: localItem.quantity - (bom.quantity * cartItem.quantity) })
-                       .eq('id', localItem.id);
+                    await supabase.from('inventory').update({ quantity: localItem.quantity - (bom.quantity * cartItem.quantity) }).eq('id', localItem.id);
                  }
               }
            }
         }
-        
         await supabase.from('transactions').insert([tx]);
         setCart([]);
-        await fetchFromCloud(); 
+        fetchFromCloud(); 
       } finally { setIsSaving(false); }
     },
-    addStaff: async (s) => { await supabase.from('staff').insert([s]); await fetchFromCloud(); },
-    updateStaff: async (s) => { await supabase.from('staff').update(s).eq('id', s.id); await fetchFromCloud(); },
-    deleteStaff: async (id) => { await supabase.from('staff').delete().eq('id', id); await fetchFromCloud(); },
+    addStaff: async (s) => { await supabase.from('staff').insert([s]); fetchFromCloud(); },
+    updateStaff: async (s) => { await supabase.from('staff').update(s).eq('id', s.id); fetchFromCloud(); },
+    deleteStaff: async (id) => { await supabase.from('staff').delete().eq('id', id); fetchFromCloud(); },
     clockIn: async () => { 
        const today = getTodayDateString();
        const att = { 
@@ -414,7 +428,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        };
        const { error } = await supabase.from('attendance').insert([att]);
        if (error) return { success: false, message: error.message };
-       await fetchFromCloud();
+       fetchFromCloud();
        return { success: true }; 
     },
     clockOut: async () => { 
@@ -422,19 +436,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        if (active) {
           const now = new Date().toISOString();
           await supabase.from('attendance').update({ clockOut: now }).eq('id', active.id);
-          await fetchFromCloud();
+          fetchFromCloud();
        }
     },
-    addProduct: async (p) => { await supabase.from('products').insert([p]); await fetchFromCloud(); },
-    updateProduct: async (p) => { await supabase.from('products').update(p).eq('id', p.id); await fetchFromCloud(); },
-    deleteProduct: async (id) => { await supabase.from('products').delete().eq('id', id); await fetchFromCloud(); },
+    addProduct: async (p) => { await supabase.from('products').insert([p]); fetchFromCloud(); },
+    updateProduct: async (p) => { await supabase.from('products').update(p).eq('id', p.id); fetchFromCloud(); },
+    deleteProduct: async (id) => { await supabase.from('products').delete().eq('id', id); fetchFromCloud(); },
     addInventoryItem: async (item, oids) => { 
        const items = (oids || [selectedOutletId]).map(oid => ({ ...item, id: `inv-${oid}-${Date.now()}`, outletId: oid }));
        await supabase.from('inventory').insert(items);
-       await fetchFromCloud();
+       fetchFromCloud();
     },
-    updateInventoryItem: async (i) => { await supabase.from('inventory').update(i).eq('id', i.id); await fetchFromCloud(); },
-    deleteInventoryItem: async (id) => { await supabase.from('inventory').delete().eq('id', id); await fetchFromCloud(); },
+    updateInventoryItem: async (i) => { await supabase.from('inventory').update(i).eq('id', i.id); fetchFromCloud(); },
+    deleteInventoryItem: async (id) => { await supabase.from('inventory').delete().eq('id', id); fetchFromCloud(); },
     performClosing: async (c, n, o, s, cs, qs, ex, d) => { 
        const closing = { 
          id: `cl-${Date.now()}`, 
@@ -453,7 +467,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          status: 'PENDING' 
        };
        await supabase.from('daily_closings').insert([closing]);
-       await fetchFromCloud();
+       fetchFromCloud();
     },
     addPurchase: async (p) => { 
        const purId = `pur-${Date.now()}`;
@@ -468,12 +482,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          timestamp: new Date().toISOString(),
          totalPrice: p.totalPrice || p.unitPrice || 0 
        };
-       
        const { data: latest } = await supabase.from('inventory').select('quantity').eq('id', p.inventoryItemId).maybeSingle();
        if (latest) await supabase.from('inventory').update({ quantity: latest.quantity + p.quantity }).eq('id', p.inventoryItemId);
-       
        await supabase.from('purchases').insert([pur]);
-       
        await supabase.from('expenses').insert([{ 
          id: `exp-auto-${purId}`, 
          outletId: selectedOutletId, 
@@ -484,13 +495,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          staffName: currentUser?.name, 
          timestamp: new Date().toISOString() 
        }]);
-       
-       await fetchFromCloud();
+       fetchFromCloud();
     },
     selectCustomer: (id) => setSelectedCustomerId(id),
-    addCustomer: async (c) => { await supabase.from('customers').insert([{...c, id: `cust-${Date.now()}`, registeredAt: new Date().toISOString()}]); await fetchFromCloud(); },
-    updateCustomer: async (c) => { await supabase.from('customers').update(c).eq('id', c.id); await fetchFromCloud(); },
-    deleteCustomer: async (id) => { await supabase.from('customers').delete().eq('id', id); await fetchFromCloud(); },
+    addCustomer: async (c) => { await supabase.from('customers').insert([{...c, id: `cust-${Date.now()}`, registeredAt: new Date().toISOString()}]); fetchFromCloud(); },
+    updateCustomer: async (c) => { await supabase.from('customers').update(c).eq('id', c.id); fetchFromCloud(); },
+    deleteCustomer: async (id) => { await supabase.from('customers').delete().eq('id', id); fetchFromCloud(); },
     processProduction: async (d) => { 
        setIsSaving(true);
        try {
@@ -510,7 +520,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const { data: latestRes } = await supabase.from('inventory').select('quantity').eq('id', d.resultItemId).maybeSingle();
           if (latestRes) await supabase.from('inventory').update({ quantity: latestRes.quantity + d.resultQuantity }).eq('id', d.resultItemId);
           await supabase.from('production_records').insert([rec]);
-          await fetchFromCloud(); 
+          fetchFromCloud(); 
        } finally { setIsSaving(false); }
     },
     syncToCloud: () => { fetchFromCloud(); },
@@ -523,29 +533,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          staffName: currentUser?.name, 
          timestamp: new Date().toISOString()
        }]); 
-       await fetchFromCloud(); 
+       fetchFromCloud(); 
     },
-    updateExpense: async (id, e) => { await supabase.from('expenses').update(e).eq('id', id); await fetchFromCloud(); },
-    deleteExpense: async (id) => { await supabase.from('expenses').delete().eq('id', id); await fetchFromCloud(); },
-    addExpenseType: async (n) => { await supabase.from('expense_types').insert([{id: `et-${Date.now()}`, name: n}]); await fetchFromCloud(); },
-    updateExpenseType: async (id, n) => { await supabase.from('expense_types').update({name: n}).eq('id', id); await fetchFromCloud(); },
-    deleteExpenseType: async (id) => { await supabase.from('expense_types').delete().eq('id', id); await fetchFromCloud(); },
-    addCategory: async (n) => { await supabase.from('categories').insert([{ id: `cat-${Date.now()}`, name: n.toUpperCase(), sortOrder: categories.length }]); await fetchFromCloud(); },
-    updateCategory: async (id, n) => { await supabase.from('categories').update({ name: n.toUpperCase() }).eq('id', id); await fetchFromCloud(); },
-    deleteCategory: async (id) => { await supabase.from('categories').delete().eq('id', id); await fetchFromCloud(); },
+    updateExpense: async (id, e) => { await supabase.from('expenses').update(e).eq('id', id); fetchFromCloud(); },
+    deleteExpense: async (id) => { await supabase.from('expenses').delete().eq('id', id); fetchFromCloud(); },
+    addExpenseType: async (n) => { await supabase.from('expense_types').insert([{id: `et-${Date.now()}`, name: n}]); fetchFromCloud(); },
+    updateExpenseType: async (id, n) => { await supabase.from('expense_types').update({name: n}).eq('id', id); fetchFromCloud(); },
+    deleteExpenseType: async (id) => { await supabase.from('expense_types').delete().eq('id', id); fetchFromCloud(); },
+    addCategory: async (n) => { await supabase.from('categories').insert([{ id: `cat-${Date.now()}`, name: n.toUpperCase(), sortOrder: categories.length }]); fetchFromCloud(); },
+    updateCategory: async (id, n) => { await supabase.from('categories').update({ name: n.toUpperCase() }).eq('id', id); fetchFromCloud(); },
+    deleteCategory: async (id) => { await supabase.from('categories').delete().eq('id', id); fetchFromCloud(); },
     reorderCategories: async (newCats: Category[]) => {
       setIsSaving(true);
       try {
         const updates = newCats.map((c, idx) => ({ id: c.id, name: c.name, sortOrder: idx }));
         await supabase.from('categories').upsert(updates);
-        await fetchFromCloud();
+        fetchFromCloud();
       } finally { setIsSaving(false); }
     },
-    updateLeaveStatus: async (id, status) => { await supabase.from('leave_requests').update({ status }).eq('id', id); await fetchFromCloud(); },
-    addOutlet: async (o) => { await supabase.from('outlets').insert([o]); await fetchFromCloud(); },
-    updateOutlet: async (o) => { await supabase.from('outlets').update(o).eq('id', o.id); await fetchFromCloud(); },
-    deleteOutlet: async (id) => { await supabase.from('outlets').delete().eq('id', id); await fetchFromCloud(); },
-    
+    updateLeaveStatus: async (id, status) => { await supabase.from('leave_requests').update({ status }).eq('id', id); fetchFromCloud(); },
+    addOutlet: async (o) => { await supabase.from('outlets').insert([o]); fetchFromCloud(); },
+    updateOutlet: async (o) => { await supabase.from('outlets').update(o).eq('id', o.id); fetchFromCloud(); },
+    deleteOutlet: async (id) => { await supabase.from('outlets').delete().eq('id', id); fetchFromCloud(); },
     transferStock: async (f, t, n, q) => { 
        setIsSaving(true);
        try {
@@ -553,8 +562,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const fromName = outlets.find(o=>o.id===f)?.name || '';
           const toName = outlets.find(o=>o.id===t)?.name || '';
           const unit = inventory.find(i=>i.name===n)?.unit || '';
-
-          // Menggunakan camelCase karena SQL User mendefinisikan dengan tanda kutip "fromOutletId"
           const dbPayload = { 
             id: trfId, 
             fromOutletId: f, 
@@ -570,17 +577,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             staffName: currentUser?.name
           };
           await supabase.from('stock_transfers').insert([dbPayload]);
-
-          const { data: senderItem } = await supabase.from('inventory')
-            .select('id, quantity')
-            .eq('name', n)
-            .eq('outletId', f)
-            .maybeSingle();
-
-          if (senderItem) {
-             await supabase.from('inventory').update({ quantity: senderItem.quantity - q }).eq('id', senderItem.id);
-          }
-          await fetchFromCloud();
+          const { data: senderItem } = await supabase.from('inventory').select('id, quantity').eq('name', n).eq('outletId', f).maybeSingle();
+          if (senderItem) { await supabase.from('inventory').update({ quantity: senderItem.quantity - q }).eq('id', senderItem.id); }
+          fetchFromCloud();
        } finally { setIsSaving(false); }
     },
     respondToTransfer: async (id, status) => { 
@@ -588,48 +587,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        try {
           const { data: trf } = await supabase.from('stock_transfers').select('*').eq('id', id).maybeSingle();
           if (!trf) return;
-
           const fId = trf.fromOutletId || trf.from_outlet_id;
           const tId = trf.toOutletId || trf.to_outlet_id;
           const name = trf.itemName || trf.item_name;
           const qty = trf.quantity;
-
           await supabase.from('stock_transfers').update({ status }).eq('id', id);
-
           if (status === 'ACCEPTED') {
-             const { data: receiverItem } = await supabase.from('inventory')
-               .select('id, quantity')
-               .eq('name', name)
-               .eq('outletId', tId)
-               .maybeSingle();
-
-             if (receiverItem) {
-                await supabase.from('inventory').update({ quantity: receiverItem.quantity + qty }).eq('id', receiverItem.id);
-             }
+             const { data: receiverItem } = await supabase.from('inventory').select('id, quantity').eq('name', name).eq('outletId', tId).maybeSingle();
+             if (receiverItem) { await supabase.from('inventory').update({ quantity: receiverItem.quantity + qty }).eq('id', receiverItem.id); }
           } else if (status === 'REJECTED') {
-             const { data: senderItem } = await supabase.from('inventory')
-               .select('id, quantity')
-               .eq('name', name)
-               .eq('outletId', fId)
-               .maybeSingle();
-
-             if (senderItem) {
-                await supabase.from('inventory').update({ quantity: senderItem.quantity + qty }).eq('id', senderItem.id);
-             }
+             const { data: senderItem } = await supabase.from('inventory').select('id, quantity').eq('name', name).eq('outletId', fId).maybeSingle();
+             if (senderItem) { await supabase.from('inventory').update({ quantity: senderItem.quantity + qty }).eq('id', senderItem.id); }
           }
-          await fetchFromCloud();
+          fetchFromCloud();
        } finally { setIsSaving(false); }
     },
     updateLoyaltyConfig: async (config) => { await supabase.from('loyalty_config').upsert({ id: 'global', ...config }); setLoyaltyConfig(config); },
-    addMembershipTier: async (t) => { await supabase.from('membership_tiers').insert([{id: `t-${Date.now()}`, ...t}]); await fetchFromCloud(); },
-    updateMembershipTier: async (t) => { await supabase.from('membership_tiers').update(t).eq('id', t.id); await fetchFromCloud(); },
-    deleteMembershipTier: async (id) => { await supabase.from('membership_tiers').delete().eq('id', id); await fetchFromCloud(); },
-    addBulkDiscount: async (r) => { await supabase.from('bulk_discounts').insert([{id: `bd-${Date.now()}`, ...r}]); await fetchFromCloud(); },
-    updateBulkDiscount: async (r) => { await supabase.from('bulk_discounts').update(r).eq('id', r.id); await fetchFromCloud(); },
-    deleteBulkDiscount: async (id) => { await supabase.from('bulk_discounts').delete().eq('id', id); await fetchFromCloud(); },
-    addWIPRecipe: async (r) => { await supabase.from('wip_recipes').insert([{id: `wr-${Date.now()}`, ...r}]); await fetchFromCloud(); },
-    updateWIPRecipe: async (r) => { await supabase.from('wip_recipes').update(r).eq('id', r.id); await fetchFromCloud(); },
-    deleteWIPRecipe: async (id) => { await supabase.from('wip_recipes').delete().eq('id', id); await fetchFromCloud(); },
+    addMembershipTier: async (t) => { await supabase.from('membership_tiers').insert([{id: `t-${Date.now()}`, ...t}]); fetchFromCloud(); },
+    updateMembershipTier: async (t) => { await supabase.from('membership_tiers').update(t).eq('id', t.id); fetchFromCloud(); },
+    deleteMembershipTier: async (id) => { await supabase.from('membership_tiers').delete().eq('id', id); fetchFromCloud(); },
+    addBulkDiscount: async (r) => { await supabase.from('bulk_discounts').insert([{id: `bd-${Date.now()}`, ...r}]); fetchFromCloud(); },
+    updateBulkDiscount: async (r) => { await supabase.from('bulk_discounts').update(r).eq('id', r.id); fetchFromCloud(); },
+    deleteBulkDiscount: async (id) => { await supabase.from('bulk_discounts').delete().eq('id', id); fetchFromCloud(); },
+    addWIPRecipe: async (r) => { await supabase.from('wip_recipes').insert([{id: `wr-${Date.now()}`, ...r}]); fetchFromCloud(); },
+    updateWIPRecipe: async (r) => { await supabase.from('wip_recipes').update(r).eq('id', r.id); fetchFromCloud(); },
+    deleteWIPRecipe: async (id) => { await supabase.from('wip_recipes').delete().eq('id', id); fetchFromCloud(); },
     submitLeave: async (d) => { 
        const now = new Date().toISOString();
        const payload = {
@@ -644,48 +626,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          "outletId": selectedOutletId     
        };
        await supabase.from('leave_requests').insert([payload]); 
-       await fetchFromCloud(); 
+       fetchFromCloud(); 
     },
-    saveSimulation: async (s) => { await supabase.from('simulations').upsert(s); await fetchFromCloud(); },
-    deleteSimulation: async (id) => { await supabase.from('simulations').delete().eq('id', id); await fetchFromCloud(); },
+    saveSimulation: async (s) => { await supabase.from('simulations').upsert(s); fetchFromCloud(); },
+    deleteSimulation: async (id) => { await supabase.from('simulations').delete().eq('id', id); fetchFromCloud(); },
     resetOutletData: async (id) => { 
        const tables = ['transactions', 'expenses', 'attendance', 'purchases', 'production_records', 'stock_transfers', 'daily_closings', 'leave_requests'];
-       
-       // Pembersihan state lokal secara optimis dan instan agar UI bersih seketika
-       setTransactions(prev => prev.filter(tx => (tx.outletId || (tx as any).outlet_id) !== id));
-       setExpenses(prev => prev.filter(e => (e.outletId || (e as any).outlet_id) !== id));
-       setAttendance(prev => prev.filter(a => (a.outletId || (a as any).outlet_id) !== id));
-       setPurchases(prev => prev.filter(p => (p.outletId || (p as any).outlet_id) !== id));
-       setProductionRecords(prev => prev.filter(pr => (pr.outletId || (pr as any).outlet_id) !== id));
-       setStockTransfers(prev => prev.filter(st => (st.fromOutletId || (st as any).from_outlet_id) !== id && (st.toOutletId || (st as any).to_outlet_id) !== id));
-       setDailyClosings(prev => prev.filter(dc => (dc.outletId || (dc as any).outlet_id) !== id));
-       setLeaveRequests(prev => prev.filter(lr => (lr.outletId || (lr as any).outlet_id) !== id));
-
        for (const t of tables) {
-          // Robust deletion handling for varying conventions
           await supabase.from(t).delete().eq('outletId', id);
           await supabase.from(t).delete().eq('outlet_id', id);
-          await supabase.from(t).delete().eq('"outletId"', id); // Ensure double-quoted identifier case
-          
-          if (t === 'stock_transfers') {
-             await supabase.from(t).delete().eq('fromOutletId', id);
-             await supabase.from(t).delete().eq('toOutletId', id);
-          }
        }
-       await fetchFromCloud(); 
+       fetchFromCloud(); 
     },
     resetGlobalData: async () => { 
        const tables = ['transactions', 'expenses', 'attendance', 'purchases', 'production_records', 'stock_transfers', 'daily_closings', 'customers', 'leave_requests'];
-       
-       // Instant local state clearing
-       setTransactions([]); setExpenses([]); setAttendance([]); setPurchases([]); setProductionRecords([]); setStockTransfers([]); setDailyClosings([]); setCustomers([]); setLeaveRequests([]);
-
-       // Use the most absolute filter to empty tables in Supabase
-       // Ini memastikan semua log cuti (leave_requests) hilang tanpa memandang filter kolom.
        for (const t of tables) {
           await supabase.from(t).delete().not('id', 'is', null); 
        }
-       await fetchFromCloud(); 
+       fetchFromCloud(); 
     },
     exportDatabaseSQL: async () => {
        try {
@@ -711,7 +669,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        try {
           const data = JSON.parse(jsonString);
           for (const table in data) if (Array.isArray(data[table]) && data[table].length > 0) await supabase.from(table).upsert(data[table]);
-          await fetchFromCloud();
+          fetchFromCloud();
           return { success: true, message: 'Restored!' };
        } catch (e) { return { success: false, message: 'Invalid JSON.' }; }
     },
@@ -736,7 +694,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetchPublicConfig(); 
   }, []);
 
-  useEffect(() => { if (isAuthenticated) fetchFromCloud(); }, [isAuthenticated]);
+  useEffect(() => { 
+    if (isAuthenticated) fetchFromCloud(true); 
+  }, [isAuthenticated]);
+
   const filteredTransactions = selectedOutletId === 'all' ? transactions : transactions.filter(tx => tx.outletId === selectedOutletId);
 
   return (
