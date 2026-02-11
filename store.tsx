@@ -118,7 +118,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [connectedPrinter, setConnectedPrinter] = useState<any | null>(null);
   const [cloudConfig, setCloudConfig] = useState(loadCloudConfig());
   
-  // Fix: Declare externalDbConfig and setExternalDbConfig to fix line 361 and 782 errors
   const [externalDbConfig, setExternalDbConfig] = useState<any>(() => {
     const saved = localStorage.getItem(STORAGE_EXTERNAL_DB);
     try {
@@ -140,8 +139,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const item = syncQueue[0];
       try {
         if (item.type === 'transaction') {
-          // 1. Potong Stok di DB (Atomic logic)
-          // Secara ideal kita pakai RPC di Supabase, tapi untuk kemudahan perbaikan:
           for (const cartItem of item.data.items) {
              for (const bom of (cartItem.product.bom || [])) {
                 const refItem = inventory.find(i => i.id === bom.inventoryItemId);
@@ -153,11 +150,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 }
              }
           }
-          // 2. Insert Transaction (Upsert untuk cegah duplikat jika retry)
           await supabase.from('transactions').upsert(item.data);
         }
 
-        // Jika sukses, hapus dari queue
         setSyncQueue(prev => {
           const next = prev.slice(1);
           localStorage.setItem(STORAGE_SYNC_QUEUE, JSON.stringify(next));
@@ -170,7 +165,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     };
 
-    const interval = setInterval(processQueue, 5000); // Cek antrean setiap 5 detik
+    const interval = setInterval(processQueue, 5000); 
     return () => clearInterval(interval);
   }, [syncQueue, inventory]);
 
@@ -430,11 +425,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateCartQuantity: (pid, delta) => setCart(prev => prev.map(i => i.product.id === pid ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0)),
     clearCart: () => setCart([]),
     checkout: async (method, redeem = 0, membershipDiscount = 0, bulkDiscount = 0) => {
-      // OPTIMISTIC CHECKOUT: Transaksi langsung dibuat di klien
       const sub = cart.reduce((sum, i) => sum + ((i.product.outletSettings?.[selectedOutletId]?.price || i.product.price) * i.quantity), 0);
       const pointVal = redeem * (loyaltyConfig.redemptionValuePerPoint || 100);
       
-      // Fix: Calculate totalCost for the transaction (required property in line 428)
       const totalCost = cart.reduce((sum, cartItem) => {
         const itemCost = (cartItem.product.bom || []).reduce((bomSum, bom) => {
           const invItem = inventory.find(i => i.id === bom.inventoryItemId);
@@ -450,7 +443,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         customerId: selectedCustomerId || undefined,
         items: [...cart],
         subtotal: sub,
-        // Fix: Add missing mandatory properties tax and totalCost to fix line 428 error
         tax: 0,
         totalCost: totalCost,
         total: Math.max(0, sub - membershipDiscount - bulkDiscount - pointVal),
@@ -466,18 +458,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pointsEarned: Math.floor(sub / (loyaltyConfig.earningAmountPerPoint || 1000))
       };
 
-      // 1. Update UI Lokal (Optimistic)
       setTransactions(prev => [newTx, ...prev]);
       setCart([]);
       
-      // 2. Simpan ke Sync Queue (Background)
       setSyncQueue(prev => {
         const next = [...prev, { type: 'transaction', data: newTx }];
         localStorage.setItem(STORAGE_SYNC_QUEUE, JSON.stringify(next));
         return next;
       });
 
-      // 3. Update Stok Lokal agar Kasir tahu stok berkurang
       setInventory(prev => {
         const nextInv = [...prev];
         cart.forEach(cartItem => {
@@ -527,12 +516,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateInventoryItem: async (i) => { await supabase.from('inventory').update(i).eq('id', i.id); fetchFromCloud(); },
     deleteInventoryItem: async (id) => { await supabase.from('inventory').delete().eq('id', id); fetchFromCloud(); },
     performClosing: async (c, n, o, s, cs, qs, ex, d) => { 
+       const now = new Date().toISOString();
        const closing = { 
          id: `cl-${Date.now()}`, 
          outletId: selectedOutletId, 
          staffId: currentUser?.id, 
          staffName: currentUser?.name, 
-         timestamp: new Date().toISOString(), 
+         timestamp: now, 
          shiftName: s, 
          openingBalance: o, 
          totalSalesCash: cs, 
@@ -543,7 +533,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          notes: n, 
          status: 'PENDING' 
        };
+       // 1. Simpan Laporan Closing
        await supabase.from('daily_closings').insert([closing]);
+
+       // 2. OTOMATIS ABSEN PULANG (Clock Out)
+       const activeAtt = attendance.find(a => a.staffId === currentUser?.id && !a.clockOut);
+       if (activeAtt) {
+          await supabase.from('attendance').update({ clockOut: now }).eq('id', activeAtt.id);
+       }
+       
        fetchFromCloud();
     },
     addPurchase: async (p) => { 
@@ -660,7 +658,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const { data: senderItem } = await supabase.from('inventory').select('id, quantity').eq('name', n).eq('outletId', f).maybeSingle();
           if (senderItem) { await supabase.from('inventory').update({ quantity: senderItem.quantity - q }).eq('id', senderItem.id); }
           
-          // Force update local state immediately
           setStockTransfers(prev => [{...dbPayload, timestamp: new Date(dbPayload.timestamp)} as any, ...prev]);
           await fetchFromCloud();
        } finally { setIsSaving(false); }
@@ -668,7 +665,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     respondToTransfer: async (id, status) => { 
        setIsSaving(true);
        try {
-          // Optimistic state update: Segera ubah status di UI agar terasa responsif
           setStockTransfers(prev => prev.map(t => t.id === id ? { ...t, status } : t));
 
           const { data: trf } = await supabase.from('stock_transfers').select('*').eq('id', id).maybeSingle();
@@ -679,24 +675,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const name = trf.itemName;
           const qty = trf.quantity;
 
-          // Update status transfer di database
           await supabase.from('stock_transfers').update({ status }).eq('id', id);
           
           if (status === 'ACCEPTED') {
-             // Jika diterima, tambahkan stok di cabang tujuan
              const { data: receiverItem } = await supabase.from('inventory').select('id, quantity').eq('name', name).eq('outletId', tId).maybeSingle();
              if (receiverItem) { 
                 await supabase.from('inventory').update({ quantity: receiverItem.quantity + qty }).eq('id', receiverItem.id); 
              }
           } else if (status === 'REJECTED') {
-             // Jika ditolak, kembalikan stok ke cabang pengirim
              const { data: senderItem } = await supabase.from('inventory').select('id, quantity').eq('name', name).eq('outletId', fId).maybeSingle();
              if (senderItem) { 
                 await supabase.from('inventory').update({ quantity: senderItem.quantity + qty }).eq('id', senderItem.id); 
              }
           }
           
-          // Pastikan semua state (inventory & transfers) benar-benar sinkron dengan cloud
           await fetchFromCloud();
        } catch (err) {
           console.error("Error in respondToTransfer:", err);

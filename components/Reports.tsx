@@ -198,6 +198,58 @@ export const Reports: React.FC = () => {
       });
   }, [inventory, filteredSet, selectedOutletId]);
 
+  // LOGIKA KHUSUS UNTUK DETAIL DAILY REPORT MODAL
+  const viewingClosingShiftData = useMemo(() => {
+    if (!viewingClosing) return null;
+    
+    // Cari waktu absen masuk karyawan pada hari laporan tersebut
+    const closingDateISO = new Date(viewingClosing.timestamp).toLocaleDateString('en-CA');
+    const myAttend = attendance.find(a => a.staffId === viewingClosing.staffId && a.date === closingDateISO);
+    
+    const start = myAttend ? new Date(myAttend.clockIn) : new Date(new Date(viewingClosing.timestamp).setHours(0,0,0,0));
+    const end = new Date(viewingClosing.timestamp);
+
+    const sProds = productionRecords.filter(p => p.outletId === viewingClosing.outletId && p.staffId === viewingClosing.staffId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
+    const sPurchases = purchases.filter(p => p.outletId === viewingClosing.outletId && p.staffId === viewingClosing.staffId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
+    const sTrfs = stockTransfers.filter(t => (t.fromOutletId === viewingClosing.outletId || t.toOutletId === viewingClosing.outletId) && t.staffId === viewingClosing.staffId && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
+    const sTxs = transactions.filter(t => t.outletId === viewingClosing.outletId && t.cashierId === viewingClosing.staffId && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
+
+    const mutations = inventory.filter(i => i.outletId === viewingClosing.outletId).map(item => {
+        const inPur = sPurchases.filter(p => p.inventoryItemId === item.id).reduce((a,b)=>a+b.quantity, 0);
+        const inProd = sProds.filter(p => p.resultItemId === item.id).reduce((a,b)=>a+b.resultQuantity, 0);
+        const inTrf = sTrfs.filter(t => t.toOutletId === viewingClosing.outletId && t.itemName === item.name && t.status === 'ACCEPTED').reduce((a,b)=>a+b.quantity, 0);
+        
+        let outSales = 0;
+        sTxs.forEach(tx => tx.items.forEach(it => {
+            (it.product.bom || []).forEach(b => {
+                const matchedItem = inventory.find(i => i.id === b.inventoryItemId);
+                if (b.inventoryItemId === item.id || (matchedItem && matchedItem.name === item.name)) {
+                   outSales += (b.quantity * it.quantity);
+                }
+            });
+        }));
+
+        const outProd = sProds.reduce((acc, pr) => {
+            const comp = pr.components.find(c => {
+               const cItem = inventory.find(i => i.id === c.inventoryItemId);
+               return c.inventoryItemId === item.id || (cItem && cItem.name === item.name);
+            });
+            return acc + (comp?.quantity || 0);
+        }, 0);
+
+        const outTrf = sTrfs.filter(t => t.fromOutletId === viewingClosing.outletId && t.itemName === item.name).reduce((a,b)=>a+b.quantity, 0);
+        
+        const totalIn = inPur + inProd + inTrf;
+        const totalOut = outSales + outProd + outTrf;
+        const endQty = item.quantity;
+        const startQty = endQty - totalIn + totalOut;
+        
+        return { name: item.name, unit: item.unit, start: startQty, in: totalIn, out: totalOut, end: endQty };
+    }).filter(m => m.in > 0 || m.out > 0 || Math.abs(m.start - m.end) > 0.001);
+
+    return { sProds, mutations, start, end };
+  }, [viewingClosing, attendance, productionRecords, purchases, stockTransfers, transactions, inventory]);
+
   const exportStockToCSV = () => {
     const headers = ['Nama Item', 'Tipe', 'Unit', 'Stock Awal', 'Mutasi (Trf)', 'Beli/Produksi', 'Terpakai', 'Stock Akhir'];
     const rows = stockLedger.map(i => [i.name, i.type, i.unit, (i.stockAwal ?? 0).toFixed(2), (i.mutasi ?? 0).toFixed(2), (i.beli ?? 0).toFixed(2), (i.terpakai ?? 0).toFixed(2), (i.stockAkhir ?? 0).toFixed(2)]);
@@ -215,12 +267,13 @@ export const Reports: React.FC = () => {
       if (shiftReportRef.current) {
         const canvas = await html2canvas(shiftReportRef.current, { scale: 3, backgroundColor: '#ffffff' });
         const link = document.createElement('a');
-        link.download = `Daily-Report-${log.staffName}-${new Date(log.timestamp).toLocaleDateString()}.png`;
+        const outletName = outlets.find(o => o.id === log.outletId)?.name || 'Cabang';
+        link.download = `DailyReport-${outletName}-${new Date(log.timestamp).toISOString().split('T')[0]}.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
         setViewingClosing(null);
       }
-    }, 500);
+    }, 800);
   };
 
   const FinanceRow = ({ label, value, isBold = false, isNegative = false, isTotal = false, colorClass = "" }: any) => (
@@ -438,7 +491,7 @@ export const Reports: React.FC = () => {
                                         </span>
                                      </td>
                                      <td className="py-4 px-4 font-black text-slate-800 uppercase">{e.staffName}</td>
-                                     <td className="py-4 px-4 italic text-slate-400 max-w-xs truncate" title={e.notes}>{e.notes || '-'}</td>
+                                     <td className="py-4 px-4 italic text-slate-400 leading-tight" title={e.notes}>{e.notes || '-'}</td>
                                      <td className={`py-4 px-8 text-right font-black ${isAuto ? 'text-orange-600' : 'text-rose-600'}`}>Rp {(e.amount || 0).toLocaleString()}</td>
                                   </tr>
                                );
@@ -471,7 +524,7 @@ export const Reports: React.FC = () => {
                          <thead className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
                             <tr>
                                <th className="py-5 px-8">Nama Bahan / WIP</th>
-                               <th className="py-5 px-4 text-center">Satuan</th>
+                               <th className="py-5 px-4 text-center">Unit</th>
                                <th className="py-5 px-4 text-right bg-slate-800">Stok Awal</th>
                                <th className="py-5 px-4 text-right">Mutasi (Transfer)</th>
                                <th className="py-5 px-4 text-right text-emerald-400">Beli / Masak</th>
@@ -483,7 +536,7 @@ export const Reports: React.FC = () => {
                             {stockLedger.map(item => (
                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                                   <td className="py-4 px-8">
-                                     <p className="font-black text-slate-800 uppercase leading-none">{item.name}</p>
+                                     <p className="font-black text-slate-800 uppercase leading-tight">{item.name}</p>
                                      <p className="text-[7px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{item.type === InventoryItemType.RAW ? 'Bahan Mentah' : 'WIP / Olahan'}</p>
                                   </td>
                                   <td className="py-4 px-4 text-center font-bold text-slate-400 uppercase">{item.unit}</td>
@@ -540,15 +593,15 @@ export const Reports: React.FC = () => {
                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{new Date(pr.timestamp).toLocaleDateString()}</p>
                             </div>
                          </div>
-                         <h4 className="text-sm font-black text-slate-800 uppercase mb-4">
+                         <h4 className="text-sm font-black text-slate-800 uppercase mb-4 leading-tight">
                             {inventory.find(i => i.id === pr.resultItemId)?.name || 'Produk Jadi'}
                             <span className="block text-[10px] text-indigo-600 font-mono mt-1">Hasil: +{(pr.resultQuantity ?? 0)} {inventory.find(i => i.id === pr.resultItemId)?.unit}</span>
                          </h4>
                          <div className="border-t pt-4 space-y-2">
                             {(pr.components || []).map((c, idx) => (
                                <div key={idx} className="flex justify-between text-[9px] font-bold">
-                                  <span className="text-slate-500 uppercase">{inventory.find(i => i.id === c.inventoryItemId)?.name}</span>
-                                  <span className="text-red-500">-{(c.quantity ?? 0)} {inventory.find(i => i.id === c.inventoryItemId)?.unit}</span>
+                                  <span className="text-slate-500 uppercase leading-tight pr-2">{inventory.find(i => i.id === c.inventoryItemId)?.name}</span>
+                                  <span className="text-red-500 shrink-0">-{(c.quantity ?? 0)} {inventory.find(i => i.id === c.inventoryItemId)?.unit}</span>
                                </div>
                             ))}
                          </div>
@@ -602,13 +655,13 @@ export const Reports: React.FC = () => {
         </div>
       </div>
 
-      {viewingClosing && (
+      {viewingClosing && viewingClosingShiftData && (
         <div className="fixed inset-0 z-[600] bg-slate-950/95 flex items-center justify-center p-4">
            <div className="flex flex-col items-center gap-6">
               <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Daily Report...</p>
+              <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Detailed Report...</p>
               
-              <div ref={shiftReportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 w-[450px] text-slate-900">
+              <div ref={shiftReportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 w-[450px] text-slate-900 overflow-y-auto max-h-[85vh]">
                 <div className="p-8 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
                   <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-xl mx-auto mb-4 shadow-xl">M</div>
                   <h4 className="text-sm font-black text-slate-900 uppercase tracking-tighter">Daily Report</h4>
@@ -623,7 +676,7 @@ export const Reports: React.FC = () => {
                     </div>
                     <div className="space-y-1 text-right">
                       <p className="text-[7px] font-black text-slate-400 uppercase">Shift / Jadwal</p>
-                      <p className="text-[10px] font-black text-slate-800 uppercase">
+                      <p className="text-[10px] font-black text-slate-800 uppercase leading-tight">
                          {viewingClosing.shiftName}
                          {(() => {
                             const s = staff.find(st => st.id === viewingClosing.staffId);
@@ -653,22 +706,7 @@ export const Reports: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-slate-900 rounded-3xl p-5 text-white">
-                    <div className="flex justify-between items-center opacity-60 mb-1">
-                      <p className="text-[8px] font-black uppercase">Grand Total Omset</p>
-                      <p className="text-[8px] font-black uppercase">Tunai + QRIS</p>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <p className="text-xl font-black tracking-tighter">Rp {((viewingClosing.totalSalesCash ?? 0) + (viewingClosing.totalSalesQRIS ?? 0)).toLocaleString()}</p>
-                      <span className="text-[7px] bg-white/20 px-2 py-0.5 rounded font-bold uppercase tracking-widest">Daily Total</span>
-                    </div>
-                  </div>
-
                   <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="text-[8px] font-black text-slate-400 uppercase">Uang Seharusnya Di Laci</p>
-                      <p className="text-[10px] font-black text-slate-600">Rp {((viewingClosing.openingBalance ?? 0) + (viewingClosing.totalSalesCash ?? 0) - (viewingClosing.totalExpenses ?? 0)).toLocaleString()}</p>
-                    </div>
                     <div className="flex justify-between items-center mb-1">
                       <p className="text-[8px] font-black text-slate-400 uppercase">Input Uang Fisik</p>
                       <p className="text-sm font-black text-slate-900">Rp {(viewingClosing.actualCash ?? 0).toLocaleString()}</p>
@@ -680,11 +718,65 @@ export const Reports: React.FC = () => {
                       </p>
                     </div>
                   </div>
+
+                  {/* SECTION PRODUKSI & MIXING */}
+                  {viewingClosingShiftData.sProds.length > 0 && (
+                    <div className="space-y-3">
+                       <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest text-center">Log Produksi & Mixing</p>
+                       <div className="space-y-1.5">
+                          {viewingClosingShiftData.sProds.map(p => {
+                             const item = inventory.find(i=>i.id===p.resultItemId);
+                             return (
+                                <div key={p.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                   <p className="text-[9px] font-black text-slate-700 uppercase leading-tight pr-2">{item?.name}</p>
+                                   <span className="text-[10px] font-mono font-black text-indigo-600 shrink-0">+{p.resultQuantity} {item?.unit}</span>
+                                </div>
+                             );
+                          })}
+                       </div>
+                    </div>
+                  )}
+
+                  {/* SECTION MUTASI STOK / TRANSFER */}
+                  {viewingClosingShiftData.mutations.length > 0 && (
+                    <div className="space-y-3">
+                       <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest text-center">Audit Mutasi Stok</p>
+                       <div className="overflow-hidden border border-slate-100 rounded-2xl bg-white shadow-sm">
+                          <table className="w-full text-left text-[7px]">
+                             <thead className="bg-slate-900 text-white font-black uppercase">
+                                <tr>
+                                   <th className="p-2">Item</th>
+                                   <th className="p-2 text-right">In</th>
+                                   <th className="p-2 text-right">Out</th>
+                                   <th className="p-2 text-right">Final</th>
+                                </tr>
+                             </thead>
+                             <tbody className="divide-y divide-slate-50">
+                                {viewingClosingShiftData.mutations.map((m, idx) => (
+                                   <tr key={idx}>
+                                      <td className="p-2 font-black uppercase text-slate-600 leading-tight">{m.name}</td>
+                                      <td className="p-2 text-right font-mono text-emerald-600 shrink-0">+{m.in.toFixed(1)}</td>
+                                      <td className="p-2 text-right font-mono text-rose-600 shrink-0">-{m.out.toFixed(1)}</td>
+                                      <td className="p-2 text-right font-mono font-black text-slate-900 bg-slate-50/50 shrink-0">{m.end.toFixed(1)}</td>
+                                   </tr>
+                                ))}
+                             </tbody>
+                          </table>
+                       </div>
+                    </div>
+                  )}
+
+                  {viewingClosing.notes && (
+                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                       <p className="text-[7px] font-black text-amber-600 uppercase mb-1">Catatan Shift:</p>
+                       <p className="text-[9px] italic text-amber-900 leading-relaxed">"{viewingClosing.notes}"</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-8 text-center bg-white border-t border-slate-100">
                   <p className="text-[8px] font-black text-slate-300 uppercase tracking-[0.4em] mb-0.5">Mozza Boy Food OS</p>
-                  <p className="text-[7px] font-bold text-slate-400 uppercase italic mb-1">Insya Allah Berkah</p>
+                  <p className="text-[7px] font-bold text-slate-400 uppercase italic">Verification ID: {viewingClosing.id.slice(-12).toUpperCase()}</p>
                 </div>
               </div>
 
