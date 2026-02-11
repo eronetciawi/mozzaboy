@@ -12,7 +12,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     products = [], categories = [], cart = [], addToCart, 
     updateCartQuantity, checkout, customers = [], selectCustomer, selectedCustomerId,
     membershipTiers = [], bulkDiscounts = [], selectedOutletId, loyaltyConfig, inventory = [], 
-    dailyClosings = [], currentUser, attendance = [], isSaving, brandConfig
+    dailyClosings = [], currentUser, attendance = [], isSaving, brandConfig, isFetching
   } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -29,23 +29,19 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
-  // Helper: Cek apakah stok bahan baku cukup untuk 1 unit produk
-  // UPDATED: Logic deteksi stok lintas cabang berdasarkan nama bahan
+  // Helper: Cek apakah stok bahan baku cukup
   const checkStockAvailability = (product: Product) => {
+    if (selectedOutletId === 'all') return true;
     if (!product.bom || product.bom.length === 0) return true; 
+    if (isFetching && inventory.length === 0) return true;
 
     return product.bom.every(bomItem => {
-      // 1. Cari dulu nama bahannya di master database
       const originalRef = inventory.find(i => i.id === bomItem.inventoryItemId);
-      if (!originalRef) return false;
-
-      // 2. Cari stok bahannya di OUTLET INI (berdasarkan nama yang sama)
+      if (!originalRef) return true;
       const localInvItem = inventory.find(i => i.name === originalRef.name && i.outletId === selectedOutletId);
-      if (!localInvItem) return false;
-      
+      if (!localInvItem) return true;
       const inCartQty = cart.find(c => c.product.id === product.id)?.quantity || 0;
       const totalNeeded = bomItem.quantity * (inCartQty + 1);
-      
       return localInvItem.quantity >= totalNeeded;
     });
   };
@@ -103,6 +99,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const total = Math.max(0, subtotal - appliedTierDiscount - appliedBulkDiscount - (redeemPoints * loyaltyConfig.redemptionValuePerPoint));
 
   const handleCheckout = async (method: PaymentMethod) => {
+    if (selectedOutletId === 'all') return alert("Pilih cabang jualan terlebih dahulu di bagian atas!");
     if (isShiftClosed || isSaving || isProcessingPayment) return;
     if (!checkIsClockedIn()) { setShowAttendanceToast(true); return; }
     
@@ -126,6 +123,25 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
   return (
     <div className="h-full flex flex-col md:flex-row overflow-hidden bg-white relative">
+      <style>{`
+        @keyframes checkout-pulse {
+          0% { transform: translate(-50%, 0) scale(1); box-shadow: 0 10px 40px -10px rgba(0,0,0,0.2); }
+          50% { transform: translate(-50%, -5px) scale(1.02); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3); }
+          100% { transform: translate(-50%, 0) scale(1); box-shadow: 0 10px 40px -10px rgba(0,0,0,0.2); }
+        }
+        @keyframes shine-fast {
+          0% { left: -100%; }
+          20% { left: 100%; }
+          100% { left: 100%; }
+        }
+        .animate-checkout-pill {
+          animation: checkout-pulse 3s infinite ease-in-out;
+        }
+        .animate-shine-pill {
+          animation: shine-fast 4s infinite linear;
+        }
+      `}</style>
+
       {showSuccessToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-slate-900 text-white px-8 py-3 rounded-2xl shadow-2xl flex items-center gap-4 border border-white/10">
@@ -191,6 +207,11 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
 
         <div className="flex-1 bg-slate-50/50 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-32 md:pb-6">
+           {selectedOutletId === 'all' && (
+             <div className="mb-6 p-4 bg-indigo-50 border-2 border-indigo-100 rounded-3xl text-center">
+                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">⚠️ Mode Pusat: Pilih cabang untuk mulai transaksi</p>
+             </div>
+           )}
            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 md:gap-4">
             {filteredProducts.map(product => {
               const displayPrice = getPrice(product);
@@ -199,12 +220,12 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
               return (
                 <button 
                   key={product.id} 
-                  disabled={isShiftClosed || isSaving || !isAvailableByStock}
+                  disabled={isShiftClosed || isSaving || (!isAvailableByStock && selectedOutletId !== 'all')}
                   onClick={() => addToCart(product)} 
-                  className={`bg-white rounded-xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm relative ${isShiftClosed || !isAvailableByStock ? 'opacity-40 grayscale pointer-events-none' : 'border-white hover:border-indigo-500'}`}
+                  className={`bg-white rounded-xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm relative ${isShiftClosed || (!isAvailableByStock && selectedOutletId !== 'all') ? 'opacity-40 grayscale' : 'border-white hover:border-indigo-500'}`}
                 >
-                  {!isAvailableByStock && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
+                  {!isAvailableByStock && selectedOutletId !== 'all' && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 pointer-events-none">
                       <span className="bg-red-600 text-white text-[7px] md:text-[9px] font-black px-2 py-1 rounded-lg shadow-xl uppercase transform -rotate-12">Stok Habis</span>
                     </div>
                   )}
@@ -252,9 +273,9 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                     <button onClick={() => updateCartQuantity(item.product.id, -1)} className="w-7 h-7 bg-white rounded-lg text-xs font-black shadow-sm">－</button>
                     <span className="w-4 text-center text-[11px] font-black text-slate-900">{item.quantity}</span>
                     <button 
-                      disabled={!canAddMore}
+                      disabled={!canAddMore && selectedOutletId !== 'all'}
                       onClick={() => updateCartQuantity(item.product.id, 1)} 
-                      className={`w-7 h-7 bg-white rounded-lg text-xs font-black shadow-sm ${!canAddMore ? 'opacity-20' : ''}`}
+                      className={`w-7 h-7 bg-white rounded-lg text-xs font-black shadow-sm ${!canAddMore && selectedOutletId !== 'all' ? 'opacity-20' : ''}`}
                     >＋</button>
                   </div>
                 </div>
@@ -269,15 +290,57 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             <span className="text-3xl font-black text-slate-900 tracking-tighter">Rp {total.toLocaleString()}</span>
           </div>
           <button
-            disabled={cart.length === 0 || isShiftClosed || isSaving}
+            disabled={cart.length === 0 || isShiftClosed || isSaving || selectedOutletId === 'all'}
             onClick={() => setShowCheckout(true)}
             className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl active:scale-95 disabled:opacity-30 transition-all"
-            style={cart.length > 0 && !isShiftClosed && !isSaving ? { backgroundColor: brandConfig.primaryColor } : {}}
+            style={cart.length > 0 && !isShiftClosed && !isSaving && selectedOutletId !== 'all' ? { backgroundColor: brandConfig.primaryColor } : {}}
           >
-            {isShiftClosed ? 'SHIFT CLOSED' : isSaving ? 'PROCESSING...' : `PROSES BAYAR ➔`}
+            {selectedOutletId === 'all' ? 'PILIH CABANG' : isShiftClosed ? 'SHIFT CLOSED' : isSaving ? 'PROCESSING...' : `PROSES BAYAR ➔`}
           </button>
         </div>
       </div>
+      
+      {/* FLOATING CHECKOUT PILL - DESAIN CERAH & VIBRANT */}
+      {cart.length > 0 && mobileView === 'menu' && (
+        <div className="md:hidden fixed bottom-24 left-1/2 -translate-x-1/2 w-[94%] max-w-sm z-[100] animate-checkout-pill transition-all">
+          <button 
+            onClick={() => setMobileView('cart')}
+            className="w-full h-16 rounded-[28px] flex items-center justify-between px-6 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.3)] border-2 border-white/40 overflow-hidden active:scale-95 transition-all relative"
+            style={{ 
+              background: `linear-gradient(135deg, ${brandConfig.primaryColor}, ${brandConfig.primaryColor}dd)`,
+              boxShadow: `0 15px 40px -10px ${brandConfig.primaryColor}66`
+            }}
+          >
+            {/* Bagian Kiri: Counter Item dengan Glassmorphism Terang */}
+            <div className="flex items-center gap-3 relative z-10">
+               <div className="w-10 h-10 rounded-2xl bg-white/30 backdrop-blur-md flex items-center justify-center border border-white/50 shadow-inner">
+                  <span className="text-white font-black text-base drop-shadow-sm">{cart.reduce((a,b)=>a+b.quantity, 0)}</span>
+               </div>
+               <span className="text-white font-black text-[8px] uppercase tracking-[0.2em] drop-shadow-sm">Menu</span>
+            </div>
+
+            {/* Bagian Tengah: Total Harga - Kontras Tinggi */}
+            <div className="text-center relative z-10">
+               <p className="text-[16px] font-black text-white font-mono tracking-tighter drop-shadow-md">Rp {total.toLocaleString()}</p>
+               <p className="text-[7px] font-black text-white/80 uppercase tracking-widest leading-none">Total Bayar</p>
+            </div>
+
+            {/* Bagian Kanan: CTA */}
+            <div className="flex items-center gap-2 relative z-10">
+               <span className="text-[10px] font-black text-white uppercase tracking-[0.1em] drop-shadow-sm">Check</span>
+               <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-lg">
+                  <span className="text-xs" style={{ color: brandConfig.primaryColor }}>➔</span>
+               </div>
+            </div>
+
+            {/* Efek Kilatan (Shine) Putih Cerah */}
+            <div className="absolute top-0 left-[-100%] w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-45deg] animate-shine-pill pointer-events-none"></div>
+            
+            {/* Overlay Glow Lembut */}
+            <div className="absolute inset-0 bg-white/10 opacity-50 pointer-events-none"></div>
+          </button>
+        </div>
+      )}
 
       {showCheckout && (
         <div className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-md flex items-end md:items-center justify-center p-0 md:p-4">

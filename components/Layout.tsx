@@ -163,32 +163,36 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
 
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
         <header className="h-16 lg:h-20 bg-white border-b border-slate-100 px-4 lg:px-8 flex items-center justify-between shadow-sm z-40 shrink-0 no-print">
-          <div className="flex items-center gap-4">
-             <button onClick={() => setIsMenuOpen(true)} className="lg:hidden w-10 h-10 flex items-center justify-center text-xl bg-slate-50 border border-slate-100 rounded-xl text-slate-600">☰</button>
-             <div className="flex flex-col">
-               <div className="flex items-center gap-2">
-                 <span className="text-[10px] lg:text-[11px] font-black text-slate-400 uppercase tracking-widest">Kasir:</span>
-                 <h1 className="text-[11px] lg:text-sm font-black text-slate-900 uppercase tracking-tighter leading-none">
-                   {currentUser?.name || 'System'}
-                 </h1>
-               </div>
-               <div className="flex items-center gap-1.5 mt-1.5">
-                 <div className={`w-1.5 h-1.5 rounded-full ${isSaving ? 'animate-pulse bg-orange-500' : 'bg-emerald-500'}`}></div>
-                 <span className="text-[7px] lg:text-[8px] font-bold uppercase tracking-widest text-slate-400">
-                    {selectedOutletId === 'all' ? 'Mode Pusat Kontrol' : `Cabang: ${outlets.find(o=>o.id===selectedOutletId)?.name || '...'}`}
-                 </span>
-               </div>
+          <div className="flex items-center gap-3 min-w-0">
+             <button onClick={() => setIsMenuOpen(true)} className="lg:hidden w-10 h-10 flex items-center justify-center text-xl bg-slate-50 border border-slate-100 rounded-xl text-slate-600 shrink-0">☰</button>
+             
+             {/* COMPACT INFORMATION AREA (SINGLE LINE ON MOBILE) */}
+             <div className="flex flex-col justify-center min-w-0">
+                <div className="flex items-center gap-1.5">
+                   <h1 className="text-[11px] lg:text-sm font-black text-slate-900 uppercase tracking-tighter leading-none truncate max-w-[80px] sm:max-w-none">
+                     {currentUser?.name?.split(' ')[0] || 'System'}
+                   </h1>
+                   <span className="text-[8px] lg:text-sm text-slate-300 font-bold">•</span>
+                   <span className="text-[8px] lg:text-[10px] font-black text-indigo-500 uppercase tracking-tighter truncate max-w-[70px] sm:max-w-none">
+                      {selectedOutletId === 'all' ? 'HQ' : outlets.find(o=>o.id===selectedOutletId)?.name || '...'}
+                   </span>
+                   <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSaving ? 'animate-pulse bg-orange-500' : 'bg-emerald-500'}`}></div>
+                </div>
+                {/* Deskripsi Status Muted */}
+                <p className="hidden sm:block text-[7px] lg:text-[8px] font-bold uppercase tracking-widest text-slate-400 mt-1">
+                   {isSaving ? 'Synchronizing Cloud...' : 'Enterprise Node Online'}
+                </p>
              </div>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl flex items-center gap-2 group hover:border-orange-200 transition-all">
-            <span className="text-xs opacity-40">🌍</span>
+          <div className="bg-slate-50 border border-slate-200 px-2 lg:px-3 py-2 rounded-xl flex items-center gap-1 lg:gap-2 group hover:border-orange-200 transition-all shrink-0">
+            <span className="text-[10px] opacity-40">🌍</span>
             <select 
-              className="text-[10px] font-black bg-transparent outline-none cursor-pointer text-slate-700 uppercase tracking-wider" 
+              className="text-[9px] lg:text-[10px] font-black bg-transparent outline-none cursor-pointer text-slate-700 uppercase tracking-wider max-w-[80px] lg:max-w-none" 
               value={selectedOutletId} 
               onChange={(e) => switchOutlet(e.target.value)}
             >
-              {showGlobalOption && <option value="all">Pusat Kontrol (Global)</option>}
+              {showGlobalOption && <option value="all">Pusat</option>}
               {allowedOutlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
           </div>
