@@ -265,7 +265,7 @@ export const Reports: React.FC = () => {
     setViewingClosing(log);
     setTimeout(async () => {
       if (shiftReportRef.current) {
-        const canvas = await html2canvas(shiftReportRef.current, { scale: 3, backgroundColor: '#ffffff' });
+        const canvas = await html2canvas(shiftReportRef.current, { scale: 3, backgroundColor: '#ffffff', logging: false, useCORS: true });
         const link = document.createElement('a');
         const outletName = outlets.find(o => o.id === log.outletId)?.name || 'Cabang';
         link.download = `DailyReport-${outletName}-${new Date(log.timestamp).toISOString().split('T')[0]}.png`;
@@ -657,26 +657,29 @@ export const Reports: React.FC = () => {
 
       {viewingClosing && viewingClosingShiftData && (
         <div className="fixed inset-0 z-[600] bg-slate-950/95 flex items-center justify-center p-4">
-           <div className="flex flex-col items-center gap-6">
-              <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Detailed Report...</p>
+           <div className="flex flex-col items-center gap-6 w-full max-w-full overflow-x-auto no-scrollbar">
+              <div className="flex flex-col items-center gap-2 mb-2 shrink-0">
+                  <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Detailed Report...</p>
+              </div>
               
-              <div ref={shiftReportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 w-[450px] text-slate-900 overflow-y-auto max-h-[85vh]">
-                <div className="p-8 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
-                  <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-xl mx-auto mb-4 shadow-xl">M</div>
-                  <h4 className="text-sm font-black text-slate-900 uppercase tracking-tighter">Daily Report</h4>
-                  <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-[0.2em]">{outlets.find(o => o.id === viewingClosing.outletId)?.name || 'Verified Digital Audit'}</p>
+              {/* FIXED WIDTH CONTAINER FOR CONSISTENCY */}
+              <div ref={shiftReportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 w-[500px] shrink-0 text-slate-900 overflow-y-auto max-h-[80vh]">
+                <div className="p-10 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
+                  <div className="w-14 h-14 bg-slate-900 text-white rounded-[20px] flex items-center justify-center font-black text-2xl mx-auto mb-4 shadow-xl">M</div>
+                  <h4 className="text-lg font-black text-slate-900 uppercase tracking-tighter leading-none">Daily Report</h4>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-[0.2em]">{outlets.find(o => o.id === viewingClosing.outletId)?.name || 'Verified Digital Audit'}</p>
                 </div>
 
-                <div className="p-8 space-y-6">
-                  <div className="grid grid-cols-2 gap-y-4">
+                <div className="p-10 space-y-8">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-6">
                     <div className="space-y-1">
-                      <p className="text-[7px] font-black text-slate-400 uppercase">Kasir PIC</p>
-                      <p className="text-[10px] font-black text-slate-800 uppercase">{viewingClosing.staffName}</p>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Kasir PIC</p>
+                      <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{viewingClosing.staffName}</p>
                     </div>
                     <div className="space-y-1 text-right">
-                      <p className="text-[7px] font-black text-slate-400 uppercase">Shift / Jadwal</p>
-                      <p className="text-[10px] font-black text-slate-800 uppercase leading-tight">
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Shift / Jadwal</p>
+                      <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">
                          {viewingClosing.shiftName}
                          {(() => {
                             const s = staff.find(st => st.id === viewingClosing.staffId);
@@ -685,20 +688,20 @@ export const Reports: React.FC = () => {
                       </p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-[7px] font-black text-slate-400 uppercase">Waktu Selesai</p>
-                      <p className="text-[10px] font-black text-slate-800 uppercase">{new Date(viewingClosing.timestamp).toLocaleString('id-ID')}</p>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Waktu Selesai</p>
+                      <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{new Date(viewingClosing.timestamp).toLocaleString('id-ID')}</p>
                     </div>
                     <div className="space-y-1 text-right">
-                      <p className="text-[7px] font-black text-slate-400 uppercase">Status Audit</p>
-                      <p className="text-[9px] font-black text-emerald-600 uppercase">Finalized ✓</p>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Status Audit</p>
+                      <p className="text-[10px] font-black text-emerald-600 uppercase leading-none">Finalized ✓</p>
                     </div>
                   </div>
 
                   <div className="h-px bg-slate-50 w-full border-b border-dashed"></div>
 
                   <div className="space-y-3">
-                    <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest text-center">Ringkasan Finansial</p>
-                    <div className="space-y-1 bg-slate-50/50 p-4 rounded-2xl">
+                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest text-center border-b pb-2">Ringkasan Finansial</p>
+                    <div className="space-y-1 bg-slate-50/50 p-6 rounded-2xl">
                       <FinanceRow label="Modal Awal (Tunai)" value={viewingClosing.openingBalance} />
                       <FinanceRow label="Sales Tunai (+)" value={viewingClosing.totalSalesCash} colorClass="text-emerald-600" />
                       <FinanceRow label="Biaya Operasional (-)" value={viewingClosing.totalExpenses} isNegative />
@@ -706,14 +709,14 @@ export const Reports: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
                     <div className="flex justify-between items-center mb-1">
-                      <p className="text-[8px] font-black text-slate-400 uppercase">Input Uang Fisik</p>
-                      <p className="text-sm font-black text-slate-900">Rp {(viewingClosing.actualCash ?? 0).toLocaleString()}</p>
+                      <p className="text-[9px] font-black text-slate-400 uppercase">Input Uang Fisik</p>
+                      <p className="text-base font-black text-slate-900">Rp {(viewingClosing.actualCash ?? 0).toLocaleString()}</p>
                     </div>
-                    <div className="flex justify-between items-center pt-2 border-t border-white">
-                      <p className="text-[8px] font-black text-slate-400 uppercase">Discrepancy (Selisih)</p>
-                      <p className={`text-xs font-black ${(viewingClosing.discrepancy ?? 0) === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    <div className="flex justify-between items-center pt-3 border-t border-white">
+                      <p className="text-[9px] font-black text-slate-400 uppercase">Discrepancy (Selisih)</p>
+                      <p className={`text-sm font-black ${(viewingClosing.discrepancy ?? 0) === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                         {(viewingClosing.discrepancy ?? 0) === 0 ? 'MATCH ✓' : `Rp ${(viewingClosing.discrepancy ?? 0).toLocaleString()}`}
                       </p>
                     </div>
@@ -721,15 +724,15 @@ export const Reports: React.FC = () => {
 
                   {/* SECTION PRODUKSI & MIXING */}
                   {viewingClosingShiftData.sProds.length > 0 && (
-                    <div className="space-y-3">
-                       <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest text-center">Log Produksi & Mixing</p>
-                       <div className="space-y-1.5">
+                    <div className="space-y-4">
+                       <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest text-center border-b pb-2">Log Produksi & Mixing</p>
+                       <div className="space-y-2">
                           {viewingClosingShiftData.sProds.map(p => {
                              const item = inventory.find(i=>i.id===p.resultItemId);
                              return (
-                                <div key={p.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                   <p className="text-[9px] font-black text-slate-700 uppercase leading-tight pr-2">{item?.name}</p>
-                                   <span className="text-[10px] font-mono font-black text-indigo-600 shrink-0">+{p.resultQuantity} {item?.unit}</span>
+                                <div key={p.id} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                   <p className="text-[10px] font-black text-slate-700 uppercase leading-tight pr-4">{item?.name}</p>
+                                   <span className="text-[11px] font-mono font-black text-indigo-600 shrink-0">+{p.resultQuantity} {item?.unit}</span>
                                 </div>
                              );
                           })}
@@ -739,25 +742,25 @@ export const Reports: React.FC = () => {
 
                   {/* SECTION MUTASI STOK / TRANSFER */}
                   {viewingClosingShiftData.mutations.length > 0 && (
-                    <div className="space-y-3">
-                       <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest text-center">Audit Mutasi Stok</p>
+                    <div className="space-y-4">
+                       <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest text-center border-b pb-2">Audit Mutasi Stok</p>
                        <div className="overflow-hidden border border-slate-100 rounded-2xl bg-white shadow-sm">
-                          <table className="w-full text-left text-[7px]">
+                          <table className="w-full text-left text-[8px] table-auto border-collapse">
                              <thead className="bg-slate-900 text-white font-black uppercase">
                                 <tr>
-                                   <th className="p-2">Item</th>
-                                   <th className="p-2 text-right">In</th>
-                                   <th className="p-2 text-right">Out</th>
-                                   <th className="p-2 text-right">Final</th>
+                                   <th className="p-3">Item</th>
+                                   <th className="p-3 text-right">In</th>
+                                   <th className="p-3 text-right">Out</th>
+                                   <th className="p-3 text-right">Final</th>
                                 </tr>
                              </thead>
                              <tbody className="divide-y divide-slate-50">
                                 {viewingClosingShiftData.mutations.map((m, idx) => (
                                    <tr key={idx}>
-                                      <td className="p-2 font-black uppercase text-slate-600 leading-tight">{m.name}</td>
-                                      <td className="p-2 text-right font-mono text-emerald-600 shrink-0">+{m.in.toFixed(1)}</td>
-                                      <td className="p-2 text-right font-mono text-rose-600 shrink-0">-{m.out.toFixed(1)}</td>
-                                      <td className="p-2 text-right font-mono font-black text-slate-900 bg-slate-50/50 shrink-0">{m.end.toFixed(1)}</td>
+                                      <td className="p-3 font-black uppercase text-slate-600 leading-tight min-w-[110px]">{m.name}</td>
+                                      <td className="p-3 text-right font-mono text-emerald-600">+{(m.in || 0).toFixed(1)}</td>
+                                      <td className="p-3 text-right font-mono text-rose-600">-{(m.out || 0).toFixed(1)}</td>
+                                      <td className="p-3 text-right font-mono font-black text-slate-900 bg-slate-50/50">{(m.end || 0).toFixed(1)}</td>
                                    </tr>
                                 ))}
                              </tbody>
@@ -767,21 +770,21 @@ export const Reports: React.FC = () => {
                   )}
 
                   {viewingClosing.notes && (
-                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                       <p className="text-[7px] font-black text-amber-600 uppercase mb-1">Catatan Shift:</p>
-                       <p className="text-[9px] italic text-amber-900 leading-relaxed">"{viewingClosing.notes}"</p>
+                    <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100">
+                       <p className="text-[8px] font-black text-amber-600 uppercase mb-1">Catatan Shift:</p>
+                       <p className="text-[10px] italic text-amber-900 leading-relaxed">"{viewingClosing.notes}"</p>
                     </div>
                   )}
                 </div>
 
-                <div className="p-8 text-center bg-white border-t border-slate-100">
-                  <p className="text-[8px] font-black text-slate-300 uppercase tracking-[0.4em] mb-0.5">Mozza Boy Food OS</p>
-                  <p className="text-[7px] font-bold text-slate-400 uppercase italic">Verification ID: {viewingClosing.id.slice(-12).toUpperCase()}</p>
+                <div className="p-10 text-center bg-white border-t border-slate-100 shrink-0">
+                  <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em] mb-1 leading-none">Mozza Boy Food OS</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase italic leading-none">Verification ID: {viewingClosing.id.slice(-12).toUpperCase()}</p>
                 </div>
               </div>
 
-              <div className="flex gap-2">
-                 <button onClick={() => setViewingClosing(null)} className="px-8 py-3 bg-white/10 text-white rounded-full font-black text-[10px] uppercase">Tutup Preview</button>
+              <div className="flex gap-2 mb-8 shrink-0">
+                 <button onClick={() => setViewingClosing(null)} className="px-10 py-4 bg-white/20 text-white rounded-full font-black text-[11px] uppercase tracking-widest backdrop-blur-md border border-white/10 active:scale-95 transition-all">Tutup Pratinjau</button>
               </div>
            </div>
         </div>

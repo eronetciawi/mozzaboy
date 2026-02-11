@@ -152,7 +152,7 @@ export const ClosingManagement: React.FC = () => {
   const downloadFinalAuditImage = async () => {
      if (!finalAuditRef.current) return;
      try {
-        const canvas = await html2canvas(finalAuditRef.current, { scale: 3, backgroundColor: '#ffffff' });
+        const canvas = await html2canvas(finalAuditRef.current, { scale: 3, backgroundColor: '#ffffff', logging: false, useCORS: true });
         const link = document.createElement('a');
         const outletName = activeOutlet?.name || 'Cabang';
         link.download = `DailyReport-${outletName}-${todayISO}.png`;
@@ -176,145 +176,148 @@ export const ClosingManagement: React.FC = () => {
     return (
       <div className="h-full flex flex-col bg-slate-100 overflow-y-auto custom-scrollbar p-4 md:p-10">
         <div className="max-w-2xl mx-auto w-full space-y-6 pb-32">
-           <div ref={finalAuditRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 text-slate-900">
-                <div className="p-10 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
-                  <div className="w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mx-auto mb-4 shadow-xl" style={{ backgroundColor: brandConfig.primaryColor }}>
-                    {brandConfig.name.charAt(0)}
-                  </div>
-                  <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tighter leading-none mb-2">Daily Report</h4>
-                  <p className="text-sm font-black text-indigo-600 uppercase tracking-widest leading-none mb-1">{activeOutlet?.name}</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em]">{todayDisplay}</p>
-                </div>
-
-                <div className="p-10 space-y-10">
-                  {/* HEADER INFO AUDIT */}
-                  <div className="grid grid-cols-2 gap-y-6 text-[11px]">
-                    <div className="space-y-1">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Penanggung Jawab</p>
-                      <p className="font-black text-slate-800 uppercase">{myClosing.staffName}</p>
+           {/* WRAPPER UNTUK MENGHINDARI LAYOUT ACAK DI MOBILE */}
+           <div className="w-full overflow-x-auto pb-4 no-scrollbar flex justify-center">
+              <div ref={finalAuditRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 text-slate-900 w-[500px] shrink-0">
+                  <div className="p-10 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
+                    <div className="w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mx-auto mb-4 shadow-xl" style={{ backgroundColor: brandConfig.primaryColor }}>
+                      {brandConfig.name.charAt(0)}
                     </div>
-                    <div className="space-y-1 text-right">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Jadwal Shift</p>
-                      <p className="font-black text-slate-800 uppercase">{myClosing.shiftName} ({scheduledTime})</p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest">Jam Absen Masuk</p>
-                      <p className="font-black text-slate-800">{currentShiftAttendance ? new Date(currentShiftAttendance.clockIn).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '--:--'} WIB</p>
-                    </div>
-                    <div className="space-y-1 text-right">
-                      <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest">Jam Tutup & Pulang</p>
-                      <p className="font-black text-slate-800">{new Date(myClosing.timestamp).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})} WIB</p>
-                    </div>
+                    <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tighter leading-none mb-2">Daily Report</h4>
+                    <p className="text-sm font-black text-indigo-600 uppercase tracking-widest leading-none mb-1">{activeOutlet?.name}</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em]">{todayDisplay}</p>
                   </div>
 
-                  {/* FINANCIAL AUDIT SUMMARY */}
-                  <div className="bg-white p-8 rounded-[32px] border-2 border-slate-900 shadow-[8px_8px_0px_rgba(0,0,0,0.05)]">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 text-center border-b pb-4">Ringkasan Audit Finansial</p>
-                    
-                    <FinanceLine label="1. Modal Awal Shift" value={myClosing.openingBalance} isBold />
-                    <FinanceLine label="2. Total Omset (Gross)" value={grossTotal} isBold />
-                    <FinanceLine label="Penjualan Tunai (+)" value={myClosing.totalSalesCash} indent />
-                    <FinanceLine label="Penjualan QRIS (+)" value={myClosing.totalSalesQRIS} indent />
-                    <FinanceLine label="3. Total Pengeluaran (-)" value={myClosing.totalExpenses} isNeg isBold />
-                    
-                    <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-200">
-                       <FinanceLine label="Expected (Seharusnya di Laci)" value={finalizedExpected} isBold />
-                       <div className="flex justify-between items-center py-4 bg-indigo-50 px-5 rounded-2xl mt-4 border border-indigo-100">
-                          <span className="text-[10px] font-black text-indigo-600 uppercase">Input Uang Fisik</span>
-                          <span className="text-xl font-black text-indigo-600 underline decoration-2 underline-offset-8">Rp {myClosing.actualCash.toLocaleString()}</span>
-                       </div>
+                  <div className="p-10 space-y-10">
+                    {/* HEADER INFO AUDIT */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-6 text-[11px]">
+                      <div className="space-y-1">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Penanggung Jawab</p>
+                        <p className="font-black text-slate-800 uppercase leading-tight">{myClosing.staffName}</p>
+                      </div>
+                      <div className="space-y-1 text-right">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Jadwal Shift</p>
+                        <p className="font-black text-slate-800 uppercase leading-tight">{myClosing.shiftName} ({scheduledTime})</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest leading-none">Jam Absen Masuk</p>
+                        <p className="font-black text-slate-800">{currentShiftAttendance ? new Date(currentShiftAttendance.clockIn).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '--:--'} WIB</p>
+                      </div>
+                      <div className="space-y-1 text-right">
+                        <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest leading-none">Jam Tutup & Pulang</p>
+                        <p className="font-black text-slate-800">{new Date(myClosing.timestamp).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})} WIB</p>
+                      </div>
                     </div>
 
-                    <div className={`flex justify-between items-center py-5 px-6 rounded-2xl mt-4 border-2 ${myClosing.discrepancy === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
-                       <span className="text-[11px] font-black uppercase tracking-widest">Selisih Audit</span>
-                       <span className="text-2xl font-black font-mono">{(myClosing.discrepancy > 0 ? '+' : '')}{myClosing.discrepancy.toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  {/* RINCIAN PENGELUARAN DETAIL */}
-                  {shiftData.sExps.length > 0 && (
-                     <div className="space-y-4">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Rincian Pengeluaran Kas</p>
-                        <div className="space-y-2">
-                           {shiftData.sExps.map(e => (
-                              <div key={e.id} className="flex justify-between text-[11px] border-b border-slate-50 pb-3 hover:bg-slate-50 transition-colors px-2 rounded-lg">
-                                 <div className="min-w-0 flex-1">
-                                    <p className="font-black text-slate-800 uppercase leading-tight">{e.notes || 'Operasional'}</p>
-                                    <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">
-                                       🕒 {new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} WIB • {expenseTypes.find(t=>t.id===e.typeId)?.name || 'LAINNYA'} • PIC: {e.staffName}
-                                    </p>
-                                 </div>
-                                 <span className="font-mono font-black text-rose-600 ml-4 shrink-0">Rp {e.amount.toLocaleString()}</span>
-                              </div>
-                           ))}
+                    {/* FINANCIAL AUDIT SUMMARY */}
+                    <div className="bg-white p-8 rounded-[32px] border-2 border-slate-900 shadow-[8px_8px_0px_rgba(0,0,0,0.05)]">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 text-center border-b pb-4">Ringkasan Audit Finansial</p>
+                      
+                      <FinanceLine label="1. Modal Awal Shift" value={myClosing.openingBalance} isBold />
+                      <FinanceLine label="2. Total Omset (Gross)" value={grossTotal} isBold />
+                      <FinanceLine label="Penjualan Tunai (+)" value={myClosing.totalSalesCash} indent />
+                      <FinanceLine label="Penjualan QRIS (+)" value={myClosing.totalSalesQRIS} indent />
+                      <FinanceLine label="3. Total Pengeluaran (-)" value={myClosing.totalExpenses} isNeg isBold />
+                      
+                      <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-200">
+                        <FinanceLine label="Expected (Seharusnya di Laci)" value={finalizedExpected} isBold />
+                        <div className="flex justify-between items-center py-4 bg-indigo-50 px-5 rounded-2xl mt-4 border border-indigo-100">
+                            <span className="text-[10px] font-black text-indigo-600 uppercase">Input Uang Fisik</span>
+                            <span className="text-xl font-black text-indigo-600 underline decoration-2 underline-offset-8">Rp {myClosing.actualCash.toLocaleString()}</span>
                         </div>
-                     </div>
-                  )}
+                      </div>
 
-                  {/* PRODUKSI & MIXING DETAIL */}
-                  {shiftData.sProds.length > 0 && (
-                     <div className="space-y-4">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Log Produksi & Mixing</p>
-                        <div className="grid grid-cols-1 gap-2">
-                           {shiftData.sProds.map(p => {
-                              const item = inventory.find(i=>i.id===p.resultItemId);
-                              return (
-                                 <div key={p.id} className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center border border-slate-100">
-                                    <div className="min-w-0">
-                                       <p className="text-[11px] font-black text-slate-700 uppercase leading-tight">{item?.name}</p>
-                                       <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">🕒 DIPROSES JAM: {new Date(p.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} WIB</p>
-                                    </div>
-                                    <span className="font-mono font-black text-indigo-600 shrink-0">+{p.resultQuantity} {item?.unit}</span>
-                                 </div>
-                              );
-                           })}
-                        </div>
-                     </div>
-                  )}
+                      <div className={`flex justify-between items-center py-5 px-6 rounded-2xl mt-4 border-2 ${myClosing.discrepancy === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
+                        <span className="text-[11px] font-black uppercase tracking-widest">Selisih Audit</span>
+                        <span className="text-2xl font-black font-mono">{(myClosing.discrepancy > 0 ? '+' : '')}{myClosing.discrepancy.toLocaleString()}</span>
+                      </div>
+                    </div>
 
-                  {/* AUDIT MUTASI STOK */}
-                  {shiftData.mutations.length > 0 && (
-                     <div className="space-y-4">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Audit Mutasi Inventaris</p>
-                        <div className="overflow-hidden border-2 border-slate-100 rounded-[28px] bg-white">
-                           <table className="w-full text-left text-[9px]">
-                              <thead className="bg-slate-900 text-white font-black uppercase">
-                                 <tr>
-                                    <th className="p-4">Material</th>
-                                    <th className="p-4 text-right">Awal</th>
-                                    <th className="p-4 text-right text-emerald-400">In</th>
-                                    <th className="p-4 text-right text-rose-400">Out</th>
-                                    <th className="p-4 text-right">Akhir</th>
-                                 </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                 {shiftData.mutations.map((m, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                       <td className="p-4 font-black uppercase text-slate-700">{m.name}</td>
-                                       <td className="p-4 text-right font-mono text-slate-400">{m.start.toFixed(1)}</td>
-                                       <td className="p-4 text-right font-mono text-emerald-600">+{m.in.toFixed(1)}</td>
-                                       <td className="p-4 text-right font-mono text-rose-600">-{m.out.toFixed(1)}</td>
-                                       <td className="p-4 text-right font-mono font-black bg-slate-50/50">{m.end.toFixed(1)}</td>
-                                    </tr>
-                                 ))}
-                              </tbody>
-                           </table>
-                        </div>
-                     </div>
-                  )}
+                    {/* RINCIAN PENGELUARAN DETAIL */}
+                    {shiftData.sExps.length > 0 && (
+                      <div className="space-y-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Rincian Pengeluaran Kas</p>
+                          <div className="space-y-2">
+                            {shiftData.sExps.map(e => (
+                                <div key={e.id} className="flex justify-between text-[11px] border-b border-slate-50 pb-3 hover:bg-slate-50 transition-colors px-2 rounded-lg">
+                                  <div className="min-w-0 flex-1 pr-4">
+                                      <p className="font-black text-slate-800 uppercase leading-tight">{e.notes || 'Operasional'}</p>
+                                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">
+                                        🕒 {new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} WIB • {expenseTypes.find(t=>t.id===e.typeId)?.name || 'LAINNYA'}
+                                      </p>
+                                  </div>
+                                  <span className="font-mono font-black text-rose-600 ml-auto shrink-0">Rp {e.amount.toLocaleString()}</span>
+                                </div>
+                            ))}
+                          </div>
+                      </div>
+                    )}
 
-                  {myClosing.notes && (
-                     <div className="bg-amber-50 p-6 rounded-[32px] border border-amber-100 italic text-[11px] text-amber-900 leading-relaxed shadow-inner">
-                        <p className="text-[8px] font-black text-amber-600 uppercase mb-2 not-italic tracking-widest">Catatan Auditor Kasir:</p>
-                        "{myClosing.notes}"
-                     </div>
-                  )}
+                    {/* PRODUKSI & MIXING DETAIL */}
+                    {shiftData.sProds.length > 0 && (
+                      <div className="space-y-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Log Produksi & Mixing</p>
+                          <div className="grid grid-cols-1 gap-2">
+                            {shiftData.sProds.map(p => {
+                                const item = inventory.find(i=>i.id===p.resultItemId);
+                                return (
+                                  <div key={p.id} className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center border border-slate-100">
+                                      <div className="min-w-0 flex-1 pr-4">
+                                        <p className="text-[11px] font-black text-slate-700 uppercase leading-tight">{item?.name}</p>
+                                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">🕒 JAM: {new Date(p.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} WIB</p>
+                                      </div>
+                                      <span className="font-mono font-black text-indigo-600 shrink-0">+{p.resultQuantity} {item?.unit}</span>
+                                  </div>
+                                );
+                            })}
+                          </div>
+                      </div>
+                    )}
 
-                  <div className="pt-10 text-center border-t border-slate-100">
-                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.5em] mb-1">{brandConfig.name} OS Enterprise</p>
-                    <p className="text-[8px] font-bold text-slate-400 uppercase italic">Verification ID: {myClosing.id.slice(-12).toUpperCase()}</p>
+                    {/* AUDIT MUTASI STOK */}
+                    {shiftData.mutations.length > 0 && (
+                      <div className="space-y-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Audit Mutasi Inventaris</p>
+                          <div className="overflow-hidden border-2 border-slate-100 rounded-[28px] bg-white">
+                            <table className="w-full text-left text-[9px] table-auto border-collapse">
+                                <thead className="bg-slate-900 text-white font-black uppercase">
+                                  <tr>
+                                      <th className="p-4">Material</th>
+                                      <th className="p-4 text-right">Awal</th>
+                                      <th className="p-4 text-right text-emerald-400">In</th>
+                                      <th className="p-4 text-right text-rose-400">Out</th>
+                                      <th className="p-4 text-right">Akhir</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {shiftData.mutations.map((m, idx) => (
+                                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                        <td className="p-4 font-black uppercase text-slate-700 leading-tight min-w-[100px]">{m.name}</td>
+                                        <td className="p-4 text-right font-mono text-slate-400">{(m.start || 0).toFixed(1)}</td>
+                                        <td className="p-4 text-right font-mono text-emerald-600">+{(m.in || 0).toFixed(1)}</td>
+                                        <td className="p-4 text-right font-mono text-rose-600">-{(m.out || 0).toFixed(1)}</td>
+                                        <td className="p-4 text-right font-mono font-black bg-slate-50/50">{(m.end || 0).toFixed(1)}</td>
+                                      </tr>
+                                  ))}
+                                </tbody>
+                            </table>
+                          </div>
+                      </div>
+                    )}
+
+                    {myClosing.notes && (
+                      <div className="bg-amber-50 p-6 rounded-[32px] border border-amber-100 italic text-[11px] text-amber-900 leading-relaxed shadow-inner">
+                          <p className="text-[8px] font-black text-amber-600 uppercase mb-2 not-italic tracking-widest">Catatan Auditor Kasir:</p>
+                          "{myClosing.notes}"
+                      </div>
+                    )}
+
+                    <div className="pt-10 text-center border-t border-slate-100">
+                      <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.5em] mb-1">{brandConfig.name} OS Enterprise</p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase italic leading-none">Verification ID: {myClosing.id.slice(-12).toUpperCase()}</p>
+                    </div>
                   </div>
-                </div>
+              </div>
            </div>
 
            <div className="flex flex-col gap-3">
