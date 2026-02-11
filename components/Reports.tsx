@@ -605,7 +605,7 @@ export const Reports: React.FC = () => {
               <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Daily Report...</p>
               
               <div ref={shiftReportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 w-[450px] text-slate-900">
-                <div className="p-8 border-b-2 border-dashed border-slate-100 text-center">
+                <div className="p-8 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
                   <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-xl mx-auto mb-4 shadow-xl">M</div>
                   <h4 className="text-sm font-black text-slate-900 uppercase tracking-tighter">Daily Report</h4>
                   <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-[0.2em]">{outlets.find(o => o.id === viewingClosing.outletId)?.name || 'Verified Digital Audit'}</p>
@@ -637,11 +637,11 @@ export const Reports: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="h-px bg-slate-50 w-full"></div>
+                  <div className="h-px bg-slate-50 w-full border-b border-dashed"></div>
 
                   <div className="space-y-3">
-                    <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest">Financial Summary</p>
-                    <div className="space-y-1">
+                    <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest text-center">Ringkasan Finansial</p>
+                    <div className="space-y-1 bg-slate-50/50 p-4 rounded-2xl">
                       <FinanceRow label="Modal Awal (Tunai)" value={viewingClosing.openingBalance} />
                       <FinanceRow label="Sales Tunai (+)" value={viewingClosing.totalSalesCash} colorClass="text-emerald-600" />
                       <FinanceRow label="Biaya Operasional (-)" value={viewingClosing.totalExpenses} isNegative />
@@ -678,8 +678,9 @@ export const Reports: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="p-8 bg-slate-900 text-center">
-                  <p className="text-[7px] font-black text-slate-500 uppercase tracking-[0.4em]">Mozza Boy Smart OS • Audit Archive</p>
+                <div className="p-8 text-center bg-white border-t border-slate-100">
+                  <p className="text-[8px] font-black text-slate-300 uppercase tracking-[0.4em] mb-0.5">Mozza Boy Food OS</p>
+                  <p className="text-[7px] font-bold text-slate-400 uppercase italic mb-1">Insya Allah Berkah</p>
                 </div>
               </div>
 
