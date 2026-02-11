@@ -162,26 +162,43 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
       <div className={`flex-1 flex flex-col min-w-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
         <div className="px-4 py-2 md:px-6 md:py-4 bg-white border-b border-slate-100 shrink-0 z-20 space-y-2">
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-1.5 items-center">
+            {/* SEARCH BOX */}
             <div className="relative flex-1">
               <input 
                 type="text" 
                 placeholder="Cari produk..." 
-                className="w-full pl-10 pr-4 py-2 bg-slate-100 rounded-xl focus:bg-white outline-none font-bold text-xs"
+                className="w-full pl-9 pr-4 py-2.5 bg-slate-100 rounded-xl focus:bg-white border-2 border-transparent focus:border-indigo-100 outline-none font-bold text-xs transition-all"
                 value={search} onChange={e => setSearch(e.target.value)}
               />
               <span className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 text-sm">🔍</span>
             </div>
+            
+            {/* QUICK SHORTCUTS - AESTHETIC REPLACEMENT */}
             <div className="flex gap-1.5 shrink-0">
-               <button onClick={() => setShowMemberModal(true)} className={`p-2 rounded-xl border transition-all flex flex-col items-center justify-center min-w-[45px] ${currentCustomer ? 'bg-indigo-600 border-indigo-700 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
+               <button 
+                onClick={() => setActiveTab('production')}
+                title="Input Produksi"
+                className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center text-lg hover:bg-indigo-600 hover:text-white transition-all shadow-sm active:scale-95"
+               >
+                 🥣
+               </button>
+               <button 
+                onClick={() => setActiveTab('purchases')}
+                title="Belanja Stok"
+                className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 border border-orange-100 flex items-center justify-center text-lg hover:bg-orange-600 hover:text-white transition-all shadow-sm active:scale-95"
+               >
+                 📦
+               </button>
+               <button onClick={() => setShowMemberModal(true)} className={`w-10 h-10 rounded-xl border transition-all flex flex-col items-center justify-center shadow-sm active:scale-95 ${currentCustomer ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
                   <span className="text-xs">👤</span>
-                  <span className="text-[6px] font-black uppercase mt-0.5">{currentCustomer ? 'MEMBER' : 'JOIN'}</span>
+                  <span className="text-[6px] font-black uppercase mt-0.5 leading-none">{currentCustomer ? 'VIP' : 'JOIN'}</span>
                </button>
             </div>
           </div>
           
           {/* CATEGORIES WRAPPED (NO HORIZONTAL SCROLL) */}
-          <div className="flex flex-wrap gap-1 md:gap-1.5">
+          <div className="flex flex-wrap gap-1 md:gap-1.5 pt-1">
             <button 
               onClick={() => setSelectedCategory('all')} 
               className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all border whitespace-nowrap ${selectedCategory === 'all' ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
