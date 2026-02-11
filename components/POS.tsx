@@ -161,42 +161,43 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
       )}
 
       <div className={`flex-1 flex flex-col min-w-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
-        <div className="px-4 py-3 md:px-6 md:py-4 bg-white border-b border-slate-100 shrink-0 z-20 space-y-4">
+        <div className="px-4 py-2 md:px-6 md:py-4 bg-white border-b border-slate-100 shrink-0 z-20 space-y-2">
           <div className="flex gap-2 items-center">
             <div className="relative flex-1">
               <input 
                 type="text" 
                 placeholder="Cari produk..." 
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-100 rounded-xl focus:bg-white outline-none font-bold text-xs"
+                className="w-full pl-10 pr-4 py-2 bg-slate-100 rounded-xl focus:bg-white outline-none font-bold text-xs"
                 value={search} onChange={e => setSearch(e.target.value)}
               />
               <span className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 text-sm">🔍</span>
             </div>
             <div className="flex gap-1.5 shrink-0">
-               <button onClick={() => setShowMemberModal(true)} className={`p-2.5 rounded-xl border transition-all flex flex-col items-center justify-center min-w-[50px] ${currentCustomer ? 'bg-indigo-600 border-indigo-700 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
-                  <span className="text-sm">👤</span>
-                  <span className="text-[7px] font-black uppercase mt-0.5">{currentCustomer ? 'MEMBER' : 'JOIN'}</span>
+               <button onClick={() => setShowMemberModal(true)} className={`p-2 rounded-xl border transition-all flex flex-col items-center justify-center min-w-[45px] ${currentCustomer ? 'bg-indigo-600 border-indigo-700 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
+                  <span className="text-xs">👤</span>
+                  <span className="text-[6px] font-black uppercase mt-0.5">{currentCustomer ? 'MEMBER' : 'JOIN'}</span>
                </button>
             </div>
           </div>
           
-          <div className="flex flex-wrap gap-1.5 pt-1 overflow-x-auto no-scrollbar">
+          {/* CATEGORIES WRAPPED (NO HORIZONTAL SCROLL) */}
+          <div className="flex flex-wrap gap-1 md:gap-1.5">
             <button 
               onClick={() => setSelectedCategory('all')} 
-              className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all border-2 ${selectedCategory === 'all' ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+              className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all border whitespace-nowrap ${selectedCategory === 'all' ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
             >
               Semua
             </button>
             {safeCategories.length === 0 ? (
-               <button onClick={() => setActiveTab('categories')} className="px-4 py-2 rounded-lg text-[8px] font-black uppercase bg-orange-50 text-orange-600 border border-orange-200 border-dashed animate-pulse">
-                  + Buat Kategori Pertama
+               <button onClick={() => setActiveTab('categories')} className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase bg-orange-50 text-orange-600 border border-orange-200 border-dashed animate-pulse">
+                  + Kategori
                </button>
             ) : (
                safeCategories.map(cat => (
                 <button 
                   key={cat.id} 
                   onClick={() => setSelectedCategory(cat.id)} 
-                  className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all border-2 whitespace-nowrap ${selectedCategory === cat.id ? 'text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+                  className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all border whitespace-nowrap ${selectedCategory === cat.id ? 'text-white shadow-md' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
                   style={selectedCategory === cat.id ? { backgroundColor: brandConfig.primaryColor, borderColor: brandConfig.primaryColor } : {}}
                 >
                   {cat.name}
@@ -208,8 +209,8 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
         <div className="flex-1 bg-slate-50/50 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-32 md:pb-6">
            {selectedOutletId === 'all' && (
-             <div className="mb-6 p-4 bg-indigo-50 border-2 border-indigo-100 rounded-3xl text-center">
-                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">⚠️ Mode Pusat: Pilih cabang untuk mulai transaksi</p>
+             <div className="mb-4 p-3 bg-indigo-50 border-2 border-indigo-100 rounded-2xl text-center">
+                <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">⚠️ Mode Pusat: Pilih cabang untuk mulai transaksi</p>
              </div>
            )}
            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 md:gap-4">
@@ -300,7 +301,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       </div>
       
-      {/* FLOATING CHECKOUT PILL - DESAIN CERAH & VIBRANT */}
+      {/* FLOATING CHECKOUT PILL */}
       {cart.length > 0 && mobileView === 'menu' && (
         <div className="md:hidden fixed bottom-24 left-1/2 -translate-x-1/2 w-[94%] max-w-sm z-[100] animate-checkout-pill transition-all">
           <button 
@@ -311,7 +312,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
               boxShadow: `0 15px 40px -10px ${brandConfig.primaryColor}66`
             }}
           >
-            {/* Bagian Kiri: Counter Item dengan Glassmorphism Terang */}
             <div className="flex items-center gap-3 relative z-10">
                <div className="w-10 h-10 rounded-2xl bg-white/30 backdrop-blur-md flex items-center justify-center border border-white/50 shadow-inner">
                   <span className="text-white font-black text-base drop-shadow-sm">{cart.reduce((a,b)=>a+b.quantity, 0)}</span>
@@ -319,13 +319,11 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                <span className="text-white font-black text-[8px] uppercase tracking-[0.2em] drop-shadow-sm">Menu</span>
             </div>
 
-            {/* Bagian Tengah: Total Harga - Kontras Tinggi */}
             <div className="text-center relative z-10">
                <p className="text-[16px] font-black text-white font-mono tracking-tighter drop-shadow-md">Rp {total.toLocaleString()}</p>
                <p className="text-[7px] font-black text-white/80 uppercase tracking-widest leading-none">Total Bayar</p>
             </div>
 
-            {/* Bagian Kanan: CTA */}
             <div className="flex items-center gap-2 relative z-10">
                <span className="text-[10px] font-black text-white uppercase tracking-[0.1em] drop-shadow-sm">Check</span>
                <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-lg">
@@ -333,10 +331,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                </div>
             </div>
 
-            {/* Efek Kilatan (Shine) Putih Cerah */}
             <div className="absolute top-0 left-[-100%] w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-45deg] animate-shine-pill pointer-events-none"></div>
-            
-            {/* Overlay Glow Lembut */}
             <div className="absolute inset-0 bg-white/10 opacity-50 pointer-events-none"></div>
           </button>
         </div>

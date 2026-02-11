@@ -134,7 +134,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-[#fcfdfe] pb-40">
       
-      {/* SYNC BANNER - HANYA MUNCUL JIKA DATA KOSONG UNTUK KENYAMANAN */}
+      {/* SYNC BANNER */}
       {(isInitialLoading || (products.length === 0 && isFetching)) && (
         <div className="mb-6 p-4 bg-slate-900 rounded-[32px] text-white flex items-center justify-between shadow-2xl border-b-4 border-orange-500 animate-in slide-in-from-top-4 duration-500">
            <div className="flex items-center gap-4">
@@ -147,7 +147,31 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-8">
+      {/* QUICK OPERATIONS SHORTCUTS */}
+      <div className="mb-8 grid grid-cols-2 gap-4">
+          <button 
+            onClick={() => setActiveTab?.('production')}
+            className="flex items-center gap-4 p-5 bg-white border-2 border-slate-100 rounded-[32px] shadow-sm hover:border-indigo-500 transition-all active:scale-95 group"
+          >
+            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors shadow-inner">🧪</div>
+            <div className="text-left">
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Operasional</p>
+              <p className="text-[12px] font-black text-slate-800 uppercase tracking-tight">Input Produksi</p>
+            </div>
+          </button>
+          <button 
+            onClick={() => setActiveTab?.('purchases')}
+            className="flex items-center gap-4 p-5 bg-white border-2 border-slate-100 rounded-[32px] shadow-sm hover:border-orange-500 transition-all active:scale-95 group"
+          >
+            <div className="w-12 h-12 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center text-2xl group-hover:bg-orange-600 group-hover:text-white transition-colors shadow-inner">🚛</div>
+            <div className="text-left">
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Logistik</p>
+              <p className="text-[12px] font-black text-slate-800 uppercase tracking-tight">Belanja Stok</p>
+            </div>
+          </button>
+      </div>
+
+      <div className="flex justify-between items-center mb-6">
         <div>
            <p className="text-[10px] font-black uppercase tracking-[0.4em]" style={{ color: brandConfig.primaryColor }}>Audit Dashboard</p>
            <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase mt-1">
