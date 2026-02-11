@@ -43,7 +43,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         return a.outletId === outlet.id && recordDateStr === todayStr;
       });
       const sortedAttendance = [...todayAttendance].sort((a, b) => 
-        new Date(a.clockIn).getTime() - new Date(b.clockIn).getTime()
+        new Date(a.clockIn).getTime() - new Date(a.clockIn).getTime()
       );
       const opener = sortedAttendance[0];
       const branchTodaySales = transactions
@@ -125,6 +125,11 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
       .filter(t => t.status === OrderStatus.CLOSED)
       .slice(0, 15);
   }, [isGlobalView, transactions, filteredTransactions]);
+
+  const handleProcessLeave = () => {
+    localStorage.setItem('hr_tab_redirect', 'leaves');
+    setActiveTab?.('staff');
+  };
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-[#fcfdfe] pb-40">
@@ -216,7 +221,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                   <p className="text-[13px] font-bold">Ada {pendingLeaves.length} pengajuan cuti kru yang menunggu keputusan.</p>
                </div>
             </div>
-            <button onClick={() => setActiveTab?.('staff')} className="px-6 py-2.5 bg-white text-indigo-600 rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all">PROSES ➔</button>
+            <button onClick={handleProcessLeave} className="px-6 py-2.5 bg-white text-indigo-600 rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all">PROSES ➔</button>
          </div>
       )}
 

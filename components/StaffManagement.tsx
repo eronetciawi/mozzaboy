@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp, getPermissionsByRole } from '../store';
 import { StaffMember, UserRole, LeaveRequest, Attendance, OrderStatus } from '../types';
 
@@ -22,6 +22,15 @@ export const StaffManagement: React.FC = () => {
 
   const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
   const shortDays = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+
+  // Cek redirect dari Dashboard
+  useEffect(() => {
+    const redirect = localStorage.getItem('hr_tab_redirect');
+    if (redirect === 'leaves') {
+      setActiveHRTab('leaves');
+      localStorage.removeItem('hr_tab_redirect');
+    }
+  }, []);
 
   const [formData, setFormData] = useState<Partial<StaffMember>>({
     name: '', username: '', password: '123', role: UserRole.CASHIER, assignedOutletIds: [], status: 'ACTIVE',
@@ -64,7 +73,6 @@ export const StaffManagement: React.FC = () => {
   const filteredAttendance = useMemo(() => {
     return (attendance || []).filter(a => {
       const d = new Date(a.date);
-      // Filter Outlet Langsung dari Record Absensi (Lebih Akurat)
       const isCorrectOutlet = selectedOutletId === 'all' || a.outletId === selectedOutletId;
       if (!isCorrectOutlet) return false;
       
@@ -74,6 +82,15 @@ export const StaffManagement: React.FC = () => {
     });
   }, [attendance, attendanceView, todayStr, selectedMonth, selectedYear, selectedOutletId]);
 
+  // FIX: Pindahkan salesIntelligence ke atas agar performaceScores bisa membacanya tanpa error reference
+  const salesIntelligence = useMemo(() => {
+    const staffSales: Record<string, number> = {};
+    (transactions || []).filter(t => t.status === OrderStatus.CLOSED).forEach(tx => {
+      if (tx.cashierId) staffSales[tx.cashierId] = (staffSales[tx.cashierId] ?? 0) + (tx.total ?? 0);
+    });
+    return { staffSales };
+  }, [transactions]);
+
   const performanceScores = useMemo(() => {
     const now = new Date();
     let start = new Date();
@@ -81,17 +98,16 @@ export const StaffManagement: React.FC = () => {
     else if (perfPeriod === 'week') start.setDate(now.getDate() - 7);
     else if (perfPeriod === 'month') start = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    return staff
+    return (staff || [])
       .filter(s => selectedOutletId === 'all' || s.assignedOutletIds.includes(selectedOutletId))
       .map(s => {
-        const periodTxs = transactions.filter(t => t.cashierId === s.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start);
-        const totalSales = periodTxs.reduce((acc, t) => acc + (t.total || 0), 0);
-        const periodAttendance = attendance.filter(a => new Date(a.date) >= start && a.staffId === s.id);
-        const lateCount = periodAttendance.filter(a => a.status === 'LATE').length;
-        const finalScore = Math.max(0, Math.floor(totalSales / 10000) + (periodAttendance.length * 10) - (lateCount * 15));
-        return { staff: s, totalSales, attendCount: periodAttendance.length, lateCount, finalScore };
+        const sales = salesIntelligence.staffSales[s.id] ?? 0;
+        const attends = (attendance || []).filter(a => a.staffId === s.id && new Date(a.date) >= start);
+        const lates = attends.filter(a => a.status === 'LATE').length;
+        const finalScore = Math.max(0, Math.floor(sales / 10000) + (attends.length * 10) - (lates * 15));
+        return { staff: s, totalSales: sales, attendCount: attends.length, lateCount: lates, finalScore };
       }).sort((a, b) => b.finalScore - a.finalScore);
-  }, [staff, transactions, attendance, selectedOutletId, perfPeriod]);
+  }, [staff, attendance, selectedOutletId, perfPeriod, salesIntelligence]);
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
@@ -100,10 +116,10 @@ export const StaffManagement: React.FC = () => {
           <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Enterprise HR Hub</h2>
           <p className="text-slate-500 font-medium text-[10px] uppercase tracking-widest">Kru, Absensi & Cuti</p>
         </div>
-        <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm w-full md:w-auto">
+        <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm w-full md:w-auto overflow-x-auto no-scrollbar">
            {(['employees', 'attendance', 'leaves', 'performance'] as const).map(tab => (
-             <button key={tab} onClick={() => setActiveHRTab(tab)} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all relative ${activeHRTab === tab ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>
-               {tab === 'employees' ? 'Kru' : tab === 'attendance' ? 'Absensi' : tab === 'leaves' ? 'Cuti' : 'Skor'}
+             <button key={tab} onClick={() => setActiveHRTab(tab)} className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all relative whitespace-nowrap ${activeHRTab === tab ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>
+               {tab === 'employees' ? 'Squad member' : tab === 'attendance' ? 'Absensi' : tab === 'leaves' ? 'Cuti' : 'Skor'}
                {tab === 'leaves' && pendingLeaves.length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[7px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white">{pendingLeaves.length}</span>}
              </button>
            ))}
@@ -113,11 +129,11 @@ export const StaffManagement: React.FC = () => {
       {activeHRTab === 'employees' && (
         <div className="space-y-4">
           <div className="flex justify-between items-center px-2">
-             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Database Kru</h3>
-             <button onClick={() => { setEditingStaff(null); setFormData({name: '', username: '', role: UserRole.CASHIER, workingDays: [1,2,3,4,5,6]}); setShowModal(true); }} className="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-xl">+ Kru Baru</button>
+             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Database Squad</h3>
+             <button onClick={() => { setEditingStaff(null); setFormData({name: '', username: '', role: UserRole.CASHIER, workingDays: [1,2,3,4,5,6]}); setShowModal(true); }} className="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-xl">+ Squad Baru</button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {staff.filter(s => selectedOutletId === 'all' || s.assignedOutletIds.includes(selectedOutletId)).map(member => (
+            {(staff || []).filter(s => selectedOutletId === 'all' || s.assignedOutletIds.includes(selectedOutletId)).map(member => (
               <div key={member.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex flex-col group hover:border-orange-200 transition-all">
                 <div className="flex items-center gap-4 mb-6">
                    <div className="w-14 h-14 rounded-2xl bg-slate-100 overflow-hidden shrink-0">
@@ -233,7 +249,9 @@ export const StaffManagement: React.FC = () => {
                             <td className="py-4 px-8 font-black uppercase text-slate-800">{l.staffName}</td>
                             <td className="py-4 px-4 text-slate-400 italic truncate max-w-xs">"{l.reason}"</td>
                             <td className="py-4 px-8 text-right">
-                               <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase ${l.status === 'APPROVED' ? 'text-emerald-600' : 'text-rose-600'}`}>{l.status}</span>
+                               <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase ${l.status === 'APPROVED' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                                  {l.status === 'APPROVED' ? 'DISETUJUI' : l.status === 'REJECTED' ? 'DITOLAK' : 'MENUNGGU'}
+                               </span>
                             </td>
                          </tr>
                        ))}
@@ -277,12 +295,11 @@ export const StaffManagement: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL EDIT KRU */}
       {showModal && (
         <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-0 md:p-6 overflow-y-auto custom-scrollbar">
           <div className="bg-white rounded-none md:rounded-[48px] w-full max-w-5xl h-full md:h-auto flex flex-col shadow-2xl animate-in slide-in-from-bottom-10">
              <div className="p-6 md:p-8 border-b flex justify-between items-center shrink-0">
-                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{editingStaff ? 'Update Kru' : 'Kru Baru'}</h3>
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">{editingStaff ? 'Update Squad' : 'Squad Baru'}</h3>
                 <button onClick={() => setShowModal(false)} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400">✕</button>
              </div>
              <div className="flex-1 overflow-y-auto p-6 md:p-10 grid grid-cols-1 md:grid-cols-3 gap-8 custom-scrollbar">
@@ -345,13 +362,12 @@ export const StaffManagement: React.FC = () => {
                 </div>
              </div>
              <div className="p-6 md:p-10 border-t bg-slate-50 shrink-0">
-                <button onClick={handleSave} className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.4em] shadow-xl active:scale-95 transition-all">SIMPAN DATA KRU 💾</button>
+                <button onClick={handleSave} className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.4em] shadow-xl active:scale-95 transition-all">SIMPAN DATA SQUAD 💾</button>
              </div>
           </div>
         </div>
       )}
 
-      {/* MODAL HAPUS */}
       {staffToDelete && (
         <div className="fixed inset-0 z-[300] bg-slate-950/95 flex items-center justify-center p-6">
            <div className="bg-white rounded-[40px] w-full max-w-sm p-12 text-center shadow-2xl animate-in zoom-in-95">

@@ -227,7 +227,7 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                 <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.4em] mb-4">Kontrol Shift</h3>
                 
                 <div className="inline-flex items-center gap-2 bg-white/5 px-4 py-2 rounded-full mb-6 border border-white/10 backdrop-blur-md">
-                   <span className={`w-2 h-2 rounded-full ${hasFinishedToday ? 'bg-emerald-400' : 'bg-orange-500 animate-pulse'}`}></span>
+                   <span className={`w-2 h-2 rounded-full ${hasFinishedToday ? 'bg-emerald-400' : 'bg-orange-50 animate-pulse'}`}></span>
                    <span className="text-[10px] font-black text-white uppercase tracking-[0.2em]">{currentUser.shiftStartTime} — {currentUser.shiftEndTime}</span>
                 </div>
 
@@ -335,7 +335,6 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
 
         {activeSubTab === 'profile' && (
            <div className="max-w-xl mx-auto space-y-4 animate-in slide-in-from-bottom-2 pb-32">
-              {/* HEADER INFO */}
               <div className="bg-white p-4 rounded-[28px] border border-slate-100 shadow-sm flex items-center gap-4 relative overflow-hidden">
                  <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-full -mr-16 -mt-16 opacity-50 blur-3xl"></div>
                  <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 border-2 border-white shadow-md shrink-0 relative z-10">
@@ -348,7 +347,6 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                  </div>
               </div>
 
-              {/* JADWAL KERJA (READ-ONLY) */}
               <div className="bg-indigo-600 p-5 rounded-[32px] text-white shadow-xl relative overflow-hidden">
                  <div className="absolute top-0 right-0 p-4 opacity-10 text-4xl">🕒</div>
                  <h4 className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 opacity-60">Mozza Squad</h4>
@@ -366,19 +364,14 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
               </div>
 
               <div className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm space-y-5">
-                 {/* IDENTITAS UTAMA */}
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <ProfileInput label="Nama Lengkap" icon="👤" value={profileForm.name} onChange={(v:any) => setProfileForm({...profileForm, name: v})} placeholder="Nama Lengkap" />
                     <ProfileInput label="User ID (Username)" icon="🆔" value={profileForm.username} onChange={(v:any) => setProfileForm({...profileForm, username: v})} placeholder="username" />
                  </div>
-
-                 {/* KONTAK UTAMA */}
                  <div className="grid grid-cols-2 gap-3">
                     <ProfileInput label="WhatsApp" icon="📱" value={profileForm.phone} onChange={(v:any) => setProfileForm({...profileForm, phone: v})} placeholder="08..." />
                     <ProfileInput label="Email" icon="📧" value={profileForm.email} onChange={(v:any) => setProfileForm({...profileForm, email: v})} placeholder="mail@..." type="email" />
                  </div>
-
-                 {/* MEDIA SOSIAL */}
                  <div className="pt-2 border-t border-slate-50">
                     <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest mb-3 ml-1">Social Media</p>
                     <div className="grid grid-cols-3 gap-2">
@@ -387,8 +380,6 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                        <ProfileInput label="TT" icon="🎵" value={profileForm.tiktok} onChange={(v:any) => setProfileForm({...profileForm, tiktok: v})} placeholder="@" />
                     </div>
                  </div>
-
-                 {/* ASSETS & ADDRESS */}
                  <div className="space-y-4 pt-2 border-t border-slate-50">
                     <ProfileInput label="URL Foto Profil" icon="🖼️" value={profileForm.photo} onChange={(v:any) => setProfileForm({...profileForm, photo: v})} placeholder="https://..." />
                     <div className="space-y-1">
@@ -396,8 +387,6 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                        <textarea className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-[10px] h-14 focus:border-indigo-500 outline-none text-slate-900 resize-none" value={profileForm.address || ''} onChange={e => setProfileForm({...profileForm, address: e.target.value})} placeholder="Alamat lengkap..." />
                     </div>
                  </div>
-
-                 {/* EMERGENCY */}
                  <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl space-y-4">
                     <div className="flex items-center gap-2">
                        <span className="text-lg">🆘</span>
@@ -408,8 +397,6 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                        <ProfileInput label="Nomor HP" icon="📞" value={profileForm.emergencyContactPhone} onChange={(v:any) => setProfileForm({...profileForm, emergencyContactPhone: v})} placeholder="08..." />
                     </div>
                  </div>
-
-                 {/* SECURITY */}
                  <div className="pt-2 border-t border-slate-50">
                     <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest mb-3 ml-1">Keamanan Akun</p>
                     <input 
@@ -420,7 +407,6 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                        onChange={e => setNewPassword(e.target.value)}
                     />
                  </div>
-
                  <button disabled={isSavingProfile} onClick={handleSaveProfile} className="w-full py-4 bg-slate-900 text-white rounded-[20px] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-3">
                     {isSavingProfile ? "SAVING..." : "SIMPAN PERUBAHAN 💾"}
                  </button>
@@ -455,13 +441,16 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
               <div className="space-y-3">
                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] px-4">Status Pengajuan</p>
                  <div className="space-y-2">
-                    {leaveRequests.filter(l => l.staffId === currentUser.id).slice(0, 3).map(l => (
+                    {leaveRequests.filter(l => String(l.staffId) === String(currentUser.id)).map(l => (
                        <div key={l.id} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex justify-between items-center group">
                           <div>
                              <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{new Date(l.startDate).toLocaleDateString('id-ID', {day:'numeric', month:'short'})} - {new Date(l.endDate).toLocaleDateString('id-ID', {day:'numeric', month:'short'})}</p>
                              <p className="text-[8px] text-slate-400 truncate max-w-[120px] font-medium mt-0.5">"{l.reason}"</p>
                           </div>
-                          <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest ${l.status === 'APPROVED' ? 'bg-green-50 text-green-600' : l.status === 'REJECTED' ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-orange-600'}`}>{l.status === 'APPROVED' ? 'OK' : l.status === 'REJECTED' ? 'NO' : 'PROSES'}</span>
+                          {/* FIX: Mengubah label menjadi bahasa Indonesia yang diminta user */}
+                          <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest ${l.status === 'APPROVED' ? 'bg-green-50 text-green-600' : l.status === 'REJECTED' ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-orange-600'}`}>
+                             {l.status === 'APPROVED' ? 'DISETUJUI' : l.status === 'REJECTED' ? 'DITOLAK' : 'MENUNGGU'}
+                          </span>
                        </div>
                     ))}
                  </div>

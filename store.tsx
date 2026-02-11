@@ -144,7 +144,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const fetchFromCloud = useCallback(async (isInitial = false) => {
-    if (isFetching) return;
     if (isInitial) setIsInitialLoading(true);
     setIsFetching(true);
     
@@ -165,7 +164,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('expenses').select('*').order('timestamp', { ascending: false }).limit(200),
         supabase.from('expense_types').select('*'),
         supabase.from('attendance').select('*').order('date', { ascending: false }).limit(300),
-        supabase.from('leave_requests').select('*'),
+        supabase.from('leave_requests').select('*').order('requestedAt', { ascending: false }),
         supabase.from('purchases').select('*').order('timestamp', { ascending: false }).limit(100),
         supabase.from('stock_transfers').select('*').order('timestamp', { ascending: false }),
         supabase.from('production_records').select('*')
@@ -186,27 +185,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (trxData.data) {
         setTransactions(trxData.data.map((t: any) => ({
           ...t,
-          outletId: t.outletId || t.outlet_id,
-          cashierId: t.cashierId || t.cashier_id,
-          cashierName: t.cashierName || t.cashier_name,
-          customerId: t.customerId || t.customer_id
+          outletId: t.outletId,
+          cashierId: t.cashierId,
+          cashierName: t.cashierName,
+          customerId: t.customerId
         })));
       }
       if (closeData.data) {
         setDailyClosings(closeData.data.map((c: any) => ({
           ...c,
-          outletId: c.outletId || c.outlet_id,
-          staffId: c.staffId || c.staff_id,
-          staffName: c.staffName || c.staff_name
+          outletId: c.outletId,
+          staffId: c.staffId,
+          staffName: c.staffName
         })));
       }
       if (expData.data) {
         setExpenses(expData.data.map((e: any) => ({
           ...e,
-          outletId: e.outletId || e.outlet_id,
-          typeId: e.typeId || e.type_id,
-          staffId: e.staffId || e.staff_id,
-          staffName: e.staffName || e.staff_name
+          outletId: e.outletId,
+          typeId: e.typeId,
+          staffId: e.staffId,
+          staffName: e.staffName
         })));
       }
       if (attendData.data) {
@@ -221,46 +220,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (leaveData.data) {
         setLeaveRequests(leaveData.data.map((l: any) => ({
-          ...l,
-          staffId: l.staffId || l.staff_id,
-          staffName: l.staffName || l.staff_name,
-          startDate: l.startDate || l.start_date,
-          endDate: l.endDate || l.end_date,
-          requestedAt: l.requestedAt || l.requested_at,
-          outletId: l.outletId || l.outlet_id || 'all'
+          id: l.id,
+          staffId: l.staffId,
+          staffName: l.staffName,
+          startDate: l.startDate,
+          endDate: l.endDate,
+          reason: l.reason,
+          status: (l.status || 'PENDING').toUpperCase(),
+          requestedAt: l.requestedAt,
+          outletId: 'all'
         })));
       }
       if (buyData.data) {
         setPurchases(buyData.data.map((p: any) => ({
           ...p,
-          outletId: p.outletId || p.outlet_id,
-          inventoryItemId: p.inventoryItemId || p.inventory_item_id,
-          itemName: p.itemName || p.item_name,
-          staffId: p.staffId || p.staff_id,
-          staffName: p.staffName || p.staff_name
+          outletId: p.outletId,
+          inventoryItemId: p.inventoryItemId,
+          itemName: p.itemName,
+          staffId: p.staffId,
+          staffName: p.staffName
         })));
       }
       if (trfData.data) {
         setStockTransfers(trfData.data.map((t: any) => ({
           ...t,
-          fromOutletId: t.fromOutletId || t.from_outlet_id,
-          fromOutletName: t.fromOutletName || t.from_outlet_name,
-          toOutletId: t.toOutletId || t.to_outlet_id,
-          toOutletName: t.toOutletName || t.to_outlet_name,
-          itemName: t.itemName || t.item_name,
-          staffId: t.staffId || t.staff_id,
-          staffName: t.staffName || t.staff_name,
+          fromOutletId: t.fromOutletId,
+          fromOutletName: t.fromOutletName,
+          toOutletId: t.toOutletId,
+          toOutletName: t.toOutletName,
+          itemName: t.itemName,
+          staffId: t.staffId,
+          staffName: t.staffName,
           status: t.status || 'PENDING'
         })));
       }
       if (prodData.data) {
         setProductionRecords(prodData.data.map((p: any) => ({
           ...p,
-          outletId: p.outletId || p.outlet_id,
-          resultItemId: p.resultItemId || p.result_item_id,
-          resultQuantity: p.resultQuantity || p.result_quantity,
-          staffId: p.staffId || p.staff_id,
-          staffName: p.staffName || p.staff_name
+          outletId: p.outletId,
+          resultItemId: p.resultItemId,
+          resultQuantity: p.resultQuantity,
+          staffId: p.staffId,
+          staffName: p.staffName
         })));
       }
       await fetchPublicConfig();
@@ -270,13 +271,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsFetching(false);
       setIsInitialLoading(false);
     }
-  }, [isFetching]);
+  }, []);
 
   const debouncedFetch = useCallback(() => {
      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
      syncTimeoutRef.current = setTimeout(() => {
         fetchFromCloud();
-     }, 1000); // Tunggu 1 detik sebelum refetch untuk meredam spam event
+     }, 1000); 
   }, [fetchFromCloud]);
 
   useEffect(() => {
@@ -289,6 +290,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => debouncedFetch())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_transfers' }, () => debouncedFetch())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_closings' }, () => debouncedFetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, () => debouncedFetch())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [isAuthenticated, debouncedFetch]);
@@ -551,7 +553,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fetchFromCloud();
       } finally { setIsSaving(false); }
     },
-    updateLeaveStatus: async (id, status) => { await supabase.from('leave_requests').update({ status }).eq('id', id); fetchFromCloud(); },
+    updateLeaveStatus: async (id, status) => { 
+      await supabase.from('leave_requests').update({ status }).eq('id', id); 
+      await fetchFromCloud(); 
+    },
     addOutlet: async (o) => { await supabase.from('outlets').insert([o]); fetchFromCloud(); },
     updateOutlet: async (o) => { await supabase.from('outlets').update(o).eq('id', o.id); fetchFromCloud(); },
     deleteOutlet: async (id) => { await supabase.from('outlets').delete().eq('id', id); fetchFromCloud(); },
@@ -579,28 +584,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await supabase.from('stock_transfers').insert([dbPayload]);
           const { data: senderItem } = await supabase.from('inventory').select('id, quantity').eq('name', n).eq('outletId', f).maybeSingle();
           if (senderItem) { await supabase.from('inventory').update({ quantity: senderItem.quantity - q }).eq('id', senderItem.id); }
-          fetchFromCloud();
+          
+          // Force update local state immediately
+          setStockTransfers(prev => [{...dbPayload, timestamp: new Date(dbPayload.timestamp)} as any, ...prev]);
+          await fetchFromCloud();
        } finally { setIsSaving(false); }
     },
     respondToTransfer: async (id, status) => { 
        setIsSaving(true);
        try {
+          // Optimistic state update: Segera ubah status di UI agar terasa responsif
+          setStockTransfers(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+
           const { data: trf } = await supabase.from('stock_transfers').select('*').eq('id', id).maybeSingle();
           if (!trf) return;
-          const fId = trf.fromOutletId || trf.from_outlet_id;
-          const tId = trf.toOutletId || trf.to_outlet_id;
-          const name = trf.itemName || trf.item_name;
+          
+          const fId = trf.fromOutletId;
+          const tId = trf.toOutletId;
+          const name = trf.itemName;
           const qty = trf.quantity;
+
+          // Update status transfer di database
           await supabase.from('stock_transfers').update({ status }).eq('id', id);
+          
           if (status === 'ACCEPTED') {
+             // Jika diterima, tambahkan stok di cabang tujuan
              const { data: receiverItem } = await supabase.from('inventory').select('id, quantity').eq('name', name).eq('outletId', tId).maybeSingle();
-             if (receiverItem) { await supabase.from('inventory').update({ quantity: receiverItem.quantity + qty }).eq('id', receiverItem.id); }
+             if (receiverItem) { 
+                await supabase.from('inventory').update({ quantity: receiverItem.quantity + qty }).eq('id', receiverItem.id); 
+             }
           } else if (status === 'REJECTED') {
+             // Jika ditolak, kembalikan stok ke cabang pengirim
              const { data: senderItem } = await supabase.from('inventory').select('id, quantity').eq('name', name).eq('outletId', fId).maybeSingle();
-             if (senderItem) { await supabase.from('inventory').update({ quantity: senderItem.quantity + qty }).eq('id', senderItem.id); }
+             if (senderItem) { 
+                await supabase.from('inventory').update({ quantity: senderItem.quantity + qty }).eq('id', senderItem.id); 
+             }
           }
-          fetchFromCloud();
-       } finally { setIsSaving(false); }
+          
+          // Pastikan semua state (inventory & transfers) benar-benar sinkron dengan cloud
+          await fetchFromCloud();
+       } catch (err) {
+          console.error("Error in respondToTransfer:", err);
+       } finally { 
+          setIsSaving(false); 
+       }
     },
     updateLoyaltyConfig: async (config) => { await supabase.from('loyalty_config').upsert({ id: 'global', ...config }); setLoyaltyConfig(config); },
     addMembershipTier: async (t) => { await supabase.from('membership_tiers').insert([{id: `t-${Date.now()}`, ...t}]); fetchFromCloud(); },
@@ -620,21 +647,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          "staffName": currentUser?.name,  
          "startDate": d.startDate,        
          "endDate": d.endDate,            
-         "reason": d.reason, 
+         reason: d.reason, 
          "requestedAt": now,              
-         "status": 'PENDING',
-         "outletId": selectedOutletId     
+         status: 'PENDING'
        };
        await supabase.from('leave_requests').insert([payload]); 
-       fetchFromCloud(); 
+       await fetchFromCloud(); 
     },
     saveSimulation: async (s) => { await supabase.from('simulations').upsert(s); fetchFromCloud(); },
     deleteSimulation: async (id) => { await supabase.from('simulations').delete().eq('id', id); fetchFromCloud(); },
     resetOutletData: async (id) => { 
-       const tables = ['transactions', 'expenses', 'attendance', 'purchases', 'production_records', 'stock_transfers', 'daily_closings', 'leave_requests'];
+       const tables = ['transactions', 'expenses', 'attendance', 'purchases', 'production_records', 'stock_transfers', 'daily_closings'];
        for (const t of tables) {
           await supabase.from(t).delete().eq('outletId', id);
-          await supabase.from(t).delete().eq('outlet_id', id);
        }
        fetchFromCloud(); 
     },
@@ -669,7 +694,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        try {
           const data = JSON.parse(jsonString);
           for (const table in data) if (Array.isArray(data[table]) && data[table].length > 0) await supabase.from(table).upsert(data[table]);
-          fetchFromCloud();
+          await fetchFromCloud();
           return { success: true, message: 'Restored!' };
        } catch (e) { return { success: false, message: 'Invalid JSON.' }; }
     },

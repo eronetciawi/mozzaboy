@@ -6,14 +6,19 @@ import { UserRole } from '../types';
 interface SidebarProps { activeTab: string; setActiveTab: (tab: string) => void; closeDrawer?: () => void; }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer }) => {
-  const { currentUser, logout, selectedOutletId, brandConfig } = useApp();
+  const { currentUser, logout, selectedOutletId, brandConfig, stockTransfers = [] } = useApp();
   
   if (!currentUser) return <div className="h-full bg-slate-900 animate-pulse"></div>;
 
   const isAdmin = currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER;
   const hasOutlet = selectedOutletId !== 'all';
+
+  // LOGIKA: Hitung hanya transfer stok yang dikirim KE cabang ini (Incoming) dan berstatus PENDING
+  const pendingIncomingTransfersCount = useMemo(() => {
+    if (selectedOutletId === 'all') return 0;
+    return (stockTransfers || []).filter(t => t.toOutletId === selectedOutletId && t.status === 'PENDING').length;
+  }, [stockTransfers, selectedOutletId]);
   
-  // SELURUH MENU DIKEMBALIKAN (18 MODUL)
   const menuGroups = [
     { 
       label: 'Manajemen Operasional', 
@@ -30,7 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       items: [
         { id: 'inventory', label: 'Stok Gudang', icon: '📦', visible: true },
         { id: 'production', label: 'Produksi & Mixing', icon: '🧪', visible: true, disabled: !hasOutlet },
-        { id: 'transfers', label: 'Transfer Stok', icon: '🚚', visible: true, disabled: !hasOutlet },
+        { id: 'transfers', label: 'Transfer Stok', icon: '🚚', visible: true, disabled: !hasOutlet, badge: pendingIncomingTransfersCount },
         { id: 'purchases', label: 'Belanja Stok', icon: '🚛', visible: true, disabled: !hasOutlet },
       ]
     },
@@ -54,7 +59,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       label: 'Administrasi Sistem', 
       items: [
         { id: 'outlets', label: 'Data Outlet', icon: '🏢', visible: isAdmin },
-        { id: 'staff', label: 'Manajemen Kru', icon: '👥', visible: isAdmin },
+        { id: 'staff', label: 'Human Resourse', icon: '👥', visible: isAdmin },
         { id: 'printer', label: 'Printer Bluetooth', icon: '🖨️', visible: true },
         { id: 'maintenance', label: 'Maintenance', icon: '🛠️', visible: currentUser.role === UserRole.OWNER },
       ]
@@ -63,7 +68,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
 
   return (
     <div className="flex flex-col h-full bg-[#0f172a] text-slate-300 border-r border-slate-800">
-      {/* Brand Header */}
       <div className="p-6 flex items-center gap-3 shrink-0 mb-2 border-b border-slate-800/50">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg transform -rotate-3 shrink-0" style={{ backgroundColor: brandConfig.primaryColor }}>
           {brandConfig.name.charAt(0)}
@@ -74,7 +78,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 px-3 mt-4 space-y-6 overflow-y-auto custom-scrollbar pb-10">
         {menuGroups.map((group, gIdx) => {
           const visibleItems = group.items.filter(i => i.visible);
@@ -88,7 +91,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
                     key={item.id} 
                     disabled={item.disabled}
                     onClick={() => { setActiveTab(item.id); if(closeDrawer) closeDrawer(); }} 
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group ${activeTab === item.id ? 'text-white shadow-xl' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} ${item.disabled ? 'opacity-20 cursor-not-allowed grayscale' : ''}`}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group relative ${activeTab === item.id ? 'text-white shadow-xl' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} ${item.disabled ? 'opacity-20 cursor-not-allowed grayscale' : ''}`}
                     style={activeTab === item.id ? { backgroundColor: brandConfig.primaryColor } : {}}
                   >
                     <span className={`text-[16px] w-6 flex justify-center shrink-0 transition-transform group-hover:scale-110 ${activeTab === item.id ? 'opacity-100' : 'opacity-50'}`}>
@@ -97,6 +100,16 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
                     <span className={`text-[11px] font-semibold tracking-normal whitespace-nowrap truncate ${activeTab === item.id ? 'font-bold' : ''}`}>
                       {item.label}
                     </span>
+                    
+                    {/* ENHANCED NOTIFICATION BADGE */}
+                    {item.badge && item.badge > 0 && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center">
+                        <span className="animate-ping absolute inline-flex h-4 w-4 rounded-full bg-rose-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-5 w-5 bg-rose-600 border-2 border-[#0f172a] text-white text-[9px] font-black items-center justify-center shadow-lg">
+                          {item.badge}
+                        </span>
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -105,7 +118,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
         })}
       </nav>
 
-      {/* User Info & Logout */}
       <div className="p-4 border-t border-slate-800/50 shrink-0 bg-slate-900/40">
         <div className="flex items-center gap-3 px-2 mb-4">
            <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-xs shrink-0">👤</div>
@@ -129,7 +141,6 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
   const { outlets = [], selectedOutletId, switchOutlet, isSaving, currentUser } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // REDIRECT KASIR: Jangan biarkan di mode global
   useEffect(() => {
     if (currentUser && currentUser.role !== UserRole.OWNER && currentUser.role !== UserRole.MANAGER) {
       if (selectedOutletId === 'all') {
@@ -165,8 +176,6 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
         <header className="h-16 lg:h-20 bg-white border-b border-slate-100 px-4 lg:px-8 flex items-center justify-between shadow-sm z-40 shrink-0 no-print">
           <div className="flex items-center gap-3 min-w-0">
              <button onClick={() => setIsMenuOpen(true)} className="lg:hidden w-10 h-10 flex items-center justify-center text-xl bg-slate-50 border border-slate-100 rounded-xl text-slate-600 shrink-0">☰</button>
-             
-             {/* COMPACT INFORMATION AREA (SINGLE LINE ON MOBILE) */}
              <div className="flex flex-col justify-center min-w-0">
                 <div className="flex items-center gap-1.5">
                    <h1 className="text-[11px] lg:text-sm font-black text-slate-900 uppercase tracking-tighter leading-none truncate max-w-[80px] sm:max-w-none">
@@ -178,7 +187,6 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
                    </span>
                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSaving ? 'animate-pulse bg-orange-500' : 'bg-emerald-500'}`}></div>
                 </div>
-                {/* Deskripsi Status Muted */}
                 <p className="hidden sm:block text-[7px] lg:text-[8px] font-bold uppercase tracking-widest text-slate-400 mt-1">
                    {isSaving ? 'Synchronizing Cloud...' : 'Enterprise Node Online'}
                 </p>
