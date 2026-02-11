@@ -34,9 +34,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       label: 'Logistik & Persediaan', 
       items: [
         { id: 'inventory', label: 'Stok Gudang', icon: '📦', visible: true },
-        { id: 'production', label: 'Produksi & Mixing', icon: '🧪', visible: true, disabled: !hasOutlet },
+        { id: 'production', label: 'Produksi & Mixing', icon: '🥣', visible: true, disabled: !hasOutlet },
         { id: 'transfers', label: 'Transfer Stok', icon: '🚚', visible: true, disabled: !hasOutlet, badge: pendingIncomingTransfersCount },
-        { id: 'purchases', label: 'Belanja Stok', icon: '🚛', visible: true, disabled: !hasOutlet },
+        { id: 'purchases', label: 'Belanja Stok', icon: '📦', visible: true, disabled: !hasOutlet },
       ]
     },
     { 
@@ -141,11 +141,24 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
   const { outlets = [], selectedOutletId, switchOutlet, isSaving, currentUser } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  // SECURITY: Validasi akses outlet karyawan setiap kali user atau outlet berubah
   useEffect(() => {
-    if (currentUser && currentUser.role !== UserRole.OWNER && currentUser.role !== UserRole.MANAGER) {
-      if (selectedOutletId === 'all') {
-        const firstAllowed = currentUser.assignedOutletIds[0];
-        if (firstAllowed) switchOutlet(firstAllowed);
+    if (currentUser) {
+      const isExecutive = currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER;
+      
+      // Jika bukan manager/owner, mereka HARUS ada di outlet yang diizinkan
+      if (!isExecutive) {
+        const allowedIds = currentUser.assignedOutletIds || [];
+        const isCurrentlyAllowed = allowedIds.includes(selectedOutletId);
+        
+        // Jika outlet terpilih tidak ada di daftar izin (termasuk jika terpilih 'all')
+        if (!isCurrentlyAllowed) {
+          const firstValidOutlet = allowedIds[0];
+          if (firstValidOutlet) {
+            console.log(`Security: Redirecting ${currentUser.name} to authorized branch.`);
+            switchOutlet(firstValidOutlet);
+          }
+        }
       }
     }
   }, [currentUser, selectedOutletId, switchOutlet]);
@@ -153,10 +166,11 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
   const allowedOutlets = useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return outlets;
-    return outlets.filter(o => currentUser.assignedOutletIds.includes(o.id));
+    return outlets.filter(o => (currentUser.assignedOutletIds || []).includes(o.id));
   }, [outlets, currentUser]);
 
   const showGlobalOption = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
+  const canSwitchOutlet = allowedOutlets.length > 1;
 
   return (
     <div className="flex h-screen bg-white overflow-hidden font-sans select-none text-slate-900">
@@ -193,10 +207,11 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
              </div>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200 px-2 lg:px-3 py-2 rounded-xl flex items-center gap-1 lg:gap-2 group hover:border-orange-200 transition-all shrink-0">
+          <div className={`bg-slate-50 border border-slate-200 px-2 lg:px-3 py-2 rounded-xl flex items-center gap-1 lg:gap-2 group transition-all shrink-0 ${!canSwitchOutlet ? 'opacity-50 grayscale pointer-events-none' : 'hover:border-orange-200'}`}>
             <span className="text-[10px] opacity-40">🌍</span>
             <select 
-              className="text-[9px] lg:text-[10px] font-black bg-transparent outline-none cursor-pointer text-slate-700 uppercase tracking-wider max-w-[80px] lg:max-w-none" 
+              disabled={!canSwitchOutlet}
+              className="text-[9px] lg:text-[10px] font-black bg-transparent outline-none cursor-pointer text-slate-700 uppercase tracking-wider max-w-[80px] lg:max-w-none disabled:cursor-default" 
               value={selectedOutletId} 
               onChange={(e) => switchOutlet(e.target.value)}
             >

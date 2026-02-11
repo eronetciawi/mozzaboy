@@ -249,7 +249,7 @@ export const StaffManagement: React.FC = () => {
                             <td className="py-4 px-8 font-black uppercase text-slate-800">{l.staffName}</td>
                             <td className="py-4 px-4 text-slate-400 italic truncate max-w-xs">"{l.reason}"</td>
                             <td className="py-4 px-8 text-right">
-                               <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase ${l.status === 'APPROVED' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                               <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase ${l.status === 'APPROVED' ? 'bg-green-50 text-green-600' : l.status === 'REJECTED' ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-orange-600'}`}>
                                   {l.status === 'APPROVED' ? 'DISETUJUI' : l.status === 'REJECTED' ? 'DITOLAK' : 'MENUNGGU'}
                                </span>
                             </td>
@@ -353,7 +353,7 @@ export const StaffManagement: React.FC = () => {
                              const curr = formData.assignedOutletIds || [];
                              const next = curr.includes(o.id) ? curr.filter(id => id !== o.id) : [...curr, o.id];
                              setFormData({...formData, assignedOutletIds: next});
-                           }} className={`px-2 py-1 rounded-md text-[7px] font-black uppercase border transition-all ${formData.assignedOutletIds?.includes(o.id) ? 'bg-orange-50 border-orange-500 text-white' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                           }} className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-all ${formData.assignedOutletIds?.includes(o.id) ? 'bg-orange-600 border-orange-600 text-white shadow-lg' : 'bg-white/5 border-white/10 text-white/40'}`}>
                               {o.name}
                            </button>
                          ))}

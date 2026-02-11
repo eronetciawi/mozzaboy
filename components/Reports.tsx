@@ -243,7 +243,11 @@ export const Reports: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-white p-1 rounded-xl border shadow-sm overflow-x-auto no-scrollbar max-w-full">
              {(['finance', 'sales', 'expenses', 'inventory', 'production', 'hr', 'logs'] as ReportTab[]).map(t => (
-               <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all whitespace-nowrap ${activeTab === t ? 'bg-orange-50 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}>
+               <button 
+                key={t} 
+                onClick={() => setActiveTab(t)} 
+                className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all whitespace-nowrap ${activeTab === t ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+               >
                  {t === 'finance' ? 'Laba Rugi' : t === 'sales' ? 'Sales' : t === 'expenses' ? 'Pengeluaran' : t === 'inventory' ? 'Mutasi Stok' : t === 'production' ? 'Produksi' : t === 'hr' ? 'Tim' : 'Audit Logs'}
                </button>
              ))}
