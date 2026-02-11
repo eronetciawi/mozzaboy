@@ -4,9 +4,13 @@ import { useApp } from '../store';
 import { UserRole } from '../types';
 
 export const StockTransferManagement: React.FC = () => {
-  const { inventory, outlets, selectedOutletId, stockTransfers, transferStock, respondToTransfer, currentUser, dailyClosings = [] } = useApp();
+  const { 
+    inventory, outlets, selectedOutletId, stockTransfers, 
+    transferStock, respondToTransfer, currentUser, dailyClosings = [], 
+    isSaving, fetchFromCloud 
+  } = useApp();
+  
   const [showModal, setShowModal] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
   const [activeSubTab, setActiveSubTab] = useState<'incoming' | 'outgoing' | 'history'>('incoming');
   
   // Picker States
@@ -29,17 +33,20 @@ export const StockTransferManagement: React.FC = () => {
   const destinationOutlets = outlets.filter(o => o.id !== selectedOutletId);
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
 
-  // Grouping Transaksi
+  // LOGIKA FILTER TAB BERDASARKAN STATUS
+  // Incoming: Saya PENERIMA dan status PENDING
   const incomingPending = useMemo(() => 
     stockTransfers.filter(t => t.toOutletId === selectedOutletId && t.status === 'PENDING'),
     [stockTransfers, selectedOutletId]
   );
 
+  // Outgoing: Saya PENGIRIM dan status PENDING
   const outgoingPending = useMemo(() => 
     stockTransfers.filter(t => t.fromOutletId === selectedOutletId && t.status === 'PENDING'),
     [stockTransfers, selectedOutletId]
   );
 
+  // History: Terlibat dan status sudah diterima/ditolak (FINAL)
   const transferHistory = useMemo(() => 
     stockTransfers.filter(t => (t.fromOutletId === selectedOutletId || t.toOutletId === selectedOutletId) && t.status !== 'PENDING')
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
@@ -57,13 +64,26 @@ export const StockTransferManagement: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleTransfer = () => {
-    if (isShiftClosed) return;
+  const handleTransfer = async () => {
+    if (isShiftClosed || isSaving) return;
     if (!formData.toOutletId || !formData.itemName || formData.quantity <= 0) return alert("Lengkapi data mutasi!");
-    transferStock(selectedOutletId, formData.toOutletId, formData.itemName, formData.quantity);
-    setShowModal(false);
-    setFormData({ toOutletId: '', itemName: '', quantity: 0 });
-    setActiveSubTab('outgoing');
+    
+    try {
+      await transferStock(selectedOutletId, formData.toOutletId, formData.itemName, formData.quantity);
+      setShowModal(false);
+      setFormData({ toOutletId: '', itemName: '', quantity: 0 });
+      setActiveSubTab('outgoing');
+    } catch (err) {
+      alert("Gagal melakukan transfer.");
+    }
+  };
+
+  const handleRespond = async (id: string, status: 'ACCEPTED' | 'REJECTED') => {
+    try {
+      await respondToTransfer(id, status);
+    } catch (e) {
+      alert("Gagal memproses konfirmasi.");
+    }
   };
 
   const selectedItemData = currentOutletInventory.find(i => i.name === formData.itemName);
@@ -72,28 +92,32 @@ export const StockTransferManagement: React.FC = () => {
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
-          <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Logistik Antar Cabang</h2>
+          <div className="flex items-center gap-3">
+             <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Logistik Antar Cabang</h2>
+             <button onClick={() => fetchFromCloud()} className="w-8 h-8 bg-white border rounded-lg text-xs shadow-sm active:rotate-180 transition-all">🔄</button>
+          </div>
           <p className="text-slate-500 font-medium text-[10px] uppercase italic tracking-widest">Kontrol pergerakan stok: <span className="text-indigo-600 font-bold">{activeOutlet?.name}</span></p>
         </div>
         <button 
-          disabled={isShiftClosed}
+          disabled={isShiftClosed || isSaving}
           onClick={handleOpenAdd}
           className={`w-full md:w-auto px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl transition-all flex items-center justify-center gap-2 ${isShiftClosed ? 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed' : 'bg-indigo-600 text-white shadow-indigo-500/20 hover:bg-indigo-700'}`}
         >
-          <span>{isShiftClosed ? '🔒' : '📦'}</span> {isShiftClosed ? 'SHIFT CLOSED' : '+ KIRIM BARANG'}
+          <span>{isSaving ? '⏳' : (isShiftClosed ? '🔒' : '📦')}</span> {isSaving ? 'MEMPROSES...' : (isShiftClosed ? 'SHIFT CLOSED' : '+ KIRIM BARANG')}
         </button>
       </div>
 
-      <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm w-full mb-8">
+      <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm w-full mb-8 sticky top-0 z-10">
          <button onClick={() => setActiveSubTab('incoming')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all relative ${activeSubTab === 'incoming' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'}`}>
-            Incoming
+            Bahan Masuk (Konfirmasi)
             {incomingPending.length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white w-5 h-5 flex items-center justify-center rounded-full text-[8px] animate-bounce border-2 border-white">{incomingPending.length}</span>}
          </button>
-         <button onClick={() => setActiveSubTab('outgoing')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'outgoing' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
-            Outgoing
+         <button onClick={() => setActiveSubTab('outgoing')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all relative ${activeSubTab === 'outgoing' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
+            Bahan Keluar (Sedang Dikirim)
+            {outgoingPending.length > 0 && <span className="absolute -top-1 -right-1 bg-indigo-400 text-white w-5 h-5 flex items-center justify-center rounded-full text-[8px] animate-pulse border-2 border-white">{outgoingPending.length}</span>}
          </button>
          <button onClick={() => setActiveSubTab('history')} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'history' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400'}`}>
-            Audit Log
+            Arsip Mutasi
          </button>
       </div>
 
@@ -102,22 +126,22 @@ export const StockTransferManagement: React.FC = () => {
            <>
              {incomingPending.length === 0 ? (
                <div className="py-20 text-center bg-white rounded-[40px] border-2 border-dashed border-slate-200 opacity-30">
-                  <p className="text-[10px] font-black uppercase tracking-widest italic">Tidak ada pengiriman masuk</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest italic">Tidak ada pengiriman masuk yang butuh konfirmasi</p>
                </div>
              ) : (
                incomingPending.map(tr => (
-                 <div key={tr.id} className="bg-white p-6 rounded-[32px] border-2 border-indigo-100 shadow-xl flex flex-col md:flex-row justify-between items-center gap-6 animate-in zoom-in-95">
+                 <div key={tr.id} className="bg-white p-6 rounded-[32px] border-2 border-orange-100 shadow-xl flex flex-col md:flex-row justify-between items-center gap-6 animate-in zoom-in-95">
                     <div className="flex items-center gap-5 w-full md:w-auto">
-                       <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl shrink-0">🚚</div>
+                       <div className="w-14 h-14 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center text-3xl shrink-0 border border-orange-100 shadow-inner">🔔</div>
                        <div>
-                          <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest">Dari: {tr.fromOutletName}</p>
+                          <p className="text-[8px] font-black text-orange-500 uppercase tracking-widest">Meminta Konfirmasi dari: {tr.fromOutletName}</p>
                           <h4 className="text-base font-black text-slate-800 uppercase tracking-tight">{tr.itemName}</h4>
                           <p className="text-xl font-black text-slate-900 mt-1">{tr.quantity} <span className="text-[10px] text-slate-400 uppercase">{tr.unit}</span></p>
                        </div>
                     </div>
                     <div className="flex gap-2 w-full md:w-auto">
-                       <button onClick={() => respondToTransfer(tr.id, 'ACCEPTED')} className="flex-1 md:flex-none px-10 py-4 bg-emerald-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-emerald-100 active:scale-95 transition-all">TERIMA ✓</button>
-                       <button onClick={() => respondToTransfer(tr.id, 'REJECTED')} className="flex-1 md:flex-none px-10 py-4 bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl font-black text-[10px] uppercase active:scale-95 transition-all">TOLAK ✕</button>
+                       <button disabled={isSaving} onClick={() => handleRespond(tr.id, 'ACCEPTED')} className="flex-1 md:flex-none px-10 py-4 bg-emerald-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-emerald-100 active:scale-95 transition-all">TERIMA ✓</button>
+                       <button disabled={isSaving} onClick={() => handleRespond(tr.id, 'REJECTED')} className="flex-1 md:flex-none px-10 py-4 bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl font-black text-[10px] uppercase active:scale-95 transition-all">TOLAK ✕</button>
                     </div>
                  </div>
                ))
@@ -129,16 +153,16 @@ export const StockTransferManagement: React.FC = () => {
            <>
              {outgoingPending.length === 0 ? (
                <div className="py-20 text-center bg-white rounded-[40px] border-2 border-dashed border-slate-200 opacity-30">
-                  <p className="text-[10px] font-black uppercase tracking-widest italic">Semua barang keluar telah diterima</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest italic">Semua pengiriman keluar sudah dikonfirmasi penerima</p>
                </div>
              ) : (
                outgoingPending.map(tr => (
                  <div key={tr.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-4">
-                       <span className="text-[7px] font-black bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full uppercase tracking-widest">MENUNGGU KONFIRMASI...</span>
+                       <span className="text-[7px] font-black bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full uppercase tracking-widest border border-indigo-100">MENUNGGU KONFIRMASI...</span>
                     </div>
                     <div className="flex items-center gap-5 w-full md:w-auto mt-2 md:mt-0">
-                       <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center text-3xl shrink-0">🛫</div>
+                       <div className="w-14 h-14 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center text-3xl shrink-0 animate-pulse">⏳</div>
                        <div>
                           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Tujuan: {tr.toOutletName}</p>
                           <h4 className="text-base font-black text-slate-800 uppercase tracking-tight">{tr.itemName}</h4>
@@ -146,7 +170,7 @@ export const StockTransferManagement: React.FC = () => {
                        </div>
                     </div>
                     <div className="text-right w-full md:w-auto">
-                       <p className="text-[9px] font-bold text-slate-300 uppercase italic">Dikirim Oleh: {tr.staffName.split(' ')[0]}</p>
+                       <p className="text-[9px] font-bold text-slate-300 uppercase italic">Dikirim Oleh: {tr.staffName?.split(' ')[0]}</p>
                        <p className="text-[8px] text-slate-200 mt-1 uppercase font-black">{new Date(tr.timestamp).toLocaleString()}</p>
                     </div>
                  </div>
@@ -256,11 +280,11 @@ export const StockTransferManagement: React.FC = () => {
 
              <div className="p-6 md:p-10 border-t border-slate-50 bg-slate-50/50 shrink-0 pb-safe">
                 <button 
-                  disabled={!formData.toOutletId || !formData.itemName || formData.quantity <= 0 || (selectedItemData && formData.quantity > selectedItemData.quantity)}
+                  disabled={isSaving || !formData.toOutletId || !formData.itemName || formData.quantity <= 0 || (selectedItemData && formData.quantity > selectedItemData.quantity)}
                   onClick={handleTransfer} 
                   className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-30"
                 >
-                   {selectedItemData && formData.quantity > selectedItemData.quantity ? 'STOK TIDAK CUKUP' : 'PROSES PENGIRIMAN 🚀'}
+                   {isSaving ? 'SEDANG MENGIRIM...' : (selectedItemData && formData.quantity > selectedItemData.quantity ? 'STOK TIDAK CUKUP' : 'PROSES PENGIRIMAN 🚀')}
                 </button>
              </div>
           </div>
@@ -282,7 +306,7 @@ export const StockTransferManagement: React.FC = () => {
                   autoFocus
                   type="text" 
                   placeholder="Ketik nama bahan..." 
-                  className="w-full p-5 bg-white rounded-2xl font-black text-xl outline-none border-4 border-indigo-500 shadow-2xl text-slate-900"
+                  className="w-full p-5 bg-white rounded-2xl font-black text-xl outline-none border-4 border-indigo-50 shadow-2xl text-slate-900"
                   value={pickerQuery}
                   onChange={e => setPickerQuery(e.target.value)}
                />
@@ -307,12 +331,6 @@ export const StockTransferManagement: React.FC = () => {
                      <span className="text-indigo-500 opacity-30 group-hover:text-white group-hover:opacity-100 font-black text-[10px]">PILIH ➔</span>
                   </button>
                ))}
-               {filteredItemsForPicker.length === 0 && (
-                  <div className="text-center py-20 opacity-20 flex flex-col items-center">
-                     <span className="text-4xl mb-4">🚫</span>
-                     <p className="text-white font-black uppercase text-xs">Item Tidak Ditemukan</p>
-                  </div>
-               )}
             </div>
          </div>
       )}

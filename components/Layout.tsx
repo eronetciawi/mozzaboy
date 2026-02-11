@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store';
 import { UserRole } from '../types';
 
@@ -11,26 +11,27 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
   if (!currentUser) return <div className="h-full bg-slate-900 animate-pulse"></div>;
 
   const isAdmin = currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER;
-  const isOutletSelected = selectedOutletId !== 'all';
+  const hasOutlet = selectedOutletId !== 'all';
   
+  // SELURUH MENU DIKEMBALIKAN (18 MODUL)
   const menuGroups = [
     { 
       label: 'Manajemen Operasional', 
       items: [
         { id: 'dashboard', label: 'Dashboard Utama', icon: '📊', visible: true },
-        { id: 'pos', label: 'Sistem Kasir', icon: '🛒', visible: isOutletSelected },
-        { id: 'expenses', label: 'Pengeluaran', icon: '💸', visible: isOutletSelected },
-        { id: 'closing', label: 'Tutup Shift', icon: '🏁', visible: isOutletSelected },
+        { id: 'pos', label: 'Sistem Kasir', icon: '🛒', visible: true, disabled: !hasOutlet },
+        { id: 'expenses', label: 'Pengeluaran', icon: '💸', visible: true, disabled: !hasOutlet },
+        { id: 'closing', label: 'Tutup Shift', icon: '🏁', visible: true, disabled: !hasOutlet },
         { id: 'attendance', label: 'Crew Access', icon: '⏰', visible: true },
       ]
     },
     { 
       label: 'Logistik & Persediaan', 
       items: [
-        { id: 'inventory', label: 'Stok', icon: '📦', visible: true },
-        { id: 'production', label: 'Produksi & Mixing', icon: '🧪', visible: isOutletSelected },
-        { id: 'transfers', label: 'Transfer Stok', icon: '🚚', visible: isOutletSelected },
-        { id: 'purchases', label: 'Belanja', icon: '🚛', visible: isOutletSelected },
+        { id: 'inventory', label: 'Stok Gudang', icon: '📦', visible: true },
+        { id: 'production', label: 'Produksi & Mixing', icon: '🧪', visible: true, disabled: !hasOutlet },
+        { id: 'transfers', label: 'Transfer Stok', icon: '🚚', visible: true, disabled: !hasOutlet },
+        { id: 'purchases', label: 'Belanja Stok', icon: '🚛', visible: true, disabled: !hasOutlet },
       ]
     },
     { 
@@ -54,7 +55,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
       items: [
         { id: 'outlets', label: 'Data Outlet', icon: '🏢', visible: isAdmin },
         { id: 'staff', label: 'Manajemen Kru', icon: '👥', visible: isAdmin },
-        { id: 'printer', label: 'Printer & Hardware', icon: '🖨️', visible: true },
+        { id: 'printer', label: 'Printer Bluetooth', icon: '🖨️', visible: true },
         { id: 'maintenance', label: 'Maintenance', icon: '🛠️', visible: currentUser.role === UserRole.OWNER },
       ]
     }
@@ -85,8 +86,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
                 {visibleItems.map((item) => (
                   <button 
                     key={item.id} 
+                    disabled={item.disabled}
                     onClick={() => { setActiveTab(item.id); if(closeDrawer) closeDrawer(); }} 
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group ${activeTab === item.id ? 'text-white shadow-xl' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group ${activeTab === item.id ? 'text-white shadow-xl' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} ${item.disabled ? 'opacity-20 cursor-not-allowed grayscale' : ''}`}
                     style={activeTab === item.id ? { backgroundColor: brandConfig.primaryColor } : {}}
                   >
                     <span className={`text-[16px] w-6 flex justify-center shrink-0 transition-transform group-hover:scale-110 ${activeTab === item.id ? 'opacity-100' : 'opacity-50'}`}>
@@ -124,15 +126,22 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
 };
 
 export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; setActiveTab: (tab: string) => void }> = ({ children, activeTab, setActiveTab }) => {
-  const { outlets = [], selectedOutletId, switchOutlet, isSaving, assetsOptimized, brandConfig, currentUser } = useApp();
+  const { outlets = [], selectedOutletId, switchOutlet, isSaving, currentUser } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // SECURITY FILTER: Hanya tampilkan cabang yang diizinkan untuk user aktif
+  // REDIRECT KASIR: Jangan biarkan di mode global
+  useEffect(() => {
+    if (currentUser && currentUser.role !== UserRole.OWNER && currentUser.role !== UserRole.MANAGER) {
+      if (selectedOutletId === 'all') {
+        const firstAllowed = currentUser.assignedOutletIds[0];
+        if (firstAllowed) switchOutlet(firstAllowed);
+      }
+    }
+  }, [currentUser, selectedOutletId, switchOutlet]);
+
   const allowedOutlets = useMemo(() => {
     if (!currentUser) return [];
-    if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) {
-        return outlets;
-    }
+    if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return outlets;
     return outlets.filter(o => currentUser.assignedOutletIds.includes(o.id));
   }, [outlets, currentUser]);
 
@@ -140,12 +149,10 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
 
   return (
     <div className="flex h-screen bg-white overflow-hidden font-sans select-none text-slate-900">
-      {/* Desktop Sidebar */}
       <div className="hidden lg:block w-60 shrink-0 h-full no-print">
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       </div>
 
-      {/* Mobile Drawer */}
       {isMenuOpen && (
         <div className="fixed inset-0 z-[100] lg:hidden bg-slate-950/80 backdrop-blur-sm transition-all duration-300" onClick={() => setIsMenuOpen(false)}>
            <div className="w-64 h-full animate-in slide-in-from-left duration-300 shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -154,23 +161,21 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
         </div>
       )}
 
-      {/* Main Container */}
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        {/* Header */}
         <header className="h-16 lg:h-20 bg-white border-b border-slate-100 px-4 lg:px-8 flex items-center justify-between shadow-sm z-40 shrink-0 no-print">
           <div className="flex items-center gap-4">
              <button onClick={() => setIsMenuOpen(true)} className="lg:hidden w-10 h-10 flex items-center justify-center text-xl bg-slate-50 border border-slate-100 rounded-xl text-slate-600">☰</button>
              <div className="flex flex-col">
                <div className="flex items-center gap-2">
-                 <span className="text-[10px] lg:text-[11px] font-black text-slate-400 uppercase tracking-widest">Cabang Aktif:</span>
+                 <span className="text-[10px] lg:text-[11px] font-black text-slate-400 uppercase tracking-widest">Kasir:</span>
                  <h1 className="text-[11px] lg:text-sm font-black text-slate-900 uppercase tracking-tighter leading-none">
-                   {selectedOutletId === 'all' ? 'Pusat Kontrol Global' : outlets.find(o=>o.id===selectedOutletId)?.name || 'Outlet'}
+                   {currentUser?.name || 'System'}
                  </h1>
                </div>
                <div className="flex items-center gap-1.5 mt-1.5">
                  <div className={`w-1.5 h-1.5 rounded-full ${isSaving ? 'animate-pulse bg-orange-500' : 'bg-emerald-500'}`}></div>
                  <span className="text-[7px] lg:text-[8px] font-bold uppercase tracking-widest text-slate-400">
-                    {isSaving ? 'Menyinkronkan Cloud...' : assetsOptimized ? 'Terhubung & Terverifikasi ✓' : 'Mengoptimalkan Aset...'}
+                    {selectedOutletId === 'all' ? 'Mode Pusat Kontrol' : `Cabang: ${outlets.find(o=>o.id===selectedOutletId)?.name || '...'}`}
                  </span>
                </div>
              </div>
@@ -183,18 +188,16 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
               value={selectedOutletId} 
               onChange={(e) => switchOutlet(e.target.value)}
             >
-              {showGlobalOption && <option value="all">Kontrol Global</option>}
+              {showGlobalOption && <option value="all">Pusat Kontrol (Global)</option>}
               {allowedOutlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
           </div>
         </header>
 
-        {/* Content Area */}
         <div className="flex-1 overflow-hidden relative bg-[#fcfdfe]">
           {children}
         </div>
 
-        {/* Mobile Quick Nav */}
         <nav className="lg:hidden h-16 bg-white border-t border-slate-100 flex items-center justify-around z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
            <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 flex-1 py-1 transition-all ${activeTab === 'dashboard' ? 'text-orange-600 scale-110' : 'text-slate-300 opacity-60'}`}>
               <span className="text-xl">📊</span>

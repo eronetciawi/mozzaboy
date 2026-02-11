@@ -35,11 +35,12 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
     [leaveRequests]
   );
 
-  // LOGIKA STATUS OPERASIONAL OUTLET (KHUSUS OWNER)
+  // LOGIKA MONITORING REAL-TIME SELURUH OUTLET (KHUSUS OWNER/MANAGER)
   const outletLiveStatus = useMemo(() => {
     if (!isExecutive) return [];
     
     return outlets.map(outlet => {
+      // 1. Cek Kehadiran (Status Buka/Tutup)
       const todayAttendance = (attendance || []).filter(a => {
         const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
         return a.outletId === outlet.id && recordDateStr === todayStr;
@@ -52,16 +53,25 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
       
       const opener = sortedAttendance[0];
 
+      // 2. Hitung Omset Cabang Ini Khusus Hari Ini
+      const branchTodaySales = transactions
+        .filter(t => {
+          const tDate = new Date(t.timestamp).toLocaleDateString('en-CA');
+          return t.outletId === outlet.id && t.status === OrderStatus.CLOSED && tDate === todayStr;
+        })
+        .reduce((acc, curr) => acc + (curr.total || 0), 0);
+
       return {
         id: outlet.id,
         name: outlet.name,
         isOpen: todayAttendance.length > 0,
         openTime: opener ? new Date(opener.clockIn).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : null,
         staffName: opener ? opener.staffName : null,
-        totalStaffPresent: todayAttendance.length
+        totalStaffPresent: todayAttendance.length,
+        revenue: branchTodaySales
       };
     });
-  }, [outlets, attendance, todayStr, isExecutive]);
+  }, [outlets, attendance, transactions, todayStr, isExecutive]);
 
   const myPresenceToday = useMemo(() => {
      if (isExecutive) return true;
@@ -87,14 +97,22 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
 
   const summary = useMemo(() => {
     const targetTxs = isGlobalView ? transactions : filteredTransactions;
-    const closedTxs = targetTxs.filter(t => t.status === OrderStatus.CLOSED);
+    // Filter hanya transaksi hari ini untuk ringkasan metric utama
+    const closedTxs = targetTxs.filter(t => {
+      const tDate = new Date(t.timestamp).toLocaleDateString('en-CA');
+      return t.status === OrderStatus.CLOSED && tDate === todayStr;
+    });
+    
     const sales = closedTxs.reduce((a, b) => a + (b.total ?? 0), 0);
     const cash = closedTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a, b) => a + (b.total ?? 0), 0);
     const qris = closedTxs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a, b) => a + (b.total ?? 0), 0);
+    
     const targetExps = isGlobalView ? expenses : expenses.filter(e => e.outletId === selectedOutletId);
-    const exp = targetExps.reduce((a, b) => a + (b.amount ?? 0), 0);
+    const todayExps = targetExps.filter(e => new Date(e.timestamp).toLocaleDateString('en-CA') === todayStr);
+    const exp = todayExps.reduce((a, b) => a + (b.amount ?? 0), 0);
+    
     return { sales, cash, qris, exp, totalClosed: closedTxs.length };
-  }, [isGlobalView, transactions, filteredTransactions, expenses, selectedOutletId]);
+  }, [isGlobalView, transactions, filteredTransactions, expenses, selectedOutletId, todayStr]);
 
   const intel = useMemo(() => {
     const targetTxs = isGlobalView ? transactions : filteredTransactions;
@@ -163,41 +181,58 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         <div className="mb-10 space-y-4 animate-in slide-in-from-bottom-2 duration-700">
            <div className="flex items-center gap-3 ml-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></div>
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Live Operational Monitoring</h3>
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Live Regional Performance</h3>
            </div>
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {outletLiveStatus.map(status => (
-                <div key={status.id} className={`p-5 rounded-[32px] border-2 transition-all flex flex-col justify-between ${status.isOpen ? 'bg-white border-emerald-100 shadow-lg' : 'bg-slate-50 border-slate-100 opacity-60 grayscale'}`}>
-                   <div className="flex justify-between items-start mb-4">
+                <div key={status.id} className={`p-6 rounded-[32px] border-2 transition-all flex flex-col justify-between h-full ${status.isOpen ? 'bg-white border-indigo-100 shadow-xl' : 'bg-slate-50 border-slate-100 opacity-60 grayscale'}`}>
+                   <div className="flex justify-between items-start mb-6">
                       <div className="min-w-0">
-                         <h4 className="text-[11px] font-black text-slate-800 uppercase truncate leading-none mb-1">{status.name}</h4>
-                         <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">Branch ID: {status.id.slice(-4).toUpperCase()}</p>
+                         <h4 className="text-[13px] font-black text-slate-900 uppercase truncate leading-none mb-1">{status.name}</h4>
+                         <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Node ID: {status.id.slice(-4).toUpperCase()}</p>
                       </div>
-                      <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${status.isOpen ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-200 text-slate-500'}`}>
-                         {status.isOpen ? 'OPEN' : 'CLOSED'}
+                      <span className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase tracking-[0.2em] shadow-sm ${status.isOpen ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-200 text-slate-500'}`}>
+                         {status.isOpen ? 'OPERATIONAL' : 'OFFLINE'}
                       </span>
+                   </div>
+
+                   <div className="mb-6">
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Omset Hari Ini</p>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-[10px] font-black text-slate-400">Rp</span>
+                        <h3 className={`text-2xl font-black font-mono tracking-tighter ${status.isOpen ? 'text-indigo-600' : 'text-slate-400'}`}>
+                          {status.revenue.toLocaleString()}
+                        </h3>
+                      </div>
                    </div>
                    
                    {status.isOpen ? (
-                     <div className="space-y-3">
-                        <div className="flex items-center gap-3">
-                           <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-xs shadow-inner">⏰</div>
-                           <div>
-                              <p className="text-[7px] font-black text-slate-400 uppercase">Absen Pembuka</p>
-                              <p className="text-[10px] font-black text-emerald-600">{status.openTime} WIB</p>
+                     <div className="pt-4 border-t border-slate-50 space-y-3">
+                        <div className="flex items-center justify-between">
+                           <div className="flex items-center gap-2">
+                              <span className="text-xs">⏰</span>
+                              <span className="text-[8px] font-black text-slate-400 uppercase">Jam Buka</span>
                            </div>
+                           <p className="text-[10px] font-black text-slate-800">{status.openTime} WIB</p>
                         </div>
-                        <div className="flex items-center gap-3">
-                           <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-xs shadow-inner">👤</div>
-                           <div className="min-w-0">
-                              <p className="text-[7px] font-black text-slate-400 uppercase">PIC Opening</p>
-                              <p className="text-[10px] font-black text-slate-700 truncate uppercase">{status.staffName?.split(' ')[0]}</p>
+                        <div className="flex items-center justify-between">
+                           <div className="flex items-center gap-2">
+                              <span className="text-xs">👤</span>
+                              <span className="text-[8px] font-black text-slate-400 uppercase">PIC Opening</span>
                            </div>
+                           <p className="text-[10px] font-black text-slate-800 uppercase truncate max-w-[100px] text-right">{status.staffName?.split(' ')[0]}</p>
+                        </div>
+                        <div className="flex items-center justify-between">
+                           <div className="flex items-center gap-2">
+                              <span className="text-xs">👥</span>
+                              <span className="text-[8px] font-black text-slate-400 uppercase">Kru Aktif</span>
+                           </div>
+                           <p className="text-[10px] font-black text-emerald-600">{status.totalStaffPresent} Orang</p>
                         </div>
                      </div>
                    ) : (
-                     <div className="py-4 text-center">
-                        <p className="text-[9px] font-black text-slate-300 uppercase italic">Belum Ada Aktivitas</p>
+                     <div className="py-6 text-center bg-slate-100/50 rounded-2xl border border-dashed border-slate-200">
+                        <p className="text-[9px] font-black text-slate-300 uppercase italic">Belum Ada Absensi</p>
                      </div>
                    )}
                 </div>
@@ -239,10 +274,10 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-10">
-        <CompactMetric label="Total Omzet" value={`Rp ${((summary.sales ?? 0)/1000).toFixed(0)}k`} color="text-slate-900" icon="💰" />
+        <CompactMetric label="Omzet Hari Ini" value={`Rp ${((summary.sales ?? 0)/1000).toFixed(0)}k`} color="text-slate-900" icon="💰" />
         <CompactMetric label="Sales Tunai" value={`Rp ${((summary.cash ?? 0)/1000).toFixed(0)}k`} color="text-emerald-600" icon="💵" />
         <CompactMetric label="Sales QRIS" value={`Rp ${((summary.qris ?? 0)/1000).toFixed(0)}k`} color="text-blue-600" icon="📱" />
-        <CompactMetric label="Total Transaksi" value={`${summary.totalClosed}`} color="text-indigo-600" icon="🧾" />
+        <CompactMetric label="Transaksi" value={`${summary.totalClosed}`} color="text-indigo-600" icon="🧾" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
@@ -272,7 +307,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
             <div className="flex justify-between items-center mb-8">
               <div>
                  <h3 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.3em]">Audit Penjualan</h3>
-                 <p className="text-[8px] font-bold text-slate-500 uppercase mt-1">15 Transaksi Terakhir</p>
+                 <p className="text-[8px] font-bold text-slate-500 uppercase mt-1">Terakhir</p>
               </div>
               <span className="text-[7px] font-black bg-white/10 px-2 py-1 rounded uppercase tracking-widest text-slate-400">Click for Receipt</span>
             </div>

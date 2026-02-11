@@ -194,7 +194,7 @@ export const ExpenseManagement: React.FC = () => {
           </div>
         ) : (
           [...outletExpenses].reverse().map(exp => {
-            const isAuto = exp.id.startsWith('exp-auto-');
+            const isAuto = exp.id.startsWith('exp-auto-') || exp.typeId === 'purchase-auto' || exp.notes.includes('Belanja');
             const rawCategory = expenseTypes.find(t => t.id === exp.typeId)?.name || 'Lain-lain';
             
             let displayTitle = rawCategory;

@@ -186,7 +186,7 @@ export const Reports: React.FC = () => {
               const compItem = inventory.find(i => i.id === c.inventoryItemId);
               return c.inventoryItemId === item.id || (compItem && compItem.name === item.name && compItem.outletId === item.outletId);
            });
-           return acc + (comp?.quantity ?? 0);
+           return acc + (comp?.quantity || 0);
         }, 0);
 
         const totalKeluar = terpakaiSales + terpakaiProduksi + trfOut;
@@ -215,7 +215,7 @@ export const Reports: React.FC = () => {
       if (shiftReportRef.current) {
         const canvas = await html2canvas(shiftReportRef.current, { scale: 3, backgroundColor: '#ffffff' });
         const link = document.createElement('a');
-        link.download = `Audit-Shift-${log.staffName}-${new Date(log.timestamp).toLocaleDateString()}.png`;
+        link.download = `Daily-Report-${log.staffName}-${new Date(log.timestamp).toLocaleDateString()}.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
         setViewingClosing(null);
@@ -243,7 +243,7 @@ export const Reports: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-white p-1 rounded-xl border shadow-sm overflow-x-auto no-scrollbar max-w-full">
              {(['finance', 'sales', 'expenses', 'inventory', 'production', 'hr', 'logs'] as ReportTab[]).map(t => (
-               <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all whitespace-nowrap ${activeTab === t ? 'bg-orange-500 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}>
+               <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all whitespace-nowrap ${activeTab === t ? 'bg-orange-50 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}>
                  {t === 'finance' ? 'Laba Rugi' : t === 'sales' ? 'Sales' : t === 'expenses' ? 'Pengeluaran' : t === 'inventory' ? 'Mutasi Stok' : t === 'production' ? 'Produksi' : t === 'hr' ? 'Tim' : 'Audit Logs'}
                </button>
              ))}
@@ -589,7 +589,7 @@ export const Reports: React.FC = () => {
                                </p>
                             </div>
                          </div>
-                         <button onClick={() => downloadShiftReport(log)} className="w-full md:w-auto px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-orange-50 transition-all shrink-0">Export Audit ↓</button>
+                         <button onClick={() => downloadShiftReport(log)} className="w-full md:w-auto px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-orange-50 transition-all shrink-0">Export Daily ↓</button>
                       </div>
                    ))}
                 </div>
@@ -602,13 +602,13 @@ export const Reports: React.FC = () => {
         <div className="fixed inset-0 z-[600] bg-slate-950/95 flex items-center justify-center p-4">
            <div className="flex flex-col items-center gap-6">
               <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Shift Audit...</p>
+              <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Daily Report...</p>
               
               <div ref={shiftReportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 w-[450px] text-slate-900">
                 <div className="p-8 border-b-2 border-dashed border-slate-100 text-center">
                   <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-xl mx-auto mb-4 shadow-xl">M</div>
-                  <h4 className="text-sm font-black text-slate-900 uppercase tracking-tighter">Shift Audit Report</h4>
-                  <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-[0.2em]">{activeOutlet?.name || 'Verified Digital Audit'}</p>
+                  <h4 className="text-sm font-black text-slate-900 uppercase tracking-tighter">Daily Report</h4>
+                  <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 tracking-[0.2em]">{outlets.find(o => o.id === viewingClosing.outletId)?.name || 'Verified Digital Audit'}</p>
                 </div>
 
                 <div className="p-8 space-y-6">
@@ -618,8 +618,14 @@ export const Reports: React.FC = () => {
                       <p className="text-[10px] font-black text-slate-800 uppercase">{viewingClosing.staffName}</p>
                     </div>
                     <div className="space-y-1 text-right">
-                      <p className="text-[7px] font-black text-slate-400 uppercase">Shift</p>
-                      <p className="text-[10px] font-black text-slate-800 uppercase">{viewingClosing.shiftName}</p>
+                      <p className="text-[7px] font-black text-slate-400 uppercase">Shift / Jadwal</p>
+                      <p className="text-[10px] font-black text-slate-800 uppercase">
+                         {viewingClosing.shiftName}
+                         {(() => {
+                            const s = staff.find(st => st.id === viewingClosing.staffId);
+                            return s ? ` (${s.shiftStartTime} - ${s.shiftEndTime})` : '';
+                         })()}
+                      </p>
                     </div>
                     <div className="space-y-1">
                       <p className="text-[7px] font-black text-slate-400 uppercase">Waktu Selesai</p>
@@ -650,7 +656,7 @@ export const Reports: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-center">
                       <p className="text-xl font-black tracking-tighter">Rp {((viewingClosing.totalSalesCash ?? 0) + (viewingClosing.totalSalesQRIS ?? 0)).toLocaleString()}</p>
-                      <span className="text-[7px] bg-white/20 px-2 py-0.5 rounded font-bold uppercase tracking-widest">Shift Total</span>
+                      <span className="text-[7px] bg-white/20 px-2 py-0.5 rounded font-bold uppercase tracking-widest">Daily Total</span>
                     </div>
                   </div>
 
@@ -670,13 +676,6 @@ export const Reports: React.FC = () => {
                       </p>
                     </div>
                   </div>
-
-                  {viewingClosing.notes && (
-                    <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                      <p className="text-[7px] font-black text-orange-400 uppercase mb-1">Catatan Kasir:</p>
-                      <p className="text-[10px] font-medium text-orange-800 italic">"{viewingClosing.notes}"</p>
-                    </div>
-                  )}
                 </div>
 
                 <div className="p-8 bg-slate-900 text-center">

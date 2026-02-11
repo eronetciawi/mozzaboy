@@ -4,7 +4,7 @@ import { useApp } from '../store';
 import { Category } from '../types';
 
 export const CategoryManagement: React.FC = () => {
-  const { categories, addCategory, updateCategory, deleteCategory, reorderCategories, isSaving } = useApp();
+  const { categories, addCategory, updateCategory, deleteCategory, reorderCategories, isSaving, isFetching, fetchFromCloud } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
@@ -12,10 +12,10 @@ export const CategoryManagement: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleAdd = async () => {
-    if (!newCatName) return;
+    if (!newCatName.trim()) return;
     setErrorMsg('');
     try {
-      await addCategory(newCatName);
+      await addCategory(newCatName.trim());
       setNewCatName('');
       setShowModal(false);
     } catch (err: any) {
@@ -24,10 +24,10 @@ export const CategoryManagement: React.FC = () => {
   };
 
   const handleUpdate = async () => {
-    if (!editingCat) return;
+    if (!editingCat || !editingCat.name.trim()) return;
     setErrorMsg('');
     try {
-      await updateCategory(editingCat.id, editingCat.name);
+      await updateCategory(editingCat.id, editingCat.name.trim());
       setEditingCat(null);
       setShowModal(false);
     } catch (err: any) {
@@ -35,69 +35,80 @@ export const CategoryManagement: React.FC = () => {
     }
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (categoryToDelete) {
-      deleteCategory(categoryToDelete.id);
-      setCategoryToDelete(null);
+      try {
+        await deleteCategory(categoryToDelete.id);
+        setCategoryToDelete(null);
+      } catch (err: any) {
+        console.error("Gagal menghapus:", err);
+      }
     }
   };
 
-  const handleMove = (idx: number, direction: 'up' | 'down') => {
+  const handleMove = async (idx: number, direction: 'up' | 'down') => {
     const newList = [...categories];
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (targetIdx < 0 || targetIdx >= newList.length) return;
     
     [newList[idx], newList[targetIdx]] = [newList[targetIdx], newList[idx]];
-    reorderCategories(newList);
+    await reorderCategories(newList);
   };
 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-slate-50/50 pb-24 md:pb-8">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
-          <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Master Kategori</h2>
-          <p className="text-slate-500 font-medium text-[10px] uppercase italic tracking-widest">Atur urutan kategori untuk efisiensi kasir</p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">Master Kategori</h2>
+            {isFetching && <span className="text-[8px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded animate-pulse">TRUE SYNCING...</span>}
+          </div>
+          <p className="text-slate-500 font-medium text-[10px] uppercase italic tracking-widest">Kontrol database kategori secara real-time</p>
         </div>
-        <button 
-          onClick={() => { setEditingCat(null); setNewCatName(''); setErrorMsg(''); setShowModal(true); }}
-          className="w-full md:w-auto px-6 py-4 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-orange-600 active:scale-95 transition-all"
-        >
-          + Kategori Baru
-        </button>
+        <div className="flex gap-2 w-full md:w-auto">
+          <button 
+            onClick={() => { setEditingCat(null); setNewCatName(''); setErrorMsg(''); setShowModal(true); }}
+            className="w-full md:w-auto px-8 py-4 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-orange-600 active:scale-95 transition-all"
+          >
+            + Kategori Baru
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3 max-w-4xl">
         {categories.map((cat, idx) => (
           <div key={cat.id} className="bg-white p-4 md:p-6 rounded-[32px] border-2 border-slate-100 shadow-sm flex items-center justify-between hover:border-orange-200 transition-all group">
             <div className="flex items-center gap-4">
-              <div className="flex flex-col gap-1 mr-2">
-                 <button onClick={() => handleMove(idx, 'up')} disabled={idx === 0} className="w-6 h-6 bg-slate-50 rounded-md text-[10px] flex items-center justify-center hover:bg-indigo-500 hover:text-white disabled:opacity-20 transition-all">▲</button>
-                 <button onClick={() => handleMove(idx, 'down')} disabled={idx === categories.length - 1} className="w-6 h-6 bg-slate-50 rounded-md text-[10px] flex items-center justify-center hover:bg-indigo-500 hover:text-white disabled:opacity-20 transition-all">▼</button>
+              <div className="flex flex-col gap-1 mr-2 no-print">
+                 <button onClick={() => handleMove(idx, 'up')} disabled={idx === 0 || isSaving} className="w-6 h-6 bg-slate-50 rounded-md text-[10px] flex items-center justify-center hover:bg-indigo-500 hover:text-white disabled:opacity-20 transition-all">▲</button>
+                 <button onClick={() => handleMove(idx, 'down')} disabled={idx === categories.length - 1 || isSaving} className="w-6 h-6 bg-slate-50 rounded-md text-[10px] flex items-center justify-center hover:bg-indigo-500 hover:text-white disabled:opacity-20 transition-all">▼</button>
               </div>
               <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-xs font-black text-orange-500 group-hover:bg-orange-50 transition-colors shadow-inner">
                 {idx + 1}
               </div>
               <h4 className="font-black text-slate-800 uppercase tracking-tight text-xs">{cat.name}</h4>
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1.5 no-print">
               <button 
+                disabled={isSaving}
                 onClick={() => { setEditingCat(cat); setErrorMsg(''); setShowModal(true); }} 
-                className="w-9 h-9 flex items-center justify-center bg-slate-50 text-blue-500 hover:bg-blue-500 hover:text-white rounded-xl transition-all shadow-sm"
+                className="w-9 h-9 flex items-center justify-center bg-slate-50 text-blue-500 hover:bg-blue-500 hover:text-white rounded-xl transition-all shadow-sm disabled:opacity-30"
               >
                 ✏️
               </button>
               <button 
+                disabled={isSaving}
                 onClick={() => setCategoryToDelete(cat)} 
-                className="w-9 h-9 flex items-center justify-center bg-slate-50 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all shadow-sm"
+                className="w-9 h-9 flex items-center justify-center bg-slate-50 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all shadow-sm disabled:opacity-30"
               >
                 🗑️
               </button>
             </div>
           </div>
         ))}
-        {categories.length === 0 && (
+        {categories.length === 0 && !isFetching && (
            <div className="py-20 text-center bg-white rounded-[40px] border-2 border-dashed border-slate-100 opacity-40">
-              <p className="text-[10px] font-black uppercase italic tracking-widest">Belum ada kategori terdaftar</p>
+              <p className="text-[10px] font-black uppercase italic tracking-widest">Cloud Database Kosong / Tidak Terhubung</p>
            </div>
         )}
       </div>
@@ -106,36 +117,35 @@ export const CategoryManagement: React.FC = () => {
       {showModal && (
         <div className="fixed inset-0 z-[150] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] w-full max-w-sm p-10 shadow-2xl animate-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-black text-slate-800 mb-8 uppercase tracking-tighter">{editingCat ? 'Edit Kategori' : 'Kategori Baru'}</h3>
+            <h3 className="text-xl font-black text-slate-800 mb-8 uppercase tracking-tighter">{editingCat ? 'Update Database' : 'Database Entry'}</h3>
             
-            {errorMsg && (
-               <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-[8px] font-black uppercase border border-red-100">
-                  ⚠️ {errorMsg}
-               </div>
-            )}
-
             <div className="space-y-6">
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest ml-1">Nama Kategori</label>
                 <input 
                   disabled={isSaving}
                   type="text" 
-                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-sm focus:border-orange-500 outline-none transition-all text-slate-900"
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-sm focus:border-orange-500 outline-none transition-all text-slate-900 uppercase"
                   value={editingCat ? editingCat.name : newCatName}
                   onChange={e => editingCat ? setEditingCat({...editingCat, name: e.target.value}) : setNewCatName(e.target.value)}
-                  placeholder="Misal: Corndog Sweet"
+                  placeholder="MISAL: DRINKS"
                   autoFocus
                 />
               </div>
               <div className="flex flex-col gap-3">
                 <button 
-                   disabled={isSaving}
+                   disabled={isSaving || (editingCat ? !editingCat.name : !newCatName)}
                    onClick={editingCat ? handleUpdate : handleAdd} 
-                   className="w-full py-4 bg-orange-500 text-white font-black rounded-2xl text-[10px] uppercase shadow-xl hover:bg-orange-600 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                   className="w-full py-4 bg-slate-900 text-white font-black rounded-2xl text-[10px] uppercase shadow-xl hover:bg-orange-600 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                   {isSaving ? 'SEDANG MENYIMPAN...' : (editingCat ? 'SIMPAN PERUBAHAN 💾' : 'TAMBAH KATEGORI 🚀')}
+                   {isSaving ? (
+                     <>
+                       <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                       COMMITTING...
+                     </>
+                   ) : (editingCat ? 'CONFIRM UPDATE 💾' : 'COMMIT TO CLOUD 🚀')}
                 </button>
-                <button disabled={isSaving} onClick={() => setShowModal(false)} className="w-full py-2 text-slate-400 font-black uppercase text-[9px] tracking-widest">Batal</button>
+                <button disabled={isSaving} onClick={() => setShowModal(false)} className="w-full py-2 text-slate-400 font-black text-[9px] uppercase tracking-widest">Batal</button>
               </div>
             </div>
           </div>
@@ -149,19 +159,21 @@ export const CategoryManagement: React.FC = () => {
             <div className="w-20 h-20 bg-red-50 text-red-500 rounded-[32px] flex items-center justify-center text-4xl mx-auto mb-8 shadow-inner">
               ⚠️
             </div>
-            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter mb-4">Hapus Kategori?</h3>
+            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter mb-4">Hapus Permanen?</h3>
             <p className="text-slate-500 text-xs font-bold leading-relaxed px-4 uppercase">
-              Kategori <span className="text-red-600 font-black">"{categoryToDelete.name}"</span> akan dihapus. Produk di dalamnya tidak akan terhapus namun kategori mereka akan kosong.
+              Kategori <span className="text-red-600 font-black">"{categoryToDelete.name}"</span> akan dihapus dari Cloud. Tindakan ini tidak bisa dibatalkan.
             </p>
             
             <div className="flex flex-col gap-3 mt-10">
               <button 
+                disabled={isSaving}
                 onClick={confirmDelete}
-                className="w-full py-5 bg-red-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-red-700 transition-all active:scale-95"
+                className="w-full py-5 bg-red-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50"
               >
-                HAPUS PERMANEN 🗑️
+                {isSaving ? 'DELETING...' : 'DELETE PERMANENTLY 🗑️'}
               </button>
               <button 
+                disabled={isSaving}
                 onClick={() => setCategoryToDelete(null)}
                 className="w-full py-4 text-slate-400 font-black uppercase text-[10px] tracking-widest hover:text-slate-600"
               >
