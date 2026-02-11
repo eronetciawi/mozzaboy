@@ -15,6 +15,7 @@ const STORAGE_OUTLET_KEY = 'foodos_active_outlet';
 const STORAGE_CLOUD_CONFIG = 'mozzaboy_cloud_config';
 const STORAGE_BRAND_CONFIG = 'mozzaboy_brand_settings';
 const STORAGE_EXTERNAL_DB = 'mozzaboy_external_db';
+const STORAGE_SYNC_QUEUE = 'mozzaboy_sync_queue_v1';
 
 export const getTodayDateString = () => new Date().toLocaleDateString('en-CA');
 
@@ -66,7 +67,7 @@ export const getPermissionsByRole = (role: UserRole): Permissions => {
 };
 
 interface AppState {
-  products: Product[]; categories: Category[]; inventory: InventoryItem[]; stockTransfers: StockTransfer[]; stockRequests: StockRequest[]; productionRecords: ProductionRecord[]; wipRecipes: WIPRecipe[]; transactions: Transaction[]; filteredTransactions: Transaction[]; outlets: Outlet[]; currentUser: StaffMember | null; isAuthenticated: boolean; cart: CartItem[]; staff: StaffMember[]; attendance: Attendance[]; leaveRequests: LeaveRequest[]; selectedOutletId: string; customers: Customer[]; selectedCustomerId: string | null; expenses: Expense[]; expenseTypes: ExpenseType[]; dailyClosings: DailyClosing[]; purchases: Purchase[]; connectedPrinter: any | null; membershipTiers: MembershipTier[]; bulkDiscounts: BulkDiscountRule[]; simulations: MenuSimulation[]; loyaltyConfig: LoyaltyConfig; brandConfig: BrandConfig; isSaving: boolean; isInitialLoading: boolean; isFetching: boolean; cloudConfig: { url: string; key: string }; externalDbConfig: any;
+  products: Product[]; categories: Category[]; inventory: InventoryItem[]; stockTransfers: StockTransfer[]; stockRequests: StockRequest[]; productionRecords: ProductionRecord[]; wipRecipes: WIPRecipe[]; transactions: Transaction[]; filteredTransactions: Transaction[]; outlets: Outlet[]; currentUser: StaffMember | null; isAuthenticated: boolean; cart: CartItem[]; staff: StaffMember[]; attendance: Attendance[]; leaveRequests: LeaveRequest[]; selectedOutletId: string; customers: Customer[]; selectedCustomerId: string | null; expenses: Expense[]; expenseTypes: ExpenseType[]; dailyClosings: DailyClosing[]; purchases: Purchase[]; connectedPrinter: any | null; membershipTiers: MembershipTier[]; bulkDiscounts: BulkDiscountRule[]; simulations: MenuSimulation[]; loyaltyConfig: LoyaltyConfig; brandConfig: BrandConfig; isSaving: boolean; isInitialLoading: boolean; isFetching: boolean; cloudConfig: { url: string; key: string }; externalDbConfig: any; syncQueueLength: number;
 }
 
 interface AppActions {
@@ -106,6 +107,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [simulations, setSimulations] = useState<MenuSimulation[]>([]);
   const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>([]);
   const [loyaltyConfig, setLoyaltyConfig] = useState<LoyaltyConfig>({ isEnabled: true, earningAmountPerPoint: 1000, redemptionValuePerPoint: 100, minRedeemPoints: 50 });
+  const [syncQueue, setSyncQueue] = useState<any[]>(() => {
+    const saved = localStorage.getItem(STORAGE_SYNC_QUEUE);
+    return saved ? JSON.parse(saved) : [];
+  });
 
   const [selectedOutletId, setSelectedOutletId] = useState<string>(localStorage.getItem(STORAGE_OUTLET_KEY) || 'all');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -113,12 +118,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [connectedPrinter, setConnectedPrinter] = useState<any | null>(null);
   const [cloudConfig, setCloudConfig] = useState(loadCloudConfig());
   
-  const syncTimeoutRef = useRef<any>(null);
-
-  const [externalDbConfig, setExternalDbConfig] = useState(() => {
+  // Fix: Declare externalDbConfig and setExternalDbConfig to fix line 361 and 782 errors
+  const [externalDbConfig, setExternalDbConfig] = useState<any>(() => {
     const saved = localStorage.getItem(STORAGE_EXTERNAL_DB);
-    return saved ? JSON.parse(saved) : { gatewayUrl: '', host: '', port: '5432', user: '', password: '', status: 'IDLE' };
+    try {
+      return saved ? JSON.parse(saved) : { gatewayUrl: '', user: '', password: '' };
+    } catch (e) {
+      return { gatewayUrl: '', user: '', password: '' };
+    }
   });
+
+  const syncTimeoutRef = useRef<any>(null);
+  const isSyncingRef = useRef(false);
+
+  // Background Sync Processor
+  useEffect(() => {
+    const processQueue = async () => {
+      if (isSyncingRef.current || syncQueue.length === 0) return;
+      isSyncingRef.current = true;
+      
+      const item = syncQueue[0];
+      try {
+        if (item.type === 'transaction') {
+          // 1. Potong Stok di DB (Atomic logic)
+          // Secara ideal kita pakai RPC di Supabase, tapi untuk kemudahan perbaikan:
+          for (const cartItem of item.data.items) {
+             for (const bom of (cartItem.product.bom || [])) {
+                const refItem = inventory.find(i => i.id === bom.inventoryItemId);
+                if (refItem) {
+                   const { data: localItem } = await supabase.from('inventory').select('id, quantity').eq('name', refItem.name).eq('outletId', item.data.outletId).maybeSingle();
+                   if (localItem) {
+                      await supabase.from('inventory').update({ quantity: localItem.quantity - (bom.quantity * cartItem.quantity) }).eq('id', localItem.id);
+                   }
+                }
+             }
+          }
+          // 2. Insert Transaction (Upsert untuk cegah duplikat jika retry)
+          await supabase.from('transactions').upsert(item.data);
+        }
+
+        // Jika sukses, hapus dari queue
+        setSyncQueue(prev => {
+          const next = prev.slice(1);
+          localStorage.setItem(STORAGE_SYNC_QUEUE, JSON.stringify(next));
+          return next;
+        });
+      } catch (err) {
+        console.error("Sync item failed, will retry:", err);
+      } finally {
+        isSyncingRef.current = false;
+      }
+    };
+
+    const interval = setInterval(processQueue, 5000); // Cek antrean setiap 5 detik
+    return () => clearInterval(interval);
+  }, [syncQueue, inventory]);
 
   const fetchPublicConfig = async () => {
     try {
@@ -376,43 +430,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateCartQuantity: (pid, delta) => setCart(prev => prev.map(i => i.product.id === pid ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0)),
     clearCart: () => setCart([]),
     checkout: async (method, redeem = 0, membershipDiscount = 0, bulkDiscount = 0) => {
-      setIsSaving(true);
-      try {
-        const sub = cart.reduce((sum, i) => sum + ((i.product.outletSettings?.[selectedOutletId]?.price || i.product.price) * i.quantity), 0);
-        const pointVal = redeem * (loyaltyConfig.redemptionValuePerPoint || 100);
-        const tx = {
-          id: `TX-${Date.now()}`,
-          outletId: selectedOutletId,
-          customerId: selectedCustomerId,
-          items: cart,
-          subtotal: sub,
-          total: Math.max(0, sub - membershipDiscount - bulkDiscount - pointVal),
-          paymentMethod: method,
-          status: OrderStatus.CLOSED,
-          timestamp: new Date().toISOString(),
-          cashierId: currentUser?.id,
-          cashierName: currentUser?.name,
-          pointsRedeemed: redeem,
-          pointDiscountValue: pointVal,
-          membershipDiscount: membershipDiscount,
-          bulkDiscount: bulkDiscount,
-          pointsEarned: Math.floor(sub / (loyaltyConfig.earningAmountPerPoint || 1000))
-        };
-        for (const cartItem of cart) {
-           for (const bom of (cartItem.product.bom || [])) {
-              const refItem = inventory.find(i => i.id === bom.inventoryItemId);
-              if (refItem) {
-                 const { data: localItem } = await supabase.from('inventory').select('id, quantity').eq('name', refItem.name).eq('outletId', selectedOutletId).maybeSingle();
-                 if (localItem) {
-                    await supabase.from('inventory').update({ quantity: localItem.quantity - (bom.quantity * cartItem.quantity) }).eq('id', localItem.id);
-                 }
-              }
-           }
-        }
-        await supabase.from('transactions').insert([tx]);
-        setCart([]);
-        fetchFromCloud(); 
-      } finally { setIsSaving(false); }
+      // OPTIMISTIC CHECKOUT: Transaksi langsung dibuat di klien
+      const sub = cart.reduce((sum, i) => sum + ((i.product.outletSettings?.[selectedOutletId]?.price || i.product.price) * i.quantity), 0);
+      const pointVal = redeem * (loyaltyConfig.redemptionValuePerPoint || 100);
+      
+      // Fix: Calculate totalCost for the transaction (required property in line 428)
+      const totalCost = cart.reduce((sum, cartItem) => {
+        const itemCost = (cartItem.product.bom || []).reduce((bomSum, bom) => {
+          const invItem = inventory.find(i => i.id === bom.inventoryItemId);
+          return bomSum + (bom.quantity * (invItem?.costPerUnit || 0));
+        }, 0);
+        return sum + (itemCost * cartItem.quantity);
+      }, 0);
+
+      const txId = `TX-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const newTx: Transaction = {
+        id: txId,
+        outletId: selectedOutletId,
+        customerId: selectedCustomerId || undefined,
+        items: [...cart],
+        subtotal: sub,
+        // Fix: Add missing mandatory properties tax and totalCost to fix line 428 error
+        tax: 0,
+        totalCost: totalCost,
+        total: Math.max(0, sub - membershipDiscount - bulkDiscount - pointVal),
+        paymentMethod: method,
+        status: OrderStatus.CLOSED,
+        timestamp: new Date(),
+        cashierId: currentUser?.id || '',
+        cashierName: currentUser?.name || '',
+        pointsRedeemed: redeem,
+        pointDiscountValue: pointVal,
+        membershipDiscount: membershipDiscount,
+        bulkDiscount: bulkDiscount,
+        pointsEarned: Math.floor(sub / (loyaltyConfig.earningAmountPerPoint || 1000))
+      };
+
+      // 1. Update UI Lokal (Optimistic)
+      setTransactions(prev => [newTx, ...prev]);
+      setCart([]);
+      
+      // 2. Simpan ke Sync Queue (Background)
+      setSyncQueue(prev => {
+        const next = [...prev, { type: 'transaction', data: newTx }];
+        localStorage.setItem(STORAGE_SYNC_QUEUE, JSON.stringify(next));
+        return next;
+      });
+
+      // 3. Update Stok Lokal agar Kasir tahu stok berkurang
+      setInventory(prev => {
+        const nextInv = [...prev];
+        cart.forEach(cartItem => {
+          (cartItem.product.bom || []).forEach(bom => {
+            const idx = nextInv.findIndex(i => i.id === bom.inventoryItemId);
+            if (idx !== -1) nextInv[idx].quantity -= (bom.quantity * cartItem.quantity);
+          });
+        });
+        return nextInv;
+      });
     },
     addStaff: async (s) => { await supabase.from('staff').insert([s]); fetchFromCloud(); },
     updateStaff: async (s) => { await supabase.from('staff').update(s).eq('id', s.id); fetchFromCloud(); },
@@ -726,7 +801,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const filteredTransactions = selectedOutletId === 'all' ? transactions : transactions.filter(tx => tx.outletId === selectedOutletId);
 
   return (
-    <AppContext.Provider value={{ ...actions, products, categories, inventory, stockTransfers, stockRequests: [], productionRecords, wipRecipes, transactions, filteredTransactions, outlets, currentUser, isAuthenticated, cart, staff, attendance, leaveRequests, selectedOutletId, customers, selectedCustomerId, expenses, expenseTypes, dailyClosings, purchases, connectedPrinter, membershipTiers, bulkDiscounts, simulations, loyaltyConfig, brandConfig, isSaving, isInitialLoading, isFetching, cloudConfig, externalDbConfig }}>
+    <AppContext.Provider value={{ ...actions, products, categories, inventory, stockTransfers, stockRequests: [], productionRecords, wipRecipes, transactions, filteredTransactions, outlets, currentUser, isAuthenticated, cart, staff, attendance, leaveRequests, selectedOutletId, customers, selectedCustomerId, expenses, expenseTypes, dailyClosings, purchases, connectedPrinter, membershipTiers, bulkDiscounts, simulations, loyaltyConfig, brandConfig, isSaving, isInitialLoading, isFetching, cloudConfig, externalDbConfig, syncQueueLength: syncQueue.length }}>
       {children}
     </AppContext.Provider>
   );

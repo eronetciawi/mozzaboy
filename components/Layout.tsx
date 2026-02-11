@@ -138,7 +138,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, closeDrawer 
 };
 
 export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; setActiveTab: (tab: string) => void }> = ({ children, activeTab, setActiveTab }) => {
-  const { outlets = [], selectedOutletId, switchOutlet, isSaving, currentUser } = useApp();
+  const { outlets = [], selectedOutletId, switchOutlet, isSaving, currentUser, syncQueueLength } = useApp();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // SECURITY: Validasi akses outlet karyawan setiap kali user atau outlet berubah
@@ -199,10 +199,17 @@ export const Layout: React.FC<{ children: React.ReactNode; activeTab: string; se
                    <span className="text-[8px] lg:text-[10px] font-black text-indigo-500 uppercase tracking-tighter truncate max-w-[70px] sm:max-w-none">
                       {selectedOutletId === 'all' ? 'HQ' : outlets.find(o=>o.id===selectedOutletId)?.name || '...'}
                    </span>
-                   <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSaving ? 'animate-pulse bg-orange-500' : 'bg-emerald-500'}`}></div>
+                   
+                   {/* DYNAMIC SYNC INDICATOR */}
+                   <div className="flex items-center gap-1">
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${syncQueueLength > 0 ? 'bg-orange-500 animate-bounce' : isSaving ? 'animate-pulse bg-indigo-500' : 'bg-emerald-500'}`}></div>
+                      {syncQueueLength > 0 && (
+                        <span className="text-[7px] font-black text-orange-600 animate-pulse">{syncQueueLength} SYNC</span>
+                      )}
+                   </div>
                 </div>
                 <p className="hidden sm:block text-[7px] lg:text-[8px] font-bold uppercase tracking-widest text-slate-400 mt-1">
-                   {isSaving ? 'Synchronizing Cloud...' : 'Enterprise Node Online'}
+                   {syncQueueLength > 0 ? 'Pending Data Queue...' : isSaving ? 'Synchronizing Cloud...' : 'Enterprise Node Online'}
                 </p>
              </div>
           </div>

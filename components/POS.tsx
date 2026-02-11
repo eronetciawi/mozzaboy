@@ -100,23 +100,27 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
   const handleCheckout = async (method: PaymentMethod) => {
     if (selectedOutletId === 'all') return alert("Pilih cabang jualan terlebih dahulu di bagian atas!");
-    if (isShiftClosed || isSaving || isProcessingPayment) return;
+    if (isShiftClosed) return;
     if (!checkIsClockedIn()) { setShowAttendanceToast(true); return; }
     
-    setIsProcessingPayment(true);
+    // INSTANT FEEDBACK: Tutup modal dan tampilkan sukses segera!
+    setShowCheckout(false);
+    setShowSuccessToast(true);
+    setRedeemPoints(0);
+    setMobileView('menu');
+
+    // Proses sinkronisasi di latar belakang (melalui store.tsx action)
     try {
       await checkout(method, redeemPoints, appliedTierDiscount, appliedBulkDiscount);
-      setShowCheckout(false); setRedeemPoints(0); setMobileView('menu'); setShowSuccessToast(true);
     } catch (err) { 
-      alert("Checkout Gagal."); 
-    } finally {
-      setIsProcessingPayment(false);
+      // Kegagalan jaringan akan di-handle oleh sync queue di store.tsx
+      console.warn("Background checkout initiated.");
     }
   };
 
   useEffect(() => {
     if (showSuccessToast) {
-      const timer = setTimeout(() => setShowSuccessToast(false), 3000);
+      const timer = setTimeout(() => setShowSuccessToast(false), 2000);
       return () => clearTimeout(timer);
     }
   }, [showSuccessToast]);
@@ -146,7 +150,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
            <div className="bg-slate-900 text-white px-8 py-3 rounded-2xl shadow-2xl flex items-center gap-4 border border-white/10">
               <span className="text-xl">✅</span>
-              <p className="text-[10px] font-black uppercase tracking-widest">Transaksi Berhasil</p>
+              <p className="text-[10px] font-black uppercase tracking-widest">Transaksi Dicatat</p>
            </div>
         </div>
       )}
@@ -308,12 +312,12 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             <span className="text-3xl font-black text-slate-900 tracking-tighter">Rp {total.toLocaleString()}</span>
           </div>
           <button
-            disabled={cart.length === 0 || isShiftClosed || isSaving || selectedOutletId === 'all'}
+            disabled={cart.length === 0 || isShiftClosed || selectedOutletId === 'all'}
             onClick={() => setShowCheckout(true)}
             className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl active:scale-95 disabled:opacity-30 transition-all"
-            style={cart.length > 0 && !isShiftClosed && !isSaving && selectedOutletId !== 'all' ? { backgroundColor: brandConfig.primaryColor } : {}}
+            style={cart.length > 0 && !isShiftClosed && selectedOutletId !== 'all' ? { backgroundColor: brandConfig.primaryColor } : {}}
           >
-            {selectedOutletId === 'all' ? 'PILIH CABANG' : isShiftClosed ? 'SHIFT CLOSED' : isSaving ? 'PROCESSING...' : `PROSES BAYAR ➔`}
+            {selectedOutletId === 'all' ? 'PILIH CABANG' : isShiftClosed ? 'SHIFT CLOSED' : `PROSES BAYAR ➔`}
           </button>
         </div>
       </div>
@@ -359,33 +363,27 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           <div className="bg-white rounded-t-[32px] md:rounded-[40px] w-full max-w-sm p-8 shadow-2xl animate-in slide-in-from-bottom-10">
              <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-black text-slate-900 uppercase">Pilih Metode Bayar</h3>
-                <button disabled={isProcessingPayment} onClick={() => setShowCheckout(false)} className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">✕</button>
+                <button onClick={() => setShowCheckout(false)} className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">✕</button>
              </div>
              <div className="grid grid-cols-1 gap-3">
                 <button 
-                  disabled={isProcessingPayment}
                   onClick={() => handleCheckout(PaymentMethod.CASH)} 
-                  className={`w-full p-5 bg-green-50 border-2 border-transparent rounded-3xl flex items-center gap-4 group transition-all ${isProcessingPayment ? 'opacity-50 grayscale' : 'hover:border-green-500'}`}
+                  className={`w-full p-5 bg-green-50 border-2 border-transparent rounded-3xl flex items-center gap-4 group transition-all hover:border-green-500`}
                 >
-                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">
-                      {isProcessingPayment ? '⏳' : '💵'}
-                   </div>
+                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">💵</div>
                    <div className="text-left">
                       <p className="text-[10px] font-black text-green-600 uppercase">TUNAI</p>
-                      <p className="text-sm font-black">{isProcessingPayment ? 'MENGIRIM DATA...' : 'Uang Fisik'}</p>
+                      <p className="text-sm font-black">Uang Fisik</p>
                    </div>
                 </button>
                 <button 
-                  disabled={isProcessingPayment}
                   onClick={() => handleCheckout(PaymentMethod.QRIS)} 
-                  className={`w-full p-5 bg-blue-50 border-2 border-transparent rounded-3xl flex items-center gap-4 group transition-all ${isProcessingPayment ? 'opacity-50 grayscale' : 'hover:border-blue-500'}`}
+                  className={`w-full p-5 bg-blue-50 border-2 border-transparent rounded-3xl flex items-center gap-4 group transition-all hover:border-blue-500`}
                 >
-                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">
-                      {isProcessingPayment ? '⏳' : '📱'}
-                   </div>
+                   <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">📱</div>
                    <div className="text-left">
                       <p className="text-[10px] font-black text-blue-600 uppercase">QRIS</p>
-                      <p className="text-sm font-black">{isProcessingPayment ? 'MENGIRIM DATA...' : 'Bank / E-Wallet'}</p>
+                      <p className="text-sm font-black">Bank / E-Wallet</p>
                    </div>
                 </button>
              </div>
