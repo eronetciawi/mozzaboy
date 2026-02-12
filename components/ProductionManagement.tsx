@@ -39,15 +39,16 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const [pickerModal, setPickerModal] = useState<{rowId: string, type: 'wip' | 'material'} | null>(null);
   const [pickerQuery, setPickerQuery] = useState('');
 
+  const todayStr = new Date().toLocaleDateString('en-CA');
+
   const isShiftClosed = useMemo(() => {
     if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
-    const todayStr = new Date().toLocaleDateString('en-CA');
     return (dailyClosings || []).some(c => 
       c.outletId === selectedOutletId && 
       c.staffId === currentUser.id && 
       new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
     );
-  }, [dailyClosings, selectedOutletId, currentUser]);
+  }, [dailyClosings, selectedOutletId, currentUser, todayStr]);
 
   const isCashier = currentUser?.role === UserRole.CASHIER;
   const isGlobalView = selectedOutletId === 'all';
@@ -59,12 +60,17 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
     return base.filter(r => r.name.toLowerCase().includes(globalSearch.toLowerCase()));
   }, [wipRecipes, globalSearch, selectedOutletId, isCashier, isGlobalView]);
 
+  // UPDATE: Log produksi difilter hari ini saja
   const filteredLogs = useMemo(() => {
     if (!productionRecords || !Array.isArray(productionRecords)) return [];
     return productionRecords
-      .filter(p => isGlobalView || p.outletId === selectedOutletId)
+      .filter(p => {
+        const isCorrectOutlet = isGlobalView || p.outletId === selectedOutletId;
+        const isToday = new Date(p.timestamp).toLocaleDateString('en-CA') === todayStr;
+        return isCorrectOutlet && isToday;
+      })
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [productionRecords, selectedOutletId, isGlobalView]);
+  }, [productionRecords, selectedOutletId, isGlobalView, todayStr]);
 
   useEffect(() => {
     if (activeRecipe && !isEditingMode) {
@@ -263,6 +269,12 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                </div>
              ) : (
                <div className="space-y-2">
+                  <div className="flex justify-between items-center mb-4 px-1">
+                      <div>
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Produksi Hari Ini</h4>
+                        <p className="text-[7px] font-bold text-slate-300 uppercase tracking-tighter">Tanggal: {todayStr}</p>
+                      </div>
+                  </div>
                   {filteredLogs.map(log => {
                     const resultItem = inventory.find(i => i.id === log.resultItemId);
                     return (
@@ -280,6 +292,9 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                       </div>
                     );
                   })}
+                  {filteredLogs.length === 0 && (
+                     <div className="py-20 text-center opacity-20 italic text-[10px] uppercase font-black border-2 border-dashed rounded-[32px]">Belum ada produksi hari ini</div>
+                  )}
                </div>
              )}
           </div>

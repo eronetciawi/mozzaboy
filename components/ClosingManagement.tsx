@@ -35,31 +35,40 @@ export const ClosingManagement: React.FC = () => {
     }
   }, [toast]);
 
+  // FIX: Pastikan hanya mengambil absensi yang terjadi HARI INI
   const currentShiftAttendance = useMemo(() => {
     const records = [...(attendance || [])]
-      .filter(a => a.staffId === currentUser?.id && a.outletId === selectedOutletId)
+      .filter(a => {
+        const recordDate = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
+        return a.staffId === currentUser?.id && a.outletId === selectedOutletId && recordDate === todayISO;
+      })
       .sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
     return records[0];
-  }, [attendance, currentUser, selectedOutletId]);
+  }, [attendance, currentUser, selectedOutletId, todayISO]);
 
   const shiftTimeRange = useMemo(() => {
     return {
-      start: currentShiftAttendance ? new Date(currentShiftAttendance.clockIn) : new Date(new Date().setHours(0,0,0,0)),
+      // Jika tidak ada absen hari ini, start diset ke jam sekarang agar data shiftData (sales/exp) menjadi 0
+      start: currentShiftAttendance ? new Date(currentShiftAttendance.clockIn) : new Date(),
       end: new Date()
     };
   }, [currentShiftAttendance]);
 
+  // FIX: Logika penamaan shift merujuk ke jadwal resmi agar konsisten di laporan
   const shiftName = useMemo(() => {
-     const hour = new Date().getHours();
-     return hour < 15 ? 'SHIFT PAGI' : 'SHIFT SORE/MALAM';
-  }, []);
+     const startTime = currentUser?.shiftStartTime || "10:00";
+     const startHour = parseInt(startTime.split(':')[0]);
+     if (startHour >= 10 && startHour < 15) return 'SHIFT PAGI';
+     if (startHour >= 15) return 'SHIFT MALAM';
+     return 'SHIFT PAGI';
+  }, [currentUser]);
 
   const myClosing = useMemo(() => 
     dailyClosings.find(c => c.staffId === currentUser?.id && new Date(c.timestamp).toLocaleDateString('en-CA') === todayISO),
     [dailyClosings, currentUser, todayISO]
   );
 
-  const scheduledTime = `${currentUser?.shiftStartTime || '09:00'} - ${currentUser?.shiftEndTime || '18:00'}`;
+  const scheduledTime = `${currentUser?.shiftStartTime || '10:00'} - ${currentUser?.shiftEndTime || '18:00'}`;
   const currentTimeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   
   const isEarly = useMemo(() => {
@@ -73,6 +82,7 @@ export const ClosingManagement: React.FC = () => {
 
   const shiftData = useMemo(() => {
     const { start, end } = shiftTimeRange;
+    // Filter transaksi benar-benar hanya dari sejak JAM ABSEN MASUK HARI INI
     const sTxs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser?.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
     const sExps = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser?.id && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
     const sProds = productionRecords.filter(p => p.outletId === selectedOutletId && p.staffId === currentUser?.id && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
@@ -82,11 +92,10 @@ export const ClosingManagement: React.FC = () => {
     const cashSales = sTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+(b.total ?? 0), 0);
     const qrisSales = sTxs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a,b)=>a+(b.total ?? 0), 0);
     const expTotal = sExps.reduce((a,b)=>a+(b.amount ?? 0), 0);
-    const grossTotal = cashSales + qrisSales;
     
     let opening = 0;
-    if (shiftName.includes('SORE')) {
-       const morning = dailyClosings.find(c => c.outletId === selectedOutletId && c.shiftName.includes('PAGI') && new Date(c.timestamp).toLocaleDateString('en-CA') === todayISO);
+    if (shiftName === 'SHIFT MALAM') {
+       const morning = dailyClosings.find(c => c.outletId === selectedOutletId && c.shiftName === 'SHIFT PAGI' && new Date(c.timestamp).toLocaleDateString('en-CA') === todayISO);
        opening = morning ? (morning.actualCash ?? 0) : 0;
     }
 
@@ -121,11 +130,12 @@ export const ClosingManagement: React.FC = () => {
         return { name: item.name, unit: item.unit, start: startQty, in: totalIn, out: totalOut, end: endQty };
     }).filter(m => m.in > 0 || m.out > 0 || Math.abs(m.start - m.end) > 0.001);
 
-    return { cashSales, qrisSales, grossTotal, expTotal, opening, expected, diff, sExps, sProds, mutations };
+    return { cashSales, qrisSales, expTotal, opening, expected, diff, sExps, sProds, mutations };
   }, [transactions, expenses, dailyClosings, selectedOutletId, currentUser, numericActualCash, shiftName, todayISO, shiftTimeRange, inventory, productionRecords, purchases, stockTransfers]);
 
   const handleValidation = () => {
     if (isSaving) return;
+    if (!currentShiftAttendance) { setToast({ message: "Anda belum melakukan ABSEN MASUK hari ini!", type: 'error' }); return; }
     if (numericActualCash < 0) { setToast({ message: "Uang fisik tidak boleh negatif!", type: 'error' }); return; }
     if (shiftData.diff !== 0 && !notes.trim()) { setToast({ message: "Wajib isi alasan selisih uang!", type: 'error' }); return; }
     const isOwner = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
@@ -152,7 +162,8 @@ export const ClosingManagement: React.FC = () => {
   const downloadFinalAuditImage = async () => {
      if (!finalAuditRef.current) return;
      try {
-        const canvas = await html2canvas(finalAuditRef.current, { scale: 3, backgroundColor: '#ffffff', logging: false, useCORS: true });
+        const element = finalAuditRef.current;
+        const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true, allowTaint: true, scrollY: -window.scrollY, windowWidth: 500 });
         const link = document.createElement('a');
         const outletName = activeOutlet?.name || 'Cabang';
         link.download = `DailyReport-${outletName}-${todayISO}.png`;
@@ -169,6 +180,7 @@ export const ClosingManagement: React.FC = () => {
     </div>
   );
 
+  // VIEW JIKA SUDAH TUTUP BUKU
   if (myClosing) {
     const finalizedExpected = (myClosing.openingBalance + myClosing.totalSalesCash) - myClosing.totalExpenses;
     const grossTotal = myClosing.totalSalesCash + myClosing.totalSalesQRIS;
@@ -176,9 +188,8 @@ export const ClosingManagement: React.FC = () => {
     return (
       <div className="h-full flex flex-col bg-slate-100 overflow-y-auto custom-scrollbar p-4 md:p-10">
         <div className="max-w-2xl mx-auto w-full space-y-6 pb-32">
-           {/* WRAPPER UNTUK MENGHINDARI LAYOUT ACAK DI MOBILE */}
            <div className="w-full overflow-x-auto pb-4 no-scrollbar flex justify-center">
-              <div ref={finalAuditRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 text-slate-900 w-[500px] shrink-0">
+              <div ref={finalAuditRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 text-slate-900 w-[500px] shrink-0 h-auto">
                   <div className="p-10 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
                     <div className="w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mx-auto mb-4 shadow-xl" style={{ backgroundColor: brandConfig.primaryColor }}>
                       {brandConfig.name.charAt(0)}
@@ -189,7 +200,6 @@ export const ClosingManagement: React.FC = () => {
                   </div>
 
                   <div className="p-10 space-y-10">
-                    {/* HEADER INFO AUDIT */}
                     <div className="grid grid-cols-2 gap-x-4 gap-y-6 text-[11px]">
                       <div className="space-y-1">
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Penanggung Jawab</p>
@@ -209,16 +219,13 @@ export const ClosingManagement: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* FINANCIAL AUDIT SUMMARY */}
                     <div className="bg-white p-8 rounded-[32px] border-2 border-slate-900 shadow-[8px_8px_0px_rgba(0,0,0,0.05)]">
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 text-center border-b pb-4">Ringkasan Audit Finansial</p>
-                      
                       <FinanceLine label="1. Modal Awal Shift" value={myClosing.openingBalance} isBold />
                       <FinanceLine label="2. Total Omset (Gross)" value={grossTotal} isBold />
                       <FinanceLine label="Penjualan Tunai (+)" value={myClosing.totalSalesCash} indent />
                       <FinanceLine label="Penjualan QRIS (+)" value={myClosing.totalSalesQRIS} indent />
                       <FinanceLine label="3. Total Pengeluaran (-)" value={myClosing.totalExpenses} isNeg isBold />
-                      
                       <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-200">
                         <FinanceLine label="Expected (Seharusnya di Laci)" value={finalizedExpected} isBold />
                         <div className="flex justify-between items-center py-4 bg-indigo-50 px-5 rounded-2xl mt-4 border border-indigo-100">
@@ -226,84 +233,11 @@ export const ClosingManagement: React.FC = () => {
                             <span className="text-xl font-black text-indigo-600 underline decoration-2 underline-offset-8">Rp {myClosing.actualCash.toLocaleString()}</span>
                         </div>
                       </div>
-
                       <div className={`flex justify-between items-center py-5 px-6 rounded-2xl mt-4 border-2 ${myClosing.discrepancy === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
                         <span className="text-[11px] font-black uppercase tracking-widest">Selisih Audit</span>
                         <span className="text-2xl font-black font-mono">{(myClosing.discrepancy > 0 ? '+' : '')}{myClosing.discrepancy.toLocaleString()}</span>
                       </div>
                     </div>
-
-                    {/* RINCIAN PENGELUARAN DETAIL */}
-                    {shiftData.sExps.length > 0 && (
-                      <div className="space-y-4">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Rincian Pengeluaran Kas</p>
-                          <div className="space-y-2">
-                            {shiftData.sExps.map(e => (
-                                <div key={e.id} className="flex justify-between text-[11px] border-b border-slate-50 pb-3 hover:bg-slate-50 transition-colors px-2 rounded-lg">
-                                  <div className="min-w-0 flex-1 pr-4">
-                                      <p className="font-black text-slate-800 uppercase leading-tight">{e.notes || 'Operasional'}</p>
-                                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">
-                                        🕒 {new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} WIB • {expenseTypes.find(t=>t.id===e.typeId)?.name || 'LAINNYA'}
-                                      </p>
-                                  </div>
-                                  <span className="font-mono font-black text-rose-600 ml-auto shrink-0">Rp {e.amount.toLocaleString()}</span>
-                                </div>
-                            ))}
-                          </div>
-                      </div>
-                    )}
-
-                    {/* PRODUKSI & MIXING DETAIL */}
-                    {shiftData.sProds.length > 0 && (
-                      <div className="space-y-4">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Log Produksi & Mixing</p>
-                          <div className="grid grid-cols-1 gap-2">
-                            {shiftData.sProds.map(p => {
-                                const item = inventory.find(i=>i.id===p.resultItemId);
-                                return (
-                                  <div key={p.id} className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center border border-slate-100">
-                                      <div className="min-w-0 flex-1 pr-4">
-                                        <p className="text-[11px] font-black text-slate-700 uppercase leading-tight">{item?.name}</p>
-                                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">🕒 JAM: {new Date(p.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} WIB</p>
-                                      </div>
-                                      <span className="font-mono font-black text-indigo-600 shrink-0">+{p.resultQuantity} {item?.unit}</span>
-                                  </div>
-                                );
-                            })}
-                          </div>
-                      </div>
-                    )}
-
-                    {/* AUDIT MUTASI STOK */}
-                    {shiftData.mutations.length > 0 && (
-                      <div className="space-y-4">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Audit Mutasi Inventaris</p>
-                          <div className="overflow-hidden border-2 border-slate-100 rounded-[28px] bg-white">
-                            <table className="w-full text-left text-[9px] table-auto border-collapse">
-                                <thead className="bg-slate-900 text-white font-black uppercase">
-                                  <tr>
-                                      <th className="p-4">Material</th>
-                                      <th className="p-4 text-right">Awal</th>
-                                      <th className="p-4 text-right text-emerald-400">In</th>
-                                      <th className="p-4 text-right text-rose-400">Out</th>
-                                      <th className="p-4 text-right">Akhir</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                  {shiftData.mutations.map((m, idx) => (
-                                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                        <td className="p-4 font-black uppercase text-slate-700 leading-tight min-w-[100px]">{m.name}</td>
-                                        <td className="p-4 text-right font-mono text-slate-400">{(m.start || 0).toFixed(1)}</td>
-                                        <td className="p-4 text-right font-mono text-emerald-600">+{(m.in || 0).toFixed(1)}</td>
-                                        <td className="p-4 text-right font-mono text-rose-600">-{(m.out || 0).toFixed(1)}</td>
-                                        <td className="p-4 text-right font-mono font-black bg-slate-50/50">{(m.end || 0).toFixed(1)}</td>
-                                      </tr>
-                                  ))}
-                                </tbody>
-                            </table>
-                          </div>
-                      </div>
-                    )}
 
                     {myClosing.notes && (
                       <div className="bg-amber-50 p-6 rounded-[32px] border border-amber-100 italic text-[11px] text-amber-900 leading-relaxed shadow-inner">
@@ -323,15 +257,15 @@ export const ClosingManagement: React.FC = () => {
            <div className="flex flex-col gap-3">
               <button onClick={downloadFinalAuditImage} className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all">📥 DOWNLOAD REPORT</button>
               <button onClick={logout} className="w-full py-4 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-widest active:scale-95 shadow-xl transition-all">SELESAI & KELUAR ➔</button>
-           </div>
         </div>
       </div>
+    </div>
     );
   }
 
+  // VIEW JIKA BELUM TUTUP BUKU
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden relative">
-      {/* TOAST NOTIF */}
       {toast.type && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[700] animate-in slide-in-from-top-10 duration-500 w-full px-4 max-w-sm">
            <div className={`bg-slate-900 text-white px-6 py-4 rounded-[24px] shadow-2xl flex items-center gap-4 border-2 ${toast.type === 'error' ? 'border-rose-500' : 'border-emerald-500'}`}>
@@ -343,6 +277,16 @@ export const ClosingManagement: React.FC = () => {
         </div>
       )}
 
+      {!currentShiftAttendance ? (
+         <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-white">
+            <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-[32px] flex items-center justify-center text-4xl mb-6 shadow-inner animate-bounce">⚠️</div>
+            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Shift Belum Aktif</h3>
+            <p className="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-4 leading-relaxed max-w-xs">
+               Anda belum melakukan ABSEN MASUK hari ini. Silakan ke menu <b>CREW ACCESS</b> untuk memulai shift sebelum melakukan tutup buku.
+            </p>
+         </div>
+      ) : (
+      <>
       <div className="bg-white border-b px-4 py-2 md:px-6 md:py-3 shrink-0 flex justify-between items-center z-20 shadow-sm">
          <h2 className="text-[10px] md:text-[11px] font-black text-slate-900 uppercase tracking-widest">End Shift Audit - {shiftName}</h2>
          <p className="text-[9px] md:text-[10px] font-bold text-indigo-500 uppercase tracking-widest">{todayDisplay}</p>
@@ -371,7 +315,7 @@ export const ClosingManagement: React.FC = () => {
          <div className={`mb-4 p-4 rounded-[24px] border-2 flex items-center justify-between transition-all shrink-0 ${isEarly ? 'bg-orange-50 border-orange-100' : 'bg-emerald-50 border-emerald-50'}`}>
             <div className="flex flex-col">
                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Shift Kasir: {currentUser?.name}</p>
-               <p className="text-[11px] font-black text-slate-700 uppercase">{shiftName} | Absen: {currentShiftAttendance ? new Date(currentShiftAttendance.clockIn).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--'}</p>
+               <p className="text-[11px] font-black text-slate-700 uppercase">{shiftName} | Absen: {new Date(currentShiftAttendance.clockIn).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
             </div>
             <div className="text-right">
                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Waktu Sekarang</p>
@@ -423,6 +367,8 @@ export const ClosingManagement: React.FC = () => {
             <p className="text-center text-[8px] font-black text-slate-400 uppercase mt-4 tracking-widest">*Tutup buku sekaligus mencatat jam pulang kerja Anda secara otomatis.</p>
          </div>
       </div>
+      </>
+      )}
 
       {showConfirm && (
         <div className="fixed inset-0 z-[650] bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-6">

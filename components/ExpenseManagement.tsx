@@ -24,6 +24,8 @@ export const ExpenseManagement: React.FC = () => {
 
   const [newExpense, setNewExpense] = useState({ typeId: '', amount: 0, notes: '' });
 
+  const todayStr = new Date().toLocaleDateString('en-CA');
+
   useEffect(() => {
     if (toast.type) {
       const timer = setTimeout(() => setToast({ message: '', type: null }), 4000);
@@ -33,20 +35,27 @@ export const ExpenseManagement: React.FC = () => {
 
   const isShiftClosed = useMemo(() => {
     if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
-    const todayStr = new Date().toLocaleDateString('en-CA');
     return (dailyClosings || []).some(c => 
       c.outletId === selectedOutletId && 
       c.staffId === currentUser.id && 
       new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
     );
-  }, [dailyClosings, selectedOutletId, currentUser]);
+  }, [dailyClosings, selectedOutletId, currentUser, todayStr]);
 
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
   const isAdmin = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
   const canManageTypes = currentUser?.permissions.canManageSettings;
 
-  const outletExpenses = expenses.filter(e => e.outletId === selectedOutletId);
-  const todayExpenses = outletExpenses.filter(e => new Date(e.timestamp).toDateString() === new Date().toDateString());
+  // UPDATE: Filter pengeluaran hanya untuk HARI INI
+  const outletExpenses = useMemo(() => {
+    return expenses.filter(e => {
+        const isCorrectOutlet = e.outletId === selectedOutletId;
+        const isToday = new Date(e.timestamp).toLocaleDateString('en-CA') === todayStr;
+        return isCorrectOutlet && isToday;
+    });
+  }, [expenses, selectedOutletId, todayStr]);
+
+  const todayExpensesAmount = useMemo(() => outletExpenses.reduce((acc, e) => acc + e.amount, 0), [outletExpenses]);
 
   const handleOpenAdd = () => {
     if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
@@ -177,20 +186,23 @@ export const ExpenseManagement: React.FC = () => {
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-6 flex justify-between items-center">
         <div>
           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Biaya Hari Ini</p>
-          <h4 className="text-2xl font-black text-red-600">Rp {todayExpenses.reduce((acc, e) => acc + e.amount, 0).toLocaleString()}</h4>
+          <h4 className="text-2xl font-black text-red-600">Rp {todayExpensesAmount.toLocaleString()}</h4>
         </div>
         <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-xl">💸</div>
       </div>
 
       <div className="space-y-3">
         <div className="flex justify-between items-center ml-2 mb-2">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Riwayat Pengeluaran</h3>
+           <div>
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Riwayat Hari Ini</h3>
+              <p className="text-[7px] font-bold text-slate-300 uppercase tracking-widest mt-1">Hanya menampilkan data tanggal {todayStr}</p>
+           </div>
            {isShiftClosed && <span className="text-[7px] font-black text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded border border-rose-100 animate-pulse">Akses Terkunci: Sudah Tutup Buku</span>}
         </div>
         
         {outletExpenses.length === 0 ? (
           <div className="py-20 text-center bg-white rounded-[32px] border-2 border-dashed border-slate-200">
-             <p className="text-[10px] text-slate-300 font-bold italic uppercase tracking-widest">Belum ada catatan biaya</p>
+             <p className="text-[10px] text-slate-300 font-bold italic uppercase tracking-widest">Belum ada catatan biaya hari ini</p>
           </div>
         ) : (
           [...outletExpenses].reverse().map(exp => {
@@ -238,16 +250,10 @@ export const ExpenseManagement: React.FC = () => {
                    {isAdmin && (
                      <div className="flex gap-1">
                         {!isAuto && (
-                          <button onClick={() => handleOpenEdit(exp)} className="w-8 h-8 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center text-xs hover:bg-blue-500 hover:text-white transition-all">✏️</button>
+                          <button onClick={() => handleOpenEdit(exp)} className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center text-xs hover:bg-blue-500 hover:text-white transition-all">✏️</button>
                         )}
                         <button onClick={() => setExpenseToDelete(exp)} className="w-8 h-8 bg-red-50 text-red-500 rounded-lg flex items-center justify-center text-xs hover:bg-red-500 hover:text-white transition-all">🗑️</button>
                      </div>
-                   )}
-                   
-                   {!isAdmin && (
-                      <div className="w-8 h-8 flex items-center justify-center text-slate-200">
-                         <span className="text-sm">{isShiftClosed ? '🔒' : '🔒'}</span>
-                      </div>
                    )}
                 </div>
               </div>

@@ -87,16 +87,23 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
     const targetTxs = isGlobalView ? transactions : filteredTransactions;
     const closedTxs = targetTxs.filter(t => {
       const tDate = new Date(t.timestamp).toLocaleDateString('en-CA');
-      return t.status === OrderStatus.CLOSED && tDate === todayStr;
+      const isMyTransaction = isExecutive || t.cashierId === currentUser?.id;
+      return t.status === OrderStatus.CLOSED && tDate === todayStr && isMyTransaction;
     });
     const sales = closedTxs.reduce((a, b) => a + (b.total ?? 0), 0);
     const cash = closedTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a, b) => a + (b.total ?? 0), 0);
     const qris = closedTxs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a, b) => a + (b.total ?? 0), 0);
+    
     const targetExps = isGlobalView ? expenses : expenses.filter(e => e.outletId === selectedOutletId);
-    const todayExps = targetExps.filter(e => new Date(e.timestamp).toLocaleDateString('en-CA') === todayStr);
+    const todayExps = targetExps.filter(e => {
+       const eDate = new Date(e.timestamp).toLocaleDateString('en-CA');
+       const isMyExpense = isExecutive || e.staffId === currentUser?.id;
+       return eDate === todayStr && isMyExpense;
+    });
     const exp = todayExps.reduce((a, b) => a + (b.amount ?? 0), 0);
+    
     return { sales, cash, qris, exp, totalClosed: closedTxs.length };
-  }, [isGlobalView, transactions, filteredTransactions, expenses, selectedOutletId, todayStr]);
+  }, [isGlobalView, transactions, filteredTransactions, expenses, selectedOutletId, todayStr, isExecutive, currentUser]);
 
   const intel = useMemo(() => {
     const targetTxs = isGlobalView ? transactions : filteredTransactions;
@@ -121,10 +128,14 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
   };
 
   const latestTransactions = useMemo(() => {
-    return (isGlobalView ? transactions : filteredTransactions)
-      .filter(t => t.status === OrderStatus.CLOSED)
-      .slice(0, 15);
-  }, [isGlobalView, transactions, filteredTransactions]);
+    const baseTxs = isGlobalView ? transactions : filteredTransactions;
+    return baseTxs.filter(t => {
+        const tDateStr = new Date(t.timestamp).toLocaleDateString('en-CA');
+        const isToday = tDateStr === todayStr;
+        const isMyTransaction = isExecutive || t.cashierId === currentUser?.id;
+        return t.status === OrderStatus.CLOSED && isToday && isMyTransaction;
+    }).slice(0, 20);
+  }, [isGlobalView, transactions, filteredTransactions, todayStr, isExecutive, currentUser]);
 
   const handleProcessLeave = () => {
     localStorage.setItem('hr_tab_redirect', 'leaves');
@@ -134,7 +145,6 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
   return (
     <div className="p-4 md:p-8 h-full overflow-y-auto custom-scrollbar bg-[#fcfdfe] pb-40">
       
-      {/* SYNC BANNER */}
       {(isInitialLoading || (products.length === 0 && isFetching)) && (
         <div className="mb-6 p-4 bg-slate-900 rounded-[32px] text-white flex items-center justify-between shadow-2xl border-b-4 border-orange-500 animate-in slide-in-from-top-4 duration-500">
            <div className="flex items-center gap-4">
@@ -157,7 +167,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         <div className="text-right hidden sm:block">
            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Cloud Nodes</p>
            <div className="flex items-center gap-2 mt-1">
-              <div className={`w-2 h-2 rounded-full ${isFetching || isSaving ? 'bg-orange-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+              <div className={`w-2 h-2 rounded-full ${isFetching || isSaving ? 'bg-orange-50 animate-pulse' : 'bg-emerald-50'}`}></div>
               <p className="text-[11px] font-black text-slate-800 uppercase tracking-tighter">{isFetching || isSaving ? 'SYNCING' : 'ONLINE'}</p>
            </div>
         </div>
@@ -245,7 +255,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-10">
-        <CompactMetric label="Omzet Hari Ini" value={`Rp ${((summary.sales ?? 0)/1000).toFixed(0)}k`} color="text-slate-900" icon="💰" />
+        <CompactMetric label={isExecutive ? "Omzet Hari Ini" : "Personal Sales"} value={`Rp ${((summary.sales ?? 0)/1000).toFixed(0)}k`} color="text-slate-900" icon="💰" />
         <CompactMetric label="Sales Tunai" value={`Rp ${((summary.cash ?? 0)/1000).toFixed(0)}k`} color="text-emerald-600" icon="💵" />
         <CompactMetric label="Sales QRIS" value={`Rp ${((summary.qris ?? 0)/1000).toFixed(0)}k`} color="text-blue-600" icon="📱" />
         <CompactMetric label="Transaksi" value={`${summary.totalClosed}`} color="text-indigo-600" icon="🧾" />
@@ -275,8 +285,11 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
          </div>
          <div className="bg-slate-900 p-8 rounded-[48px] text-white shadow-2xl flex flex-col h-full overflow-hidden">
             <div className="flex justify-between items-center mb-8">
-              <div><h3 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.3em]">Audit Penjualan</h3></div>
-              <span className="text-[7px] font-black bg-white/10 px-2 py-1 rounded uppercase tracking-widest text-slate-400">Click for Receipt</span>
+              <div>
+                 <h3 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.3em]">Audit Penjualan</h3>
+                 <p className="text-[7px] font-black text-slate-500 uppercase mt-1">Today's Transactions Only</p>
+              </div>
+              <span className="text-[7px] font-black bg-white/10 px-2 py-1 rounded uppercase tracking-widest text-slate-400">Personal Log</span>
             </div>
             <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar pr-1">
                {latestTransactions.map(tx => (
@@ -294,6 +307,12 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                      </div>
                   </button>
                ))}
+               {latestTransactions.length === 0 && (
+                  <div className="h-full flex flex-col items-center justify-center opacity-20 text-center py-20">
+                     <span className="text-4xl mb-4">📑</span>
+                     <p className="text-[9px] font-black uppercase tracking-widest">Belum ada transaksi hari ini</p>
+                  </div>
+               )}
             </div>
          </div>
       </div>

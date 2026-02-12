@@ -5,7 +5,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, BarChart, Bar
 } from 'recharts';
-import { OrderStatus, PaymentMethod, DailyClosing, Product, Transaction, InventoryItemType, InventoryItem } from '../types';
+import { OrderStatus, PaymentMethod, DailyClosing, Product, Transaction, InventoryItemType, InventoryItem, Expense } from '../types';
 import html2canvas from 'html2canvas';
 
 type ReportTab = 'finance' | 'sales' | 'inventory' | 'expenses' | 'production' | 'hr' | 'logs';
@@ -16,7 +16,7 @@ export const Reports: React.FC = () => {
   const { 
     transactions = [], expenses = [], purchases = [], selectedOutletId, 
     products = [], outlets = [], inventory = [], expenseTypes = [], staff = [], attendance = [], dailyClosings = [], categories = [],
-    stockTransfers = [], productionRecords = []
+    stockTransfers = [], productionRecords = [], brandConfig
   } = useApp();
   
   const [activeTab, setActiveTab] = useState<ReportTab>('finance');
@@ -56,7 +56,7 @@ export const Reports: React.FC = () => {
     const logs = dailyClosings.filter(l => (selectedOutletId === 'all' || l.outletId === selectedOutletId) && new Date(l.timestamp) >= start && new Date(l.timestamp) <= end);
     const prods = productionRecords.filter(pr => (selectedOutletId === 'all' || pr.outletId === selectedOutletId) && new Date(pr.timestamp) >= start && new Date(pr.timestamp) <= end);
     const burs = purchases.filter(p => (selectedOutletId === 'all' || p.outletId === selectedOutletId) && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
-    const trfs = stockTransfers.filter(t => (selectedOutletId === 'all' || t.fromOutletId === selectedOutletId || t.toOutletId === selectedOutletId) && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
+    const trfs = stockTransfers.filter(t => (selectedOutletId === 'all' || t.fromOutletId === selectedOutletId || t.toOutletId === selectedOutletId) && t.status === 'ACCEPTED' && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
 
     return { txs, exps, logs, prods, burs, trfs, start, end };
   }, [transactions, expenses, dailyClosings, productionRecords, purchases, stockTransfers, selectedOutletId, timeFilter, selectedMonth, selectedYear, specificDate]);
@@ -148,7 +148,7 @@ export const Reports: React.FC = () => {
       .filter(s => selectedOutletId === 'all' || s.assignedOutletIds.includes(selectedOutletId))
       .map(s => {
         const sales = salesIntelligence.staffSales[s.id] ?? 0;
-        const attends = attendance.filter(a => a.staffId === s.id && new Date(a.date) >= filteredSet.start && new Date(a.date) <= filteredSet.end);
+        const attends = (attendance || []).filter(a => a.staffId === s.id && new Date(a.date) >= filteredSet.start && new Date(a.date) <= filteredSet.end);
         const lates = attends.filter(a => a.status === 'LATE').length;
         const discipline = attends.length > 0 ? Math.round(((attends.length - lates) / attends.length) * 100) : 100;
         return { staff: s, sales, discipline, attendCount: attends.length };
@@ -198,21 +198,21 @@ export const Reports: React.FC = () => {
       });
   }, [inventory, filteredSet, selectedOutletId]);
 
-  // LOGIKA KHUSUS UNTUK DETAIL DAILY REPORT MODAL
   const viewingClosingShiftData = useMemo(() => {
     if (!viewingClosing) return null;
     
-    // Cari waktu absen masuk karyawan pada hari laporan tersebut
     const closingDateISO = new Date(viewingClosing.timestamp).toLocaleDateString('en-CA');
-    const myAttend = attendance.find(a => a.staffId === viewingClosing.staffId && a.date === closingDateISO);
+    const myAttend = (attendance || []).find(a => a.staffId === viewingClosing.staffId && a.date === closingDateISO);
     
+    // Rentang waktu shift di history
     const start = myAttend ? new Date(myAttend.clockIn) : new Date(new Date(viewingClosing.timestamp).setHours(0,0,0,0));
     const end = new Date(viewingClosing.timestamp);
 
-    const sProds = productionRecords.filter(p => p.outletId === viewingClosing.outletId && p.staffId === viewingClosing.staffId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
-    const sPurchases = purchases.filter(p => p.outletId === viewingClosing.outletId && p.staffId === viewingClosing.staffId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
-    const sTrfs = stockTransfers.filter(t => (t.fromOutletId === viewingClosing.outletId || t.toOutletId === viewingClosing.outletId) && t.staffId === viewingClosing.staffId && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
+    const sProds = (productionRecords || []).filter(p => p.outletId === viewingClosing.outletId && p.staffId === viewingClosing.staffId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
+    const sPurchases = (purchases || []).filter(p => p.outletId === viewingClosing.outletId && p.staffId === viewingClosing.staffId && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
+    const sTrfs = (stockTransfers || []).filter(t => (t.fromOutletId === viewingClosing.outletId || t.toOutletId === viewingClosing.outletId) && t.staffId === viewingClosing.staffId && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
     const sTxs = transactions.filter(t => t.outletId === viewingClosing.outletId && t.cashierId === viewingClosing.staffId && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
+    const sExps = (expenses || []).filter(e => e.outletId === viewingClosing.outletId && e.staffId === viewingClosing.staffId && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
 
     const mutations = inventory.filter(i => i.outletId === viewingClosing.outletId).map(item => {
         const inPur = sPurchases.filter(p => p.inventoryItemId === item.id).reduce((a,b)=>a+b.quantity, 0);
@@ -247,8 +247,8 @@ export const Reports: React.FC = () => {
         return { name: item.name, unit: item.unit, start: startQty, in: totalIn, out: totalOut, end: endQty };
     }).filter(m => m.in > 0 || m.out > 0 || Math.abs(m.start - m.end) > 0.001);
 
-    return { sProds, mutations, start, end };
-  }, [viewingClosing, attendance, productionRecords, purchases, stockTransfers, transactions, inventory]);
+    return { sProds, sExps, mutations, start, end };
+  }, [viewingClosing, attendance, productionRecords, purchases, stockTransfers, transactions, inventory, expenses]);
 
   const exportStockToCSV = () => {
     const headers = ['Nama Item', 'Tipe', 'Unit', 'Stock Awal', 'Mutasi (Trf)', 'Beli/Produksi', 'Terpakai', 'Stock Akhir'];
@@ -265,21 +265,33 @@ export const Reports: React.FC = () => {
     setViewingClosing(log);
     setTimeout(async () => {
       if (shiftReportRef.current) {
-        const canvas = await html2canvas(shiftReportRef.current, { scale: 3, backgroundColor: '#ffffff', logging: false, useCORS: true });
-        const link = document.createElement('a');
-        const outletName = outlets.find(o => o.id === log.outletId)?.name || 'Cabang';
-        link.download = `DailyReport-${outletName}-${new Date(log.timestamp).toISOString().split('T')[0]}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        setViewingClosing(null);
+        try {
+          const element = shiftReportRef.current;
+          const canvas = await html2canvas(element, { 
+             scale: 2, 
+             backgroundColor: '#ffffff', 
+             logging: false, 
+             useCORS: true,
+             windowWidth: 500
+          });
+          const link = document.createElement('a');
+          const outletName = outlets.find(o => o.id === log.outletId)?.name || 'Cabang';
+          link.download = `DailyReport-${outletName}-${new Date(log.timestamp).toISOString().split('T')[0]}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        } catch (err) {
+          console.error("Capture failed:", err);
+        } finally {
+          setViewingClosing(null);
+        }
       }
     }, 800);
   };
 
-  const FinanceRow = ({ label, value, isBold = false, isNegative = false, isTotal = false, colorClass = "" }: any) => (
-    <div className={`flex justify-between items-end py-3 ${isTotal ? 'border-t-2 border-slate-900 mt-2 pt-4' : 'border-b border-slate-50'} ${isBold ? 'font-black text-slate-900' : 'text-slate-500 font-medium'}`}>
-      <span className="text-[10px] uppercase tracking-wider">{label}</span>
-      <span className={`text-[12px] font-mono tabular-nums ${isNegative ? 'text-rose-600' : colorClass || 'text-slate-900'}`}>
+  const FinanceRow = ({ label, value, isBold = false, isNegative = false, isTotal = false, colorClass = "", indent = false }: any) => (
+    <div className={`flex justify-between items-center py-2.5 ${isTotal ? 'border-t-2 border-slate-900 mt-2 pt-4' : 'border-b border-slate-50'} ${indent ? 'pl-6' : ''}`}>
+      <span className={`text-[10px] uppercase tracking-tight ${isBold ? 'font-black text-slate-900' : 'font-bold text-slate-500'} ${indent ? 'italic' : ''}`}>{label}</span>
+      <span className={`font-mono text-[11px] font-black ${isNegative ? 'text-rose-600' : colorClass || 'text-slate-900'}`}>
         {isNegative ? '-' : ''}Rp {(Math.abs(value ?? 0)).toLocaleString('id-ID')}
       </span>
     </div>
@@ -663,123 +675,150 @@ export const Reports: React.FC = () => {
                   <p className="text-white font-black uppercase text-[10px] tracking-widest">Generating Detailed Report...</p>
               </div>
               
-              {/* FIXED WIDTH CONTAINER FOR CONSISTENCY */}
-              <div ref={shiftReportRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 w-[500px] shrink-0 text-slate-900 overflow-y-auto max-h-[80vh]">
-                <div className="p-10 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
-                  <div className="w-14 h-14 bg-slate-900 text-white rounded-[20px] flex items-center justify-center font-black text-2xl mx-auto mb-4 shadow-xl">M</div>
-                  <h4 className="text-lg font-black text-slate-900 uppercase tracking-tighter leading-none">Daily Report</h4>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-[0.2em]">{outlets.find(o => o.id === viewingClosing.outletId)?.name || 'Verified Digital Audit'}</p>
-                </div>
+              <div className="w-full max-w-[500px] overflow-y-auto max-h-[80vh] bg-white rounded-[40px] shadow-2xl shrink-0">
+                <div ref={shiftReportRef} className="bg-white text-slate-900 w-[500px] h-auto">
+                    <div className="p-10 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
+                    <div className="w-14 h-14 bg-slate-900 text-white rounded-[20px] flex items-center justify-center font-black text-2xl mx-auto mb-4 shadow-xl" style={{ backgroundColor: brandConfig.primaryColor }}>
+                        {brandConfig.name.charAt(0)}
+                    </div>
+                    <h4 className="text-lg font-black text-slate-900 uppercase tracking-tighter leading-none">Daily Report</h4>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-[0.2em]">{outlets.find(o => o.id === viewingClosing.outletId)?.name || 'Verified Digital Audit'}</p>
+                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">{new Date(viewingClosing.timestamp).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                    </div>
 
-                <div className="p-10 space-y-8">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-6">
-                    <div className="space-y-1">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Kasir PIC</p>
-                      <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{viewingClosing.staffName}</p>
+                    <div className="p-10 space-y-10">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-6">
+                        <div className="space-y-1">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Penanggung Jawab</p>
+                        <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{viewingClosing.staffName}</p>
+                        </div>
+                        <div className="space-y-1 text-right">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Shift / Jadwal</p>
+                        <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">
+                            {viewingClosing.shiftName}
+                            {(() => {
+                                const s = (staff || []).find(st => st.id === viewingClosing.staffId);
+                                return s ? ` (${s.shiftStartTime} - ${s.shiftEndTime})` : '';
+                            })()}
+                        </p>
+                        </div>
+                        <div className="space-y-1">
+                        <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest leading-none">Waktu Masuk</p>
+                        <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{viewingClosingShiftData.start.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})} WIB</p>
+                        </div>
+                        <div className="space-y-1 text-right">
+                        <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest leading-none">Waktu Tutup</p>
+                        <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{new Date(viewingClosing.timestamp).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})} WIB</p>
+                        </div>
                     </div>
-                    <div className="space-y-1 text-right">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Shift / Jadwal</p>
-                      <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">
-                         {viewingClosing.shiftName}
-                         {(() => {
-                            const s = staff.find(st => st.id === viewingClosing.staffId);
-                            return s ? ` (${s.shiftStartTime} - ${s.shiftEndTime})` : '';
-                         })()}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Waktu Selesai</p>
-                      <p className="text-[11px] font-black text-slate-800 uppercase leading-tight">{new Date(viewingClosing.timestamp).toLocaleString('id-ID')}</p>
-                    </div>
-                    <div className="space-y-1 text-right">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Status Audit</p>
-                      <p className="text-[10px] font-black text-emerald-600 uppercase leading-none">Finalized ✓</p>
-                    </div>
-                  </div>
 
-                  <div className="h-px bg-slate-50 w-full border-b border-dashed"></div>
+                    {/* FINANCIAL AUDIT SUMMARY */}
+                    <div className="bg-white p-8 rounded-[32px] border-2 border-slate-900 shadow-[8px_8px_0px_rgba(0,0,0,0.05)]">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 text-center border-b pb-4">Ringkasan Audit Finansial</p>
+                      <FinanceRow label="1. Modal Awal Shift" value={viewingClosing.openingBalance} isBold />
+                      <FinanceRow label="2. Total Omset (Gross)" value={viewingClosing.totalSalesCash + viewingClosing.totalSalesQRIS} isBold />
+                      <FinanceRow label="Penjualan Tunai (+)" value={viewingClosing.totalSalesCash} indent />
+                      <FinanceRow label="Penjualan QRIS (+)" value={viewingClosing.totalSalesQRIS} indent />
+                      <FinanceRow label="3. Total Pengeluaran (-)" value={viewingClosing.totalExpenses} isNegative isBold />
+                      
+                      <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-200">
+                        <FinanceRow label="Expected (Seharusnya di Laci)" value={(viewingClosing.openingBalance + viewingClosing.totalSalesCash) - viewingClosing.totalExpenses} isBold />
+                        <div className="flex justify-between items-center py-4 bg-indigo-50 px-5 rounded-2xl mt-4 border border-indigo-100">
+                            <span className="text-[10px] font-black text-indigo-600 uppercase">Input Uang Fisik</span>
+                            <span className="text-xl font-black text-indigo-600 underline decoration-2 underline-offset-8">Rp {viewingClosing.actualCash.toLocaleString()}</span>
+                        </div>
+                      </div>
 
-                  <div className="space-y-3">
-                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest text-center border-b pb-2">Ringkasan Finansial</p>
-                    <div className="space-y-1 bg-slate-50/50 p-6 rounded-2xl">
-                      <FinanceRow label="Modal Awal (Tunai)" value={viewingClosing.openingBalance} />
-                      <FinanceRow label="Sales Tunai (+)" value={viewingClosing.totalSalesCash} colorClass="text-emerald-600" />
-                      <FinanceRow label="Biaya Operasional (-)" value={viewingClosing.totalExpenses} isNegative />
-                      <FinanceRow label="Sales Digital (QRIS)" value={viewingClosing.totalSalesQRIS} colorClass="text-blue-600" />
+                      <div className={`flex justify-between items-center py-5 px-6 rounded-2xl mt-4 border-2 ${viewingClosing.discrepancy === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
+                        <span className="text-[11px] font-black uppercase tracking-widest">Selisih Audit</span>
+                        <span className="text-2xl font-black font-mono">{(viewingClosing.discrepancy > 0 ? '+' : '')}{viewingClosing.discrepancy.toLocaleString()}</span>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="text-[9px] font-black text-slate-400 uppercase">Input Uang Fisik</p>
-                      <p className="text-base font-black text-slate-900">Rp {(viewingClosing.actualCash ?? 0).toLocaleString()}</p>
-                    </div>
-                    <div className="flex justify-between items-center pt-3 border-t border-white">
-                      <p className="text-[9px] font-black text-slate-400 uppercase">Discrepancy (Selisih)</p>
-                      <p className={`text-sm font-black ${(viewingClosing.discrepancy ?? 0) === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {(viewingClosing.discrepancy ?? 0) === 0 ? 'MATCH ✓' : `Rp ${(viewingClosing.discrepancy ?? 0).toLocaleString()}`}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* SECTION PRODUKSI & MIXING */}
-                  {viewingClosingShiftData.sProds.length > 0 && (
-                    <div className="space-y-4">
-                       <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest text-center border-b pb-2">Log Produksi & Mixing</p>
-                       <div className="space-y-2">
-                          {viewingClosingShiftData.sProds.map(p => {
-                             const item = inventory.find(i=>i.id===p.resultItemId);
-                             return (
-                                <div key={p.id} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                   <p className="text-[10px] font-black text-slate-700 uppercase leading-tight pr-4">{item?.name}</p>
-                                   <span className="text-[11px] font-mono font-black text-indigo-600 shrink-0">+{p.resultQuantity} {item?.unit}</span>
+                    {/* RINCIAN PENGELUARAN DETAIL */}
+                    {viewingClosingShiftData.sExps.length > 0 && (
+                      <div className="space-y-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Rincian Pengeluaran Kas</p>
+                          <div className="space-y-2">
+                            {viewingClosingShiftData.sExps.map(e => (
+                                <div key={e.id} className="flex justify-between text-[11px] border-b border-slate-50 pb-3 hover:bg-slate-50 transition-colors px-2 rounded-lg">
+                                  <div className="min-w-0 flex-1 pr-4">
+                                      <p className="font-black text-slate-800 uppercase leading-tight">{e.notes || 'Operasional'}</p>
+                                      <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">
+                                        🕒 {new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} WIB • {expenseTypes.find(t=>t.id===e.typeId)?.name || 'LAINNYA'}
+                                      </p>
+                                  </div>
+                                  <span className="font-mono font-black text-rose-600 ml-auto shrink-0">Rp {e.amount.toLocaleString()}</span>
                                 </div>
-                             );
-                          })}
-                       </div>
-                    </div>
-                  )}
+                            ))}
+                          </div>
+                      </div>
+                    )}
 
-                  {/* SECTION MUTASI STOK / TRANSFER */}
-                  {viewingClosingShiftData.mutations.length > 0 && (
-                    <div className="space-y-4">
-                       <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest text-center border-b pb-2">Audit Mutasi Stok</p>
-                       <div className="overflow-hidden border border-slate-100 rounded-2xl bg-white shadow-sm">
-                          <table className="w-full text-left text-[8px] table-auto border-collapse">
-                             <thead className="bg-slate-900 text-white font-black uppercase">
-                                <tr>
-                                   <th className="p-3">Item</th>
-                                   <th className="p-3 text-right">In</th>
-                                   <th className="p-3 text-right">Out</th>
-                                   <th className="p-3 text-right">Final</th>
-                                </tr>
-                             </thead>
-                             <tbody className="divide-y divide-slate-50">
-                                {viewingClosingShiftData.mutations.map((m, idx) => (
-                                   <tr key={idx}>
-                                      <td className="p-3 font-black uppercase text-slate-600 leading-tight min-w-[110px]">{m.name}</td>
-                                      <td className="p-3 text-right font-mono text-emerald-600">+{(m.in || 0).toFixed(1)}</td>
-                                      <td className="p-3 text-right font-mono text-rose-600">-{(m.out || 0).toFixed(1)}</td>
-                                      <td className="p-3 text-right font-mono font-black text-slate-900 bg-slate-50/50">{(m.end || 0).toFixed(1)}</td>
-                                   </tr>
-                                ))}
-                             </tbody>
-                          </table>
-                       </div>
-                    </div>
-                  )}
+                    {/* SECTION PRODUKSI & MIXING */}
+                    {viewingClosingShiftData.sProds.length > 0 && (
+                        <div className="space-y-4">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Log Produksi & Mixing</p>
+                        <div className="grid grid-cols-1 gap-2">
+                            {viewingClosingShiftData.sProds.map(p => {
+                                const item = inventory.find(i=>i.id===p.resultItemId);
+                                return (
+                                  <div key={p.id} className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center border border-slate-100">
+                                      <div className="min-w-0 flex-1 pr-4">
+                                        <p className="text-[11px] font-black text-slate-700 uppercase leading-tight">{item?.name}</p>
+                                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">🕒 JAM: {new Date(p.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} WIB</p>
+                                      </div>
+                                      <span className="font-mono font-black text-indigo-600 shrink-0">+{p.resultQuantity} {item?.unit}</span>
+                                  </div>
+                                );
+                            })}
+                        </div>
+                        </div>
+                    )}
 
-                  {viewingClosing.notes && (
-                    <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100">
-                       <p className="text-[8px] font-black text-amber-600 uppercase mb-1">Catatan Shift:</p>
-                       <p className="text-[10px] italic text-amber-900 leading-relaxed">"{viewingClosing.notes}"</p>
-                    </div>
-                  )}
-                </div>
+                    {/* SECTION MUTASI STOK / TRANSFER */}
+                    {viewingClosingShiftData.mutations.length > 0 && (
+                        <div className="space-y-4">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Audit Mutasi Inventaris</p>
+                        <div className="overflow-hidden border-2 border-slate-100 rounded-[28px] bg-white">
+                            <table className="w-full text-left text-[9px] table-auto border-collapse">
+                                <thead className="bg-slate-900 text-white font-black uppercase">
+                                    <tr>
+                                    <th className="p-4">Material</th>
+                                    <th className="p-4 text-right">Awal</th>
+                                    <th className="p-4 text-right">In</th>
+                                    <th className="p-4 text-right">Out</th>
+                                    <th className="p-4 text-right">Akhir</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {viewingClosingShiftData.mutations.map((m, idx) => (
+                                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                        <td className="p-4 font-black uppercase text-slate-700 leading-tight min-w-[100px]">{m.name}</td>
+                                        <td className="p-4 text-right font-mono text-slate-400">{(m.start || 0).toFixed(1)}</td>
+                                        <td className="p-4 text-right font-mono text-emerald-600">+{(m.in || 0).toFixed(1)}</td>
+                                        <td className="p-4 text-right font-mono text-rose-600">-{(m.out || 0).toFixed(1)}</td>
+                                        <td className="p-4 text-right font-mono font-black bg-slate-50/50">{(m.end || 0).toFixed(1)}</td>
+                                    </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        </div>
+                    )}
 
-                <div className="p-10 text-center bg-white border-t border-slate-100 shrink-0">
-                  <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em] mb-1 leading-none">Mozza Boy Food OS</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase italic leading-none">Verification ID: {viewingClosing.id.slice(-12).toUpperCase()}</p>
+                    {viewingClosing.notes && (
+                      <div className="bg-amber-50 p-6 rounded-[32px] border border-amber-100 italic text-[11px] text-amber-900 leading-relaxed shadow-inner">
+                          <p className="text-[8px] font-black text-amber-600 uppercase mb-2 not-italic tracking-widest">Catatan Auditor Kasir:</p>
+                          "{viewingClosing.notes}"
+                      </div>
+                    )}
+                    
+                    <div className="pt-10 text-center border-t border-slate-100">
+                      <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.5em] mb-1">{brandConfig.name} OS Enterprise</p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase italic leading-none">Verification ID: {viewingClosing.id.slice(-12).toUpperCase()}</p>
+                    </div>
+                    </div>
                 </div>
               </div>
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp, getTodayDateString } from '../store';
 import { StaffMember, UserRole, OrderStatus, LeaveRequest } from '../types';
@@ -7,10 +6,25 @@ interface AttendanceProps {
   setActiveTab?: (tab: string) => void;
 }
 
+// Helper: Hitung jarak antara dua koordinat GPS (Haversine Formula) dalam meter
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371e3; // Radius bumi dalam meter
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
 export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
   const { 
     currentUser, clockIn, clockOut, attendance, leaveRequests, 
-    submitLeave, transactions, updateStaff, outlets
+    submitLeave, transactions, updateStaff, outlets, selectedOutletId
   } = useApp();
   
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'performance' | 'leave' | 'profile'>('clock');
@@ -115,18 +129,81 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
   const handleClockIn = async () => {
     if (isProcessingAbsen) return;
     setIsProcessingAbsen(true);
+
+    const isExecutive = currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER;
+    const activeOutlet = outlets.find(o => o.id === selectedOutletId);
+
+    // 1. VALIDASI JADWAL (Shift Pagi: 10:00 | Shift Malam: 18:00)
+    if (!isExecutive) {
+        const now = new Date();
+        const startTime = currentUser.shiftStartTime || "10:00";
+        const [shiftH, shiftM] = startTime.split(':').map(Number);
+        
+        const shiftTime = new Date();
+        shiftTime.setHours(shiftH, shiftM, 0, 0);
+
+        // Kasir hanya boleh absen 30 menit sebelum shift dimulai
+        const earliestAllowed = new Date(shiftTime.getTime() - 30 * 60 * 1000);
+        
+        if (now < earliestAllowed) {
+            // FIX: Use shiftH instead of undefined startHour to determine shift label
+            const shiftLabel = shiftH >= 10 && shiftH < 15 ? "SHIFT PAGI" : "SHIFT MALAM";
+            setToast({ 
+                message: `DITOLAK: Jadwal Anda adalah ${shiftLabel} (${startTime}). Absen baru dibuka 30 menit sebelum jadwal!`, 
+                type: 'error' 
+            });
+            setIsProcessingAbsen(false);
+            return;
+        }
+    }
+
+    // 2. VALIDASI LOKASI (GEOFENCING 100 METER)
+    if (!isExecutive && activeOutlet?.latitude && activeOutlet?.longitude) {
+        try {
+            const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, { 
+                    enableHighAccuracy: true, 
+                    timeout: 7000 
+                });
+            });
+
+            const dist = calculateDistance(
+                position.coords.latitude, 
+                position.coords.longitude, 
+                activeOutlet.latitude, 
+                activeOutlet.longitude
+            );
+
+            // Jika jarak lebih dari 100 meter dari titik outlet
+            if (dist > 100) {
+                setToast({ 
+                    message: `LOKASI DITOLAK: Anda berada ${(dist/1000).toFixed(2)}km dari outlet ${activeOutlet.name}. Silakan absen di area kerja!`, 
+                    type: 'error' 
+                });
+                setIsProcessingAbsen(false);
+                return;
+            }
+        } catch (err) {
+            setToast({ 
+                message: "ERROR GPS: Gagal memverifikasi lokasi. Pastikan izin lokasi aktif di browser/HP Anda.", 
+                type: 'error' 
+            });
+            setIsProcessingAbsen(false);
+            return;
+        }
+    }
+
+    // 3. PROSES CLOCK IN JIKA VALIDASI LOLOS
     try {
        const res = await clockIn();
        if (res.success) {
-         setToast({ message: "Absen Berhasil! ✨", type: 'success' });
-         setTimeout(() => {
-            setActiveTab?.('dashboard');
-         }, 1000);
+         setToast({ message: "Absen Berhasil! ✨ Semangat jualan ya!", type: 'success' });
+         setTimeout(() => { setActiveTab?.('dashboard'); }, 1500);
        } else {
          setToast({ message: res.message || "Gagal Absen.", type: 'error' });
        }
     } catch (err) {
-       setToast({ message: "Gagal memproses absensi.", type: 'error' });
+       setToast({ message: "Gangguan koneksi cloud saat absen.", type: 'error' });
     } finally {
        setIsProcessingAbsen(false);
     }
@@ -195,7 +272,7 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                 {toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : 'ℹ️'}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-1 opacity-60">Sistem</p>
+                <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-1 opacity-60">Sistem Kehadiran</p>
                 <p className="text-[12px] font-black uppercase leading-tight">{toast.message}</p>
               </div>
            </div>
@@ -240,13 +317,18 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                 ) : (
                   <>
                     {!myActiveAttendance ? (
-                      <button 
-                        disabled={isProcessingAbsen}
-                        onClick={handleClockIn} 
-                        className="w-full max-w-xs mx-auto flex items-center justify-center gap-4 py-5 bg-orange-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.3em] shadow-2xl hover:bg-orange-500 transition-all active:scale-95 border-b-4 border-orange-800 disabled:opacity-50"
-                      >
-                        {isProcessingAbsen ? 'PROSES...' : 'ABSEN MASUK ➔'}
-                      </button>
+                      <div className="space-y-4">
+                        <button 
+                            disabled={isProcessingAbsen}
+                            onClick={handleClockIn} 
+                            className="w-full max-w-xs mx-auto flex items-center justify-center gap-4 py-5 bg-orange-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.3em] shadow-2xl hover:bg-orange-500 transition-all active:scale-95 border-b-4 border-orange-800 disabled:opacity-50"
+                        >
+                            {isProcessingAbsen ? 'MEMVALIDASI...' : 'ABSEN MASUK ➔'}
+                        </button>
+                        <p className="text-[8px] font-bold text-white/40 uppercase tracking-widest leading-relaxed px-10">
+                            Wajib berada di radius 100m dari titik outlet untuk melakukan absensi.
+                        </p>
+                      </div>
                     ) : (
                       <div className="py-2">
                          <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-3 border border-white/10 backdrop-blur-sm animate-pulse text-xl">⏳</div>
@@ -447,7 +529,6 @@ export const Attendance: React.FC<AttendanceProps> = ({ setActiveTab }) => {
                              <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{new Date(l.startDate).toLocaleDateString('id-ID', {day:'numeric', month:'short'})} - {new Date(l.endDate).toLocaleDateString('id-ID', {day:'numeric', month:'short'})}</p>
                              <p className="text-[8px] text-slate-400 truncate max-w-[120px] font-medium mt-0.5">"{l.reason}"</p>
                           </div>
-                          {/* FIX: Mengubah label menjadi bahasa Indonesia yang diminta user */}
                           <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest ${l.status === 'APPROVED' ? 'bg-green-50 text-green-600' : l.status === 'REJECTED' ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-orange-600'}`}>
                              {l.status === 'APPROVED' ? 'DISETUJUI' : l.status === 'REJECTED' ? 'DITOLAK' : 'MENUNGGU'}
                           </span>

@@ -23,15 +23,16 @@ export const PurchaseManagement: React.FC = () => {
     requestId: undefined as string | undefined
   });
 
+  const todayStr = new Date().toLocaleDateString('en-CA');
+
   const isShiftClosed = useMemo(() => {
     if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
-    const todayStr = new Date().toLocaleDateString('en-CA');
     return (dailyClosings || []).some(c => 
       c.outletId === selectedOutletId && 
       c.staffId === currentUser.id && 
       new Date(c.timestamp).toLocaleDateString('en-CA') === todayStr
     );
-  }, [dailyClosings, selectedOutletId, currentUser]);
+  }, [dailyClosings, selectedOutletId, currentUser, todayStr]);
 
   const isCashier = currentUser?.role === UserRole.CASHIER;
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
@@ -47,12 +48,17 @@ export const PurchaseManagement: React.FC = () => {
   const selectedItem = (inventory || []).find(i => i.id === formData.inventoryItemId);
   const finalQuantity = useConversion ? (rawPurchaseQty * multiplier) : formData.quantity;
 
+  // UPDATE: Filter belanja stok HARI INI
   const filteredPurchases = useMemo(() => {
     return (purchases || [])
-      .filter(p => p.outletId === selectedOutletId)
-      .filter(p => p.itemName.toLowerCase().includes(searchTerm.toLowerCase()))
+      .filter(p => {
+        const isCorrectOutlet = p.outletId === selectedOutletId;
+        const isToday = new Date(p.timestamp).toLocaleDateString('en-CA') === todayStr;
+        const matchesSearch = p.itemName.toLowerCase().includes(searchTerm.toLowerCase());
+        return isCorrectOutlet && isToday && matchesSearch;
+      })
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [purchases, selectedOutletId, searchTerm]);
+  }, [purchases, selectedOutletId, searchTerm, todayStr]);
 
   const handleOpenAdd = () => {
     if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
@@ -124,7 +130,7 @@ export const PurchaseManagement: React.FC = () => {
       <div className="relative mb-6">
         <input 
            type="text" 
-           placeholder="Cari riwayat belanja..." 
+           placeholder="Cari riwayat belanja hari ini..." 
            className="w-full p-4 pl-12 bg-white border-2 border-slate-100 rounded-2xl font-bold text-xs shadow-sm outline-none focus:border-orange-500 text-slate-900"
            value={searchTerm}
            onChange={e => setSearchTerm(e.target.value)}
@@ -133,13 +139,19 @@ export const PurchaseManagement: React.FC = () => {
       </div>
 
       <div className="space-y-3">
+         <div className="flex justify-between items-center ml-2 mb-2">
+            <div>
+               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Riwayat Hari Ini</h3>
+               <p className="text-[7px] font-bold text-slate-300 uppercase tracking-widest mt-1">Tanggal: {todayStr}</p>
+            </div>
+         </div>
          {filteredPurchases.map(p => (
            <div key={p.id} className="bg-white p-5 rounded-[28px] border border-slate-100 shadow-sm flex justify-between items-center group hover:border-orange-200 transition-all">
               <div className="flex gap-4 items-center">
                  <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg">📦</div>
                  <div>
                     <h4 className="text-[11px] font-black text-slate-800 uppercase truncate max-w-[150px]">{p.itemName}</h4>
-                    <p className="text-[8px] font-bold text-slate-400 uppercase">{new Date(p.timestamp).toLocaleDateString()} • {p.staffName.split(' ')[0]}</p>
+                    <p className="text-[8px] font-bold text-slate-400 uppercase">{new Date(p.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} • {p.staffName.split(' ')[0]}</p>
                  </div>
               </div>
               <div className="text-right">
@@ -149,7 +161,7 @@ export const PurchaseManagement: React.FC = () => {
            </div>
          ))}
          {filteredPurchases.length === 0 && (
-           <div className="py-20 text-center opacity-20 italic text-[10px] uppercase font-black">Riwayat belanja kosong</div>
+           <div className="py-20 text-center opacity-20 italic text-[10px] uppercase font-black border-2 border-dashed rounded-[32px]">Riwayat belanja hari ini kosong</div>
          )}
       </div>
 
