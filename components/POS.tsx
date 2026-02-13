@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useApp } from '../store';
+import { useApp, getTodayDateString } from '../store';
 import { Product, PaymentMethod, Customer, UserRole } from '../types';
 
 interface POSProps {
@@ -29,7 +29,8 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
-  // Helper: Cek apakah stok bahan baku cukup
+  const todayStr = getTodayDateString();
+
   const checkStockAvailability = (product: Product) => {
     if (selectedOutletId === 'all') return true;
     if (!product.bom || product.bom.length === 0) return true; 
@@ -50,32 +51,27 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     return Array.isArray(categories) ? categories : [];
   }, [categories]);
 
+  // FIX: checkIsClockedIn sekarang mengecek apakah user punya sesi aktif (belum clockOut)
   const checkIsClockedIn = () => {
     if (currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER) return true;
     if (!currentUser) return false;
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    const savedGuard = localStorage.getItem('mozzaboy_last_clockin');
-    if (savedGuard) {
-       try {
-          const guard = JSON.parse(savedGuard);
-          if (guard.date === todayStr && guard.staffId === currentUser.id) return true;
-       } catch (e) {}
-    }
+    
     return (attendance || []).some(a => {
        const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
-       return a.staffId === currentUser.id && recordDateStr === todayStr;
+       return a.staffId === currentUser.id && recordDateStr === todayStr && !a.clockOut;
     });
   };
 
+  // FIX: isShiftClosed sekarang spesifik mengecek apakah USER INI sudah tutup buku sesi ini
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return false;
-    const todayStr = new Date().toLocaleDateString('en-CA');
+    
     return (dailyClosings || []).some(c => {
-      const closingDate = typeof c.timestamp === 'string' ? new Date(c.timestamp).toLocaleDateString('en-CA') : c.timestamp.toLocaleDateString('en-CA');
+      const closingDate = typeof c.timestamp === 'string' ? c.timestamp.split('T')[0] : c.timestamp.toISOString().split('T')[0];
       return c.outletId === selectedOutletId && c.staffId === currentUser.id && closingDate === todayStr;
     });
-  }, [dailyClosings, selectedOutletId, currentUser]);
+  }, [dailyClosings, selectedOutletId, currentUser, todayStr]);
 
   const filteredProducts = products.filter(p => {
     const branchSetting = p.outletSettings?.[selectedOutletId];
@@ -100,21 +96,24 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
   const handleCheckout = async (method: PaymentMethod) => {
     if (selectedOutletId === 'all') return alert("Pilih cabang jualan terlebih dahulu di bagian atas!");
-    if (isShiftClosed) return;
-    if (!checkIsClockedIn()) { setShowAttendanceToast(true); return; }
+    if (isShiftClosed) {
+      alert("Anda sudah melakukan tutup buku hari ini. Tidak bisa menambah transaksi baru.");
+      return;
+    }
+    if (!checkIsClockedIn()) { 
+      setShowAttendanceToast(true); 
+      return; 
+    }
     
-    // INSTANT FEEDBACK: Tutup modal dan tampilkan sukses segera!
     setShowCheckout(false);
     setShowSuccessToast(true);
     setRedeemPoints(0);
     setMobileView('menu');
 
-    // Proses sinkronisasi di latar belakang (melalui store.tsx action)
     try {
       await checkout(method, redeemPoints, appliedTierDiscount, appliedBulkDiscount);
     } catch (err) { 
-      // Kegagalan jaringan akan di-handle oleh sync queue di store.tsx
-      console.warn("Background checkout initiated.");
+      console.warn("Checkout processed to sync queue.");
     }
   };
 
@@ -167,7 +166,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
       <div className={`flex-1 flex flex-col min-w-0 h-full ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
         <div className="px-4 py-2 md:px-6 md:py-4 bg-white border-b border-slate-100 shrink-0 z-20 space-y-2">
           <div className="flex gap-1.5 items-center">
-            {/* SEARCH BOX */}
             <div className="relative flex-1">
               <input 
                 type="text" 
@@ -178,7 +176,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
               <span className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 text-sm">🔍</span>
             </div>
             
-            {/* QUICK SHORTCUTS - AESTHETIC REPLACEMENT */}
             <div className="flex gap-1.5 shrink-0">
                <button 
                 onClick={() => setActiveTab('production')}
@@ -201,7 +198,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
             </div>
           </div>
           
-          {/* CATEGORIES WRAPPED (NO HORIZONTAL SCROLL) */}
           <div className="flex flex-wrap gap-1 md:gap-1.5 pt-1">
             <button 
               onClick={() => setSelectedCategory('all')} 
@@ -322,7 +318,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         </div>
       </div>
       
-      {/* FLOATING CHECKOUT PILL */}
       {cart.length > 0 && mobileView === 'menu' && (
         <div className="md:hidden fixed bottom-24 left-1/2 -translate-x-1/2 w-[94%] max-w-sm z-[100] animate-checkout-pill transition-all">
           <button 

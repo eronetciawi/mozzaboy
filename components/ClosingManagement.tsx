@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { useApp } from '../store';
+import { useApp, getTodayDateString } from '../store';
 import { OrderStatus, PaymentMethod, UserRole } from '../types';
 import html2canvas from 'html2canvas';
 
@@ -25,7 +25,7 @@ export const ClosingManagement: React.FC = () => {
   const finalAuditRef = useRef<HTMLDivElement>(null);
 
   const activeOutlet = outlets.find(o => o.id === selectedOutletId);
-  const todayISO = new Date().toLocaleDateString('en-CA');
+  const todayISO = getTodayDateString();
   const todayDisplay = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
   useEffect(() => {
@@ -35,7 +35,6 @@ export const ClosingManagement: React.FC = () => {
     }
   }, [toast]);
 
-  // FIX: Pastikan hanya mengambil absensi yang terjadi HARI INI
   const currentShiftAttendance = useMemo(() => {
     const records = [...(attendance || [])]
       .filter(a => {
@@ -48,13 +47,11 @@ export const ClosingManagement: React.FC = () => {
 
   const shiftTimeRange = useMemo(() => {
     return {
-      // Jika tidak ada absen hari ini, start diset ke jam sekarang agar data shiftData (sales/exp) menjadi 0
       start: currentShiftAttendance ? new Date(currentShiftAttendance.clockIn) : new Date(),
       end: new Date()
     };
   }, [currentShiftAttendance]);
 
-  // FIX: Logika penamaan shift merujuk ke jadwal resmi agar konsisten di laporan
   const shiftName = useMemo(() => {
      const startTime = currentUser?.shiftStartTime || "10:00";
      const startHour = parseInt(startTime.split(':')[0]);
@@ -64,7 +61,10 @@ export const ClosingManagement: React.FC = () => {
   }, [currentUser]);
 
   const myClosing = useMemo(() => 
-    dailyClosings.find(c => c.staffId === currentUser?.id && new Date(c.timestamp).toLocaleDateString('en-CA') === todayISO),
+    dailyClosings.find(c => {
+      const closingDate = typeof c.timestamp === 'string' ? c.timestamp.split('T')[0] : c.timestamp.toISOString().split('T')[0];
+      return c.staffId === currentUser?.id && closingDate === todayISO;
+    }),
     [dailyClosings, currentUser, todayISO]
   );
 
@@ -82,7 +82,6 @@ export const ClosingManagement: React.FC = () => {
 
   const shiftData = useMemo(() => {
     const { start, end } = shiftTimeRange;
-    // Filter transaksi benar-benar hanya dari sejak JAM ABSEN MASUK HARI INI
     const sTxs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser?.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
     const sExps = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser?.id && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
     const sProds = productionRecords.filter(p => p.outletId === selectedOutletId && p.staffId === currentUser?.id && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
@@ -94,8 +93,12 @@ export const ClosingManagement: React.FC = () => {
     const expTotal = sExps.reduce((a,b)=>a+(b.amount ?? 0), 0);
     
     let opening = 0;
+    // FIX: Shift Malam mengambil saldo akhir Shift Pagi
     if (shiftName === 'SHIFT MALAM') {
-       const morning = dailyClosings.find(c => c.outletId === selectedOutletId && c.shiftName === 'SHIFT PAGI' && new Date(c.timestamp).toLocaleDateString('en-CA') === todayISO);
+       const morning = dailyClosings.find(c => {
+          const closingDate = typeof c.timestamp === 'string' ? c.timestamp.split('T')[0] : c.timestamp.toISOString().split('T')[0];
+          return c.outletId === selectedOutletId && c.shiftName === 'SHIFT PAGI' && closingDate === todayISO;
+       });
        opening = morning ? (morning.actualCash ?? 0) : 0;
     }
 
@@ -180,7 +183,6 @@ export const ClosingManagement: React.FC = () => {
     </div>
   );
 
-  // VIEW JIKA SUDAH TUTUP BUKU
   if (myClosing) {
     const finalizedExpected = (myClosing.openingBalance + myClosing.totalSalesCash) - myClosing.totalExpenses;
     const grossTotal = myClosing.totalSalesCash + myClosing.totalSalesQRIS;
@@ -263,7 +265,6 @@ export const ClosingManagement: React.FC = () => {
     );
   }
 
-  // VIEW JIKA BELUM TUTUP BUKU
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden relative">
       {toast.type && (
