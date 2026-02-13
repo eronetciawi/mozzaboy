@@ -51,7 +51,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     return Array.isArray(categories) ? categories : [];
   }, [categories]);
 
-  // FIX: checkIsClockedIn sekarang mengecek apakah user punya sesi aktif (belum clockOut)
   const checkIsClockedIn = () => {
     if (currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER) return true;
     if (!currentUser) return false;
@@ -62,13 +61,18 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     });
   };
 
-  // FIX: isShiftClosed sekarang spesifik mengecek apakah USER INI sudah tutup buku sesi ini
+  // FIX: Sekarang mengecek spesifik apakah KARYAWAN INI (staffId) yang sudah tutup buku
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return false;
     
     return (dailyClosings || []).some(c => {
-      const closingDate = typeof c.timestamp === 'string' ? c.timestamp.split('T')[0] : c.timestamp.toISOString().split('T')[0];
+      const ts = c.timestamp;
+      // Memastikan tipe data string sebelum split untuk menghindari TS error
+      const tsStr = typeof ts === 'string' ? ts : (ts as any).toISOString ? (ts as any).toISOString() : String(ts);
+      const closingDate = tsStr.split('T')[0];
+      
+      // Syarat kunci: Cabang sama, User sama, Tanggal sama
       return c.outletId === selectedOutletId && c.staffId === currentUser.id && closingDate === todayStr;
     });
   }, [dailyClosings, selectedOutletId, currentUser, todayStr]);
@@ -97,7 +101,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const handleCheckout = async (method: PaymentMethod) => {
     if (selectedOutletId === 'all') return alert("Pilih cabang jualan terlebih dahulu di bagian atas!");
     if (isShiftClosed) {
-      alert("Anda sudah melakukan tutup buku hari ini. Tidak bisa menambah transaksi baru.");
+      alert("Sesi Anda sudah ditutup. Silakan absen masuk kembali besok atau hubungi Manajer.");
       return;
     }
     if (!checkIsClockedIn()) { 

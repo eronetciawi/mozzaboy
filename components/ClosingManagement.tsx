@@ -53,19 +53,24 @@ export const ClosingManagement: React.FC = () => {
   }, [currentShiftAttendance]);
 
   const shiftName = useMemo(() => {
-     const startTime = currentUser?.shiftStartTime || "10:00";
-     const startHour = parseInt(startTime.split(':')[0]);
+     const startTime = String(currentUser?.shiftStartTime || "10:00");
+     const startHourStr = startTime.split(':')[0];
+     const startHour = parseInt(startHourStr) || 10;
      if (startHour >= 10 && startHour < 15) return 'SHIFT PAGI';
      if (startHour >= 15) return 'SHIFT MALAM';
      return 'SHIFT PAGI';
   }, [currentUser]);
 
+  // FIX: Pastikan laporan tutup buku yang ditampilkan adalah miliki USER INI (staffId)
   const myClosing = useMemo(() => 
     dailyClosings.find(c => {
-      const closingDate = typeof c.timestamp === 'string' ? c.timestamp.split('T')[0] : c.timestamp.toISOString().split('T')[0];
-      return c.staffId === currentUser?.id && closingDate === todayISO;
+      const ts = c.timestamp;
+      // Memastikan tipe data string sebelum split untuk menghindari TS error
+      const tsStr = typeof ts === 'string' ? ts : (ts as any).toISOString ? (ts as any).toISOString() : String(ts);
+      const closingDate = tsStr.split('T')[0];
+      return c.staffId === currentUser?.id && c.outletId === selectedOutletId && closingDate === todayISO;
     }),
-    [dailyClosings, currentUser, todayISO]
+    [dailyClosings, currentUser, todayISO, selectedOutletId]
   );
 
   const scheduledTime = `${currentUser?.shiftStartTime || '10:00'} - ${currentUser?.shiftEndTime || '18:00'}`;
@@ -73,8 +78,10 @@ export const ClosingManagement: React.FC = () => {
   
   const isEarly = useMemo(() => {
     const now = new Date();
-    const [eh, em] = (currentUser?.shiftEndTime || '18:00').split(':').map(Number);
-    const endToday = new Date(); endToday.setHours(eh, em, 0, 0);
+    const endTime = String(currentUser?.shiftEndTime || '18:00');
+    const [eh, em] = endTime.split(':').map(Number);
+    const endToday = new Date(); 
+    endToday.setHours(eh || 18, em || 0, 0, 0);
     return now.getTime() < endToday.getTime();
   }, [currentUser]);
 
@@ -93,10 +100,12 @@ export const ClosingManagement: React.FC = () => {
     const expTotal = sExps.reduce((a,b)=>a+(b.amount ?? 0), 0);
     
     let opening = 0;
-    // FIX: Shift Malam mengambil saldo akhir Shift Pagi
+    // Shift Malam mengambil saldo akhir Shift Pagi
     if (shiftName === 'SHIFT MALAM') {
        const morning = dailyClosings.find(c => {
-          const closingDate = typeof c.timestamp === 'string' ? c.timestamp.split('T')[0] : c.timestamp.toISOString().split('T')[0];
+          const ts = c.timestamp;
+          const tsStr = typeof ts === 'string' ? ts : (ts as any).toISOString ? (ts as any).toISOString() : String(ts);
+          const closingDate = tsStr.split('T')[0];
           return c.outletId === selectedOutletId && c.shiftName === 'SHIFT PAGI' && closingDate === todayISO;
        });
        opening = morning ? (morning.actualCash ?? 0) : 0;
