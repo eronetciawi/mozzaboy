@@ -27,8 +27,6 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [showAttendanceToast, setShowAttendanceToast] = useState(false);
   
-  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-
   const todayStr = getTodayDateString();
 
   const checkStockAvailability = (product: Product) => {
@@ -61,18 +59,13 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     });
   };
 
-  // FIX: Sekarang mengecek spesifik apakah KARYAWAN INI (staffId) yang sudah tutup buku
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return false;
     
     return (dailyClosings || []).some(c => {
       const ts = c.timestamp;
-      // Memastikan tipe data string sebelum split untuk menghindari TS error
-      const tsStr = typeof ts === 'string' ? ts : (ts as any).toISOString ? (ts as any).toISOString() : String(ts);
-      const closingDate = tsStr.split('T')[0];
-      
-      // Syarat kunci: Cabang sama, User sama, Tanggal sama
+      const closingDate = new Date(ts).toLocaleDateString('en-CA');
       return c.outletId === selectedOutletId && c.staffId === currentUser.id && closingDate === todayStr;
     });
   }, [dailyClosings, selectedOutletId, currentUser, todayStr]);
@@ -100,10 +93,13 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
   const handleCheckout = async (method: PaymentMethod) => {
     if (selectedOutletId === 'all') return alert("Pilih cabang jualan terlebih dahulu di bagian atas!");
+    
     if (isShiftClosed) {
-      alert("Sesi Anda sudah ditutup. Silakan absen masuk kembali besok atau hubungi Manajer.");
+      alert("Akses Ditolak. Sesi Anda sudah ditutup. Tidak bisa menambah transaksi baru.");
+      setShowCheckout(false);
       return;
     }
+
     if (!checkIsClockedIn()) { 
       setShowAttendanceToast(true); 
       return; 
@@ -117,7 +113,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
     try {
       await checkout(method, redeemPoints, appliedTierDiscount, appliedBulkDiscount);
     } catch (err) { 
-      console.warn("Checkout processed to sync queue.");
+      console.warn("Checkout processed.");
     }
   };
 
@@ -148,6 +144,20 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
           animation: shine-fast 4s infinite linear;
         }
       `}</style>
+
+      {/* OVERLAY LOCK SCREEN IF CLOSED */}
+      {isShiftClosed && (
+        <div className="absolute inset-0 z-[400] bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center p-6">
+           <div className="bg-white p-8 rounded-[40px] shadow-2xl text-center max-w-sm border-t-8 border-rose-500 animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-6 shadow-inner">🔒</div>
+              <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Sesi Terkunci</h3>
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-4 leading-relaxed">
+                 Anda sudah melakukan tutup buku hari ini. Akses kasir dinonaktifkan untuk menjaga integritas data audit.
+              </p>
+              <button onClick={() => setActiveTab('closing')} className="mt-8 w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest active:scale-95">LIHAT LAPORAN SAYA ➔</button>
+           </div>
+        </div>
+      )}
 
       {showSuccessToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-10 duration-500">
@@ -325,10 +335,11 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
       {cart.length > 0 && mobileView === 'menu' && (
         <div className="md:hidden fixed bottom-24 left-1/2 -translate-x-1/2 w-[94%] max-w-sm z-[100] animate-checkout-pill transition-all">
           <button 
+            disabled={isShiftClosed}
             onClick={() => setMobileView('cart')}
             className="w-full h-16 rounded-[28px] flex items-center justify-between px-6 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.3)] border-2 border-white/40 overflow-hidden active:scale-95 transition-all relative"
             style={{ 
-              background: `linear-gradient(135deg, ${brandConfig.primaryColor}, ${brandConfig.primaryColor}dd)`,
+              background: isShiftClosed ? '#94a3b8' : `linear-gradient(135deg, ${brandConfig.primaryColor}, ${brandConfig.primaryColor}dd)`,
               boxShadow: `0 15px 40px -10px ${brandConfig.primaryColor}66`
             }}
           >
@@ -351,7 +362,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                </div>
             </div>
 
-            <div className="absolute top-0 left-[-100%] w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-45deg] animate-shine-pill pointer-events-none"></div>
+            {!isShiftClosed && <div className="absolute top-0 left-[-100%] w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-45deg] animate-shine-pill pointer-events-none"></div>}
             <div className="absolute inset-0 bg-white/10 opacity-50 pointer-events-none"></div>
           </button>
         </div>
@@ -392,7 +403,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
 
       {showMemberModal && (
         <div className="fixed inset-0 z-[210] bg-slate-900/90 backdrop-blur-md flex items-end md:items-center justify-center p-0 md:p-4">
-          <div className="bg-white rounded-t-[32px] md:rounded-[40px] w-full max-w-sm p-6 shadow-2xl animate-in slide-in-from-bottom-10">
+          <div className="bg-white rounded-t-[32px] md:rounded-[40px] w-full max-sm:w-full max-w-sm p-6 shadow-2xl animate-in slide-in-from-bottom-10">
              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-black text-slate-800 uppercase">Cari Member</h3>
                 <button onClick={() => setShowMemberModal(false)} className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">✕</button>

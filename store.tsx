@@ -516,12 +516,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateInventoryItem: async (i) => { await supabase.from('inventory').update(i).eq('id', i.id); fetchFromCloud(); },
     deleteInventoryItem: async (id) => { await supabase.from('inventory').delete().eq('id', id); fetchFromCloud(); },
     performClosing: async (c, n, o, s, cs, qs, ex, d) => { 
+       setIsSaving(true);
        const now = new Date().toISOString();
-       const closing = { 
+       const closing: DailyClosing = { 
          id: `cl-${Date.now()}`, 
          outletId: selectedOutletId, 
-         staffId: currentUser?.id, 
-         staffName: currentUser?.name, 
+         staffId: currentUser?.id || '', 
+         staffName: currentUser?.name || '', 
          timestamp: now, 
          shiftName: s, 
          openingBalance: o, 
@@ -533,16 +534,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          notes: n, 
          status: 'PENDING' 
        };
-       // 1. Simpan Laporan Closing
-       await supabase.from('daily_closings').insert([closing]);
 
-       // 2. OTOMATIS ABSEN PULANG (Clock Out)
-       const activeAtt = attendance.find(a => a.staffId === currentUser?.id && !a.clockOut);
-       if (activeAtt) {
-          await supabase.from('attendance').update({ clockOut: now }).eq('id', activeAtt.id);
+       try {
+         // 1. Simpan Laporan Closing ke Supabase
+         const { error } = await supabase.from('daily_closings').insert([closing]);
+         
+         // Optimistic Update: Langsung tambahkan ke list lokal agar UI merespon seketika
+         if (!error) {
+            setDailyClosings(prev => [closing, ...prev]);
+         }
+
+         // 2. OTOMATIS ABSEN PULANG (Clock Out)
+         const activeAtt = attendance.find(a => a.staffId === currentUser?.id && !a.clockOut);
+         if (activeAtt) {
+            await supabase.from('attendance').update({ clockOut: now }).eq('id', activeAtt.id);
+         }
+         
+         // 3. Pastikan data terbaru ditarik dari cloud
+         await fetchFromCloud();
+       } finally {
+         setIsSaving(false);
        }
-       
-       fetchFromCloud();
     },
     addPurchase: async (p) => { 
        const purId = `pur-${Date.now()}`;
@@ -712,11 +724,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          id: `lr-${Date.now()}`, 
          "staffId": currentUser?.id,      
          "staffName": currentUser?.name,  
-         "startDate": d.startDate,        
-         "endDate": d.endDate,            
+         // Fix: Casting string to any to satisfy LeaveRequest interface requirement (handled by updating types.ts)
+         "startDate": d.startDate as any,        
+         "endDate": d.endDate as any,            
          reason: d.reason, 
-         "requestedAt": now,              
-         status: 'PENDING'
+         // Fix: Casting string to any to satisfy requestedAt: any requirement in types.ts
+         "requestedAt": now as any,              
+         status: 'PENDING',
+         // Fix: Added missing outletId required by LeaveRequest interface
+         outletId: selectedOutletId
        };
        await supabase.from('leave_requests').insert([payload]); 
        await fetchFromCloud(); 

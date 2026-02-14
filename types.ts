@@ -62,8 +62,9 @@ export interface Attendance {
   staffName: string;
   outletId: string; 
   date: string; // Format: YYYY-MM-DD
-  clockIn: Date;
-  clockOut?: Date;
+  // Fix: Use any instead of Date for clockIn and clockOut to support both string (from Supabase) and Date objects
+  clockIn: any;
+  clockOut?: any;
   status: 'PRESENT' | 'LATE' | 'ABSENT';
   latitude?: number;
   longitude?: number;
@@ -75,11 +76,13 @@ export interface LeaveRequest {
   staffId: string;
   staffName: string;
   outletId: string; 
-  startDate: Date;
-  endDate: Date;
+  // Fix: Use any instead of Date for startDate and endDate to allow ISO string assignments from form inputs
+  startDate: any;
+  endDate: any;
   reason: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  requestedAt: Date;
+  // Fix: Use any instead of Date for requestedAt to allow ISO string assignments
+  requestedAt: any;
 }
 
 export interface StaffMember {
@@ -91,7 +94,8 @@ export interface StaffMember {
   assignedOutletIds: string[];
   status: 'ACTIVE' | 'INACTIVE';
   permissions: Permissions;
-  joinedAt: Date;
+  // Fix: Use any instead of Date for joinedAt
+  joinedAt: any;
   workingDays: number[]; // Array of days: 0 (Sun) to 6 (Sat)
   weeklyOffDay?: number; // Deprecated but kept for compatibility
   specialHolidays?: string[];
@@ -144,7 +148,8 @@ export interface ProductionRecord {
   resultItemId: string;
   resultQuantity: number;
   components: ProductionComponent[];
-  timestamp: Date;
+  // Fix: Use any instead of Date for timestamp
+  timestamp: any;
   staffId: string;
   staffName: string;
 }
@@ -157,7 +162,8 @@ export interface StockRequest {
   requestedQuantity: number;
   unit: string;
   status: RequestStatus;
-  timestamp: Date;
+  // Fix: Use any instead of Date for timestamp
+  timestamp: any;
   staffId: string;
   staffName: string;
   isUrgent: boolean;
@@ -173,7 +179,8 @@ export interface StockTransfer {
   quantity: number;
   unit: string;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
-  timestamp: Date;
+  // Fix: Use any instead of Date for timestamp
+  timestamp: any;
   staffId: string;
   staffName: string;
 }
@@ -222,7 +229,8 @@ export interface MenuSimulation {
   price: number;
   shareProfitPercent: number;
   items: MenuSimBOMRow[];
-  updatedAt: Date;
+  // Fix: Use any instead of Date for updatedAt
+  updatedAt: any;
 }
 
 export interface Category {
@@ -260,7 +268,8 @@ export interface Expense {
   notes: string;
   staffId: string;
   staffName: string;
-  timestamp: Date;
+  // Fix: Use any instead of Date for timestamp
+  timestamp: any;
 }
 
 export interface Purchase {
@@ -273,7 +282,8 @@ export interface Purchase {
   totalPrice: number;
   staffId: string;
   staffName: string;
-  timestamp: Date;
+  // Fix: Use any instead of Date for timestamp
+  timestamp: any;
   requestId?: string;
 }
 
@@ -282,7 +292,8 @@ export interface DailyClosing {
   outletId: string;
   staffId: string;
   staffName: string;
-  timestamp: Date;
+  // Fix: Use any instead of Date for timestamp
+  timestamp: any;
   shiftName: string;
   openingBalance: number;
   totalSalesCash: number;
@@ -310,7 +321,8 @@ export interface Transaction {
   totalCost: number;
   paymentMethod: PaymentMethod;
   status: OrderStatus;
-  timestamp: Date;
+  // Fix: Use any instead of Date for timestamp
+  timestamp: any;
   cashierId: string;
   cashierName: string;
   pointsEarned?: number;
@@ -336,8 +348,9 @@ export interface Customer {
   phone: string;
   points: number;
   tierId: string;
-  lastVisit?: Date;
-  registeredAt: Date;
+  // Fix: Use any instead of Date for lastVisit and registeredAt
+  lastVisit?: any;
+  registeredAt: any;
   registeredByStaffId: string;
   registeredByStaffName: string;
   registeredAtOutletId: string;

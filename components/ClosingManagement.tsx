@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp, getTodayDateString } from '../store';
-import { OrderStatus, PaymentMethod, UserRole } from '../types';
+import { OrderStatus, PaymentMethod, UserRole, InventoryItemType } from '../types';
 import html2canvas from 'html2canvas';
 
 export const ClosingManagement: React.FC = () => {
@@ -61,13 +61,10 @@ export const ClosingManagement: React.FC = () => {
      return 'SHIFT PAGI';
   }, [currentUser]);
 
-  // FIX: Pastikan laporan tutup buku yang ditampilkan adalah miliki USER INI (staffId)
   const myClosing = useMemo(() => 
     dailyClosings.find(c => {
       const ts = c.timestamp;
-      // Memastikan tipe data string sebelum split untuk menghindari TS error
-      const tsStr = typeof ts === 'string' ? ts : (ts as any).toISOString ? (ts as any).toISOString() : String(ts);
-      const closingDate = tsStr.split('T')[0];
+      const closingDate = new Date(ts).toLocaleDateString('en-CA');
       return c.staffId === currentUser?.id && c.outletId === selectedOutletId && closingDate === todayISO;
     }),
     [dailyClosings, currentUser, todayISO, selectedOutletId]
@@ -87,25 +84,26 @@ export const ClosingManagement: React.FC = () => {
 
   const numericActualCash = typeof actualCash === 'string' ? (parseInt(actualCash) || 0) : actualCash;
 
+  // DATA ENGINE UNTUK AUDIT SHIFT
   const shiftData = useMemo(() => {
-    const { start, end } = shiftTimeRange;
-    const sTxs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === currentUser?.id && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
-    const sExps = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === currentUser?.id && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
-    const sProds = productionRecords.filter(p => p.outletId === selectedOutletId && p.staffId === currentUser?.id && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
-    const sPurchases = purchases.filter(p => p.outletId === selectedOutletId && p.staffId === currentUser?.id && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
-    const sTrfs = stockTransfers.filter(t => (t.fromOutletId === selectedOutletId || t.toOutletId === selectedOutletId) && t.staffId === currentUser?.id && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
+    // Tentukan range waktu shift (dari absen masuk sampai sekarang/tutup)
+    const start = currentShiftAttendance ? new Date(currentShiftAttendance.clockIn) : new Date(new Date().setHours(0,0,0,0));
+    const end = myClosing ? new Date(myClosing.timestamp) : new Date();
+
+    const sTxs = transactions.filter(t => t.outletId === selectedOutletId && t.cashierId === (myClosing?.staffId || currentUser?.id) && t.status === OrderStatus.CLOSED && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
+    const sExps = expenses.filter(e => e.outletId === selectedOutletId && e.staffId === (myClosing?.staffId || currentUser?.id) && new Date(e.timestamp) >= start && new Date(e.timestamp) <= end);
+    const sProds = productionRecords.filter(p => p.outletId === selectedOutletId && p.staffId === (myClosing?.staffId || currentUser?.id) && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
+    const sPurchases = purchases.filter(p => p.outletId === selectedOutletId && p.staffId === (myClosing?.staffId || currentUser?.id) && new Date(p.timestamp) >= start && new Date(p.timestamp) <= end);
+    const sTrfs = stockTransfers.filter(t => (t.fromOutletId === selectedOutletId || t.toOutletId === selectedOutletId) && t.staffId === (myClosing?.staffId || currentUser?.id) && new Date(t.timestamp) >= start && new Date(t.timestamp) <= end);
 
     const cashSales = sTxs.filter(t => t.paymentMethod === PaymentMethod.CASH).reduce((a,b)=>a+(b.total ?? 0), 0);
     const qrisSales = sTxs.filter(t => t.paymentMethod === PaymentMethod.QRIS).reduce((a,b)=>a+(b.total ?? 0), 0);
     const expTotal = sExps.reduce((a,b)=>a+(b.amount ?? 0), 0);
     
     let opening = 0;
-    // Shift Malam mengambil saldo akhir Shift Pagi
     if (shiftName === 'SHIFT MALAM') {
        const morning = dailyClosings.find(c => {
-          const ts = c.timestamp;
-          const tsStr = typeof ts === 'string' ? ts : (ts as any).toISOString ? (ts as any).toISOString() : String(ts);
-          const closingDate = tsStr.split('T')[0];
+          const closingDate = new Date(c.timestamp).toLocaleDateString('en-CA');
           return c.outletId === selectedOutletId && c.shiftName === 'SHIFT PAGI' && closingDate === todayISO;
        });
        opening = morning ? (morning.actualCash ?? 0) : 0;
@@ -114,10 +112,12 @@ export const ClosingManagement: React.FC = () => {
     const expected = (opening + cashSales) - expTotal;
     const diff = numericActualCash - expected;
 
+    // Hitung Mutasi Stok Selama Shift
     const mutations = inventory.filter(i => i.outletId === selectedOutletId).map(item => {
         const inPur = sPurchases.filter(p => p.inventoryItemId === item.id).reduce((a,b)=>a+b.quantity, 0);
         const inProd = sProds.filter(p => p.resultItemId === item.id).reduce((a,b)=>a+b.resultQuantity, 0);
         const inTrf = sTrfs.filter(t => t.toOutletId === selectedOutletId && t.itemName === item.name && t.status === 'ACCEPTED').reduce((a,b)=>a+b.quantity, 0);
+        
         let outSales = 0;
         sTxs.forEach(tx => tx.items.forEach(it => {
             (it.product.bom || []).forEach(b => {
@@ -127,6 +127,7 @@ export const ClosingManagement: React.FC = () => {
                 }
             });
         }));
+
         const outProd = sProds.reduce((acc, pr) => {
             const comp = pr.components.find(c => {
                const cItem = inventory.find(i => i.id === c.inventoryItemId);
@@ -134,16 +135,19 @@ export const ClosingManagement: React.FC = () => {
             });
             return acc + (comp?.quantity || 0);
         }, 0);
+
         const outTrf = sTrfs.filter(t => t.fromOutletId === selectedOutletId && t.itemName === item.name).reduce((a,b)=>a+b.quantity, 0);
+        
         const totalIn = inPur + inProd + inTrf;
         const totalOut = outSales + outProd + outTrf;
         const endQty = item.quantity;
         const startQty = endQty - totalIn + totalOut;
+        
         return { name: item.name, unit: item.unit, start: startQty, in: totalIn, out: totalOut, end: endQty };
     }).filter(m => m.in > 0 || m.out > 0 || Math.abs(m.start - m.end) > 0.001);
 
     return { cashSales, qrisSales, expTotal, opening, expected, diff, sExps, sProds, mutations };
-  }, [transactions, expenses, dailyClosings, selectedOutletId, currentUser, numericActualCash, shiftName, todayISO, shiftTimeRange, inventory, productionRecords, purchases, stockTransfers]);
+  }, [transactions, expenses, dailyClosings, selectedOutletId, currentUser, numericActualCash, shiftName, todayISO, currentShiftAttendance, inventory, productionRecords, purchases, stockTransfers, myClosing]);
 
   const handleValidation = () => {
     if (isSaving) return;
@@ -159,10 +163,11 @@ export const ClosingManagement: React.FC = () => {
   const handleExecute = async () => {
     try {
       await performClosing(numericActualCash, notes, shiftData.opening, shiftName, shiftData.cashSales, shiftData.qrisSales, shiftData.expTotal, shiftData.diff);
-      setToast({ message: "Tutup Buku & Absen Pulang Berhasil! ✨", type: 'success' });
-      setShowConfirm(false); setShowApproval(false);
+      setToast({ message: "Tutup Buku Berhasil! ✨ Silakan unduh laporan.", type: 'success' });
+      setShowConfirm(false); 
+      setShowApproval(false);
     } catch (e) {
-      setToast({ message: "Gagal menyimpan data.", type: 'error' });
+      setToast({ message: "Gagal menyimpan data ke cloud.", type: 'error' });
     }
   };
 
@@ -192,6 +197,7 @@ export const ClosingManagement: React.FC = () => {
     </div>
   );
 
+  // VIEW 1: LAPORAN FINAL (SETELAH TUTUP BUKU)
   if (myClosing) {
     const finalizedExpected = (myClosing.openingBalance + myClosing.totalSalesCash) - myClosing.totalExpenses;
     const grossTotal = myClosing.totalSalesCash + myClosing.totalSalesQRIS;
@@ -201,6 +207,7 @@ export const ClosingManagement: React.FC = () => {
         <div className="max-w-2xl mx-auto w-full space-y-6 pb-32">
            <div className="w-full overflow-x-auto pb-4 no-scrollbar flex justify-center">
               <div ref={finalAuditRef} className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-slate-200 text-slate-900 w-[500px] shrink-0 h-auto">
+                  {/* HEADER STRUK */}
                   <div className="p-10 border-b-2 border-dashed border-slate-100 text-center bg-slate-50/50">
                     <div className="w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mx-auto mb-4 shadow-xl" style={{ backgroundColor: brandConfig.primaryColor }}>
                       {brandConfig.name.charAt(0)}
@@ -211,6 +218,7 @@ export const ClosingManagement: React.FC = () => {
                   </div>
 
                   <div className="p-10 space-y-10">
+                    {/* INFO STAFF */}
                     <div className="grid grid-cols-2 gap-x-4 gap-y-6 text-[11px]">
                       <div className="space-y-1">
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Penanggung Jawab</p>
@@ -230,6 +238,7 @@ export const ClosingManagement: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* FINANSIAL AUDIT */}
                     <div className="bg-white p-8 rounded-[32px] border-2 border-slate-900 shadow-[8px_8px_0px_rgba(0,0,0,0.05)]">
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6 text-center border-b pb-4">Ringkasan Audit Finansial</p>
                       <FinanceLine label="1. Modal Awal Shift" value={myClosing.openingBalance} isBold />
@@ -250,6 +259,79 @@ export const ClosingManagement: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* DETAIL PENGELUARAN */}
+                    {shiftData.sExps.length > 0 && (
+                        <div className="space-y-4">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Rincian Pengeluaran Kas</p>
+                            <div className="space-y-2">
+                                {shiftData.sExps.map(e => (
+                                    <div key={e.id} className="flex justify-between text-[10px] border-b border-slate-50 pb-2">
+                                        <div className="flex-1 pr-4">
+                                            <p className="font-black text-slate-800 uppercase leading-tight">{e.notes || 'Operasional'}</p>
+                                            <p className="text-[7px] font-bold text-slate-400 uppercase mt-0.5">
+                                                {expenseTypes.find(t=>t.id===e.typeId)?.name || 'LAINNYA'} • {new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                            </p>
+                                        </div>
+                                        <span className="font-mono font-black text-rose-600">Rp {e.amount.toLocaleString()}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* DETAIL PRODUKSI */}
+                    {shiftData.sProds.length > 0 && (
+                        <div className="space-y-4">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Log Produksi & Mixing</p>
+                            <div className="grid grid-cols-1 gap-2">
+                                {shiftData.sProds.map(p => {
+                                    const item = inventory.find(i=>i.id===p.resultItemId);
+                                    return (
+                                        <div key={p.id} className="bg-slate-50 p-3 rounded-xl flex justify-between items-center border border-slate-100">
+                                            <div className="flex-1 pr-4">
+                                                <p className="text-[10px] font-black text-slate-700 uppercase leading-tight">{item?.name}</p>
+                                                <p className="text-[7px] font-bold text-slate-400 uppercase mt-0.5">JAM: {new Date(p.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                                            </div>
+                                            <span className="font-mono font-black text-indigo-600">+{p.resultQuantity} {item?.unit}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MUTASI INVENTORY */}
+                    {shiftData.mutations.length > 0 && (
+                        <div className="space-y-4">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] text-center">Audit Mutasi Stok</p>
+                            <div className="overflow-hidden border-2 border-slate-100 rounded-[24px]">
+                                <table className="w-full text-left text-[8px] table-auto border-collapse">
+                                    <thead className="bg-slate-900 text-white font-black uppercase">
+                                        <tr>
+                                            <th className="p-3">Material</th>
+                                            <th className="p-3 text-right">Awal</th>
+                                            <th className="p-3 text-right">In</th>
+                                            <th className="p-3 text-right">Out</th>
+                                            <th className="p-3 text-right">Akhir</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {shiftData.mutations.map((m, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                                <td className="p-3 font-black uppercase text-slate-700 leading-tight">{m.name}</td>
+                                                <td className="p-3 text-right font-mono text-slate-400">{(m.start || 0).toFixed(1)}</td>
+                                                <td className="p-3 text-right font-mono text-emerald-600">+{(m.in || 0).toFixed(1)}</td>
+                                                <td className="p-3 text-right font-mono text-rose-600">-{(m.out || 0).toFixed(1)}</td>
+                                                <td className="p-3 text-right font-mono font-black bg-slate-50/50">{(m.end || 0).toFixed(1)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* CATATAN */}
                     {myClosing.notes && (
                       <div className="bg-amber-50 p-6 rounded-[32px] border border-amber-100 italic text-[11px] text-amber-900 leading-relaxed shadow-inner">
                           <p className="text-[8px] font-black text-amber-600 uppercase mb-2 not-italic tracking-widest">Catatan Auditor Kasir:</p>
@@ -257,6 +339,7 @@ export const ClosingManagement: React.FC = () => {
                       </div>
                     )}
 
+                    {/* FOOTER STRUK */}
                     <div className="pt-10 text-center border-t border-slate-100">
                       <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.5em] mb-1">{brandConfig.name} OS Enterprise</p>
                       <p className="text-[8px] font-bold text-slate-400 uppercase italic leading-none">Verification ID: {myClosing.id.slice(-12).toUpperCase()}</p>
@@ -265,15 +348,16 @@ export const ClosingManagement: React.FC = () => {
               </div>
            </div>
 
-           <div className="flex flex-col gap-3">
+           <div className="flex flex-col gap-3 no-print">
               <button onClick={downloadFinalAuditImage} className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all">📥 DOWNLOAD REPORT</button>
               <button onClick={logout} className="w-full py-4 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-widest active:scale-95 shadow-xl transition-all">SELESAI & KELUAR ➔</button>
+           </div>
         </div>
       </div>
-    </div>
     );
   }
 
+  // VIEW 2: FORM TUTUP BUKU (SEBELUM DATA DISIMPAN)
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden relative">
       {toast.type && (
