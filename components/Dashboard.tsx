@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { useApp } from '../store';
-import { Transaction, PaymentMethod, UserRole, OrderStatus } from '../types';
+import { Transaction, PaymentMethod, UserRole, OrderStatus, InventoryItemType } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import html2canvas from 'html2canvas';
 
@@ -17,7 +17,7 @@ const CompactMetric: React.FC<{ label: string; value: string; color: string; ico
 
 export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ setActiveTab }) => {
   const { 
-    selectedOutletId, outlets, products,
+    selectedOutletId, outlets, products, inventory = [],
     currentUser, transactions, expenses, attendance, filteredTransactions, leaveRequests = [], brandConfig,
     isFetching, isInitialLoading, isSaving
   } = useApp();
@@ -29,6 +29,15 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
   const isGlobalView = selectedOutletId === 'all' && isExecutive;
   
   const todayStr = new Date().toLocaleDateString('en-CA');
+
+  // ALGORITMA: Identifikasi Stok Kritis
+  const criticalItems = useMemo(() => {
+    return inventory
+      .filter(item => (selectedOutletId === 'all' || item.outletId === selectedOutletId))
+      .filter(item => item.quantity <= (item.minStock || 0) && (item.minStock || 0) > 0)
+      .sort((a, b) => (a.quantity / (a.minStock || 1)) - (b.quantity / (b.minStock || 1))) 
+      .slice(0, 15); // List bisa menampung lebih banyak item
+  }, [inventory, selectedOutletId]);
 
   const pendingLeaves = useMemo(() => 
     leaveRequests.filter(l => l.status === 'PENDING'), 
@@ -68,18 +77,9 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
   const myPresenceToday = useMemo(() => {
      if (isExecutive) return true;
      if (!currentUser) return false;
-     const savedGuard = localStorage.getItem('mozzaboy_last_clockin');
-     if (savedGuard) {
-        try {
-           const guard = JSON.parse(savedGuard);
-           if (guard.date === todayStr && guard.staffId === currentUser.id) return true;
-        } catch (e) {}
-     }
      return (attendance || []).some(a => {
         const recordDateStr = typeof a.date === 'string' ? a.date : new Date(a.date).toLocaleDateString('en-CA');
-        const isMe = a.staffId === currentUser.id;
-        const isToday = recordDateStr === todayStr;
-        return isMe && isToday;
+        return a.staffId === currentUser.id && recordDateStr === todayStr;
      });
   }, [attendance, currentUser, todayStr, isExecutive]);
 
@@ -187,7 +187,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
                          <h4 className="text-[13px] font-black text-slate-900 uppercase truncate leading-none mb-1">{status.name}</h4>
                          <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Node ID: {status.id.slice(-4).toUpperCase()}</p>
                       </div>
-                      <span className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase tracking-[0.2em] shadow-sm ${status.isOpen ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-200 text-slate-500'}`}>
+                      <span className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase tracking-widest shadow-sm ${status.isOpen ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-200 text-slate-500'}`}>
                          {status.isOpen ? 'OPERATIONAL' : 'OFFLINE'}
                       </span>
                    </div>
@@ -261,7 +261,7 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
         <CompactMetric label="Transaksi" value={`${summary.totalClosed}`} color="text-indigo-600" icon="🧾" />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 mb-10">
          <div className="xl:col-span-2 bg-white p-8 rounded-[48px] border border-slate-100 shadow-sm flex flex-col min-h-[350px]">
             <div className="flex justify-between items-center mb-8">
                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em]">Grafik Traffic Penjualan</h3>
@@ -316,6 +316,76 @@ export const Dashboard: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ 
             </div>
          </div>
       </div>
+
+      {/* ALERT STOCK SECTION - RE-DESIGNED AS LIST AT THE BOTTOM */}
+      {criticalItems.length > 0 && (
+        <div className="mt-12 space-y-4 animate-in fade-in duration-1000">
+           <div className="flex items-center justify-between px-2">
+              <div className="flex items-center gap-3">
+                 <div className="w-2 h-2 rounded-full bg-rose-600 animate-ping"></div>
+                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Inventory Stock Alerts</h3>
+                 <span className="bg-rose-100 text-rose-600 px-2 py-0.5 rounded-md text-[8px] font-black uppercase">{criticalItems.length} ITEMS CRITICAL</span>
+              </div>
+              <button onClick={() => setActiveTab?.('inventory')} className="text-[9px] font-black text-indigo-600 uppercase hover:underline">Manage All ➔</button>
+           </div>
+           
+           <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
+              <div className="divide-y divide-slate-50">
+                 {criticalItems.map(item => {
+                    const isEmpty = item.quantity <= 0;
+                    const outletName = outlets.find(o => o.id === item.outletId)?.name || 'Branch';
+                    return (
+                       <div key={item.id} className="p-4 md:p-6 flex flex-col md:flex-row items-center justify-between gap-4 group hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-4 flex-1 min-w-0 w-full md:w-auto">
+                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shrink-0 transition-transform group-hover:scale-110 ${isEmpty ? 'bg-rose-50 text-rose-600' : 'bg-orange-50 text-orange-600'}`}>
+                                {item.type === InventoryItemType.RAW ? '📦' : '🥣'}
+                             </div>
+                             <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                   <h4 className="text-[13px] font-black text-slate-800 uppercase truncate leading-none">{item.name}</h4>
+                                   <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest leading-none ${isEmpty ? 'bg-rose-600 text-white animate-pulse' : 'bg-orange-100 text-orange-600'}`}>
+                                      {isEmpty ? 'OUT' : 'LOW'}
+                                   </span>
+                                </div>
+                                <div className="flex items-center gap-3 mt-1.5">
+                                   {isGlobalView && <span className="text-[8px] font-black text-slate-400 uppercase bg-slate-100 px-1.5 py-0.5 rounded">📍 {outletName}</span>}
+                                   <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest">{item.type === InventoryItemType.RAW ? 'RAW MATERIAL' : 'PROCESSED WIP'}</span>
+                                </div>
+                             </div>
+                          </div>
+
+                          <div className="flex items-center justify-between md:justify-end gap-10 w-full md:w-auto">
+                             <div className="flex flex-col items-center md:items-end">
+                                <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Current Stock</p>
+                                <p className={`text-lg font-black font-mono leading-none ${isEmpty ? 'text-rose-600' : 'text-slate-800'}`}>
+                                   {item.quantity} <span className="text-[10px] text-slate-300 uppercase">{item.unit}</span>
+                                </p>
+                             </div>
+                             <div className="flex flex-col items-center md:items-end">
+                                <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Safe Limit</p>
+                                <p className="text-xs font-black text-slate-300 leading-none">{item.minStock} {item.unit}</p>
+                             </div>
+                             <div className="shrink-0">
+                                <button 
+                                  onClick={() => {
+                                     if (item.type === InventoryItemType.WIP) setActiveTab?.('production');
+                                     else setActiveTab?.('purchases');
+                                  }}
+                                  className={`px-6 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all shadow-md active:scale-95 ${
+                                     item.type === InventoryItemType.WIP ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-900 text-white hover:bg-orange-600'
+                                  }`}
+                                >
+                                   {item.type === InventoryItemType.WIP ? 'PRODUCE 🧪' : 'RESTOCK 🚚'}
+                                </button>
+                             </div>
+                          </div>
+                       </div>
+                    );
+                 })}
+              </div>
+           </div>
+        </div>
+      )}
 
       {viewingTransaction && (
         <div className="fixed inset-0 z-[500] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setViewingTransaction(null)}>

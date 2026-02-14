@@ -7,7 +7,8 @@ export const ExpenseManagement: React.FC = () => {
   const { 
     expenses, expenseTypes, addExpense, updateExpense, deleteExpense, 
     addExpenseType, updateExpenseType, deleteExpenseType, 
-    currentUser, selectedOutletId, outlets, isSaving, dailyClosings = []
+    currentUser, selectedOutletId, outlets, isSaving, dailyClosings = [],
+    attendance = []
   } = useApp();
   
   const [showAddModal, setShowAddModal] = useState(false);
@@ -33,6 +34,12 @@ export const ExpenseManagement: React.FC = () => {
     }
   }, [toast]);
 
+  // LOGIKA SHIFT: Cari absensi aktif kasir ini
+  const myCurrentAttendance = useMemo(() => {
+    if (!currentUser) return null;
+    return (attendance || []).find(a => a.staffId === currentUser.id && a.outletId === selectedOutletId && !a.clockOut);
+  }, [attendance, currentUser, selectedOutletId]);
+
   const isShiftClosed = useMemo(() => {
     if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
     return (dailyClosings || []).some(c => 
@@ -46,19 +53,34 @@ export const ExpenseManagement: React.FC = () => {
   const isAdmin = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
   const canManageTypes = currentUser?.permissions.canManageSettings;
 
-  // UPDATE: Filter pengeluaran hanya untuk HARI INI
+  /** 
+   * LOGIKA CLEAN SLATE: 
+   * Jika bukan Admin, hanya tampilkan pengeluaran yang diinput oleh USER INI 
+   * DAN dilakukan SETELAH waktu Clock-In terakhir (Session Aktif).
+   */
   const outletExpenses = useMemo(() => {
     return expenses.filter(e => {
         const isCorrectOutlet = e.outletId === selectedOutletId;
-        const isToday = new Date(e.timestamp).toLocaleDateString('en-CA') === todayStr;
-        return isCorrectOutlet && isToday;
+        if (!isCorrectOutlet) return false;
+
+        if (isAdmin) {
+          return new Date(e.timestamp).toLocaleDateString('en-CA') === todayStr;
+        }
+
+        // Untuk Kasir: Filter berdasarkan Session Shift
+        if (!myCurrentAttendance) return false; // Jika tidak absen, jangan tampilkan apapun
+        const clockInTime = new Date(myCurrentAttendance.clockIn).getTime();
+        const expenseTime = new Date(e.timestamp).getTime();
+        
+        return e.staffId === currentUser?.id && expenseTime >= clockInTime;
     });
-  }, [expenses, selectedOutletId, todayStr]);
+  }, [expenses, selectedOutletId, todayStr, isAdmin, myCurrentAttendance, currentUser]);
 
   const todayExpensesAmount = useMemo(() => outletExpenses.reduce((acc, e) => acc + e.amount, 0), [outletExpenses]);
 
   const handleOpenAdd = () => {
     if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
+    if (!myCurrentAttendance && !isAdmin) return alert("Anda harus Absen Masuk terlebih dahulu!");
     setEditingExpense(null);
     setNewExpense({ typeId: '', amount: 0, notes: '' });
     setShowAddModal(true);
@@ -185,7 +207,7 @@ export const ExpenseManagement: React.FC = () => {
 
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-6 flex justify-between items-center">
         <div>
-          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Biaya Hari Ini</p>
+          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Biaya Shift Ini</p>
           <h4 className="text-2xl font-black text-red-600">Rp {todayExpensesAmount.toLocaleString()}</h4>
         </div>
         <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-xl">💸</div>
@@ -194,15 +216,19 @@ export const ExpenseManagement: React.FC = () => {
       <div className="space-y-3">
         <div className="flex justify-between items-center ml-2 mb-2">
            <div>
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Riwayat Hari Ini</h3>
-              <p className="text-[7px] font-bold text-slate-300 uppercase tracking-widest mt-1">Hanya menampilkan data tanggal {todayStr}</p>
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
+                 {isAdmin ? "Log Keseluruhan Hari Ini" : "Log Aktivitas Shift Anda"}
+              </h3>
+              <p className="text-[7px] font-bold text-slate-300 uppercase tracking-widest mt-1">
+                 {isAdmin ? `Tanggal: ${todayStr}` : `Mulai Absen: ${myCurrentAttendance ? new Date(myCurrentAttendance.clockIn).toLocaleTimeString() : '--'}`}
+              </p>
            </div>
            {isShiftClosed && <span className="text-[7px] font-black text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded border border-rose-100 animate-pulse">Akses Terkunci: Sudah Tutup Buku</span>}
         </div>
         
         {outletExpenses.length === 0 ? (
           <div className="py-20 text-center bg-white rounded-[32px] border-2 border-dashed border-slate-200">
-             <p className="text-[10px] text-slate-300 font-bold italic uppercase tracking-widest">Belum ada catatan biaya hari ini</p>
+             <p className="text-[10px] text-slate-300 font-bold italic uppercase tracking-widest">Belum ada catatan biaya di session ini</p>
           </div>
         ) : (
           [...outletExpenses].reverse().map(exp => {

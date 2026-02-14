@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp, getTodayDateString } from '../store';
-import { Product, PaymentMethod, Customer, UserRole } from '../types';
+import { Product, PaymentMethod, Customer, UserRole, InventoryItem } from '../types';
 
 interface POSProps {
   setActiveTab: (tab: string) => void;
@@ -26,22 +26,46 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [showAttendanceToast, setShowAttendanceToast] = useState(false);
+
+  // State untuk menampilkan detil stok yang habis
+  const [stockInspectedProduct, setStockInspectedProduct] = useState<Product | null>(null);
   
   const todayStr = getTodayDateString();
 
+  /**
+   * LOGIKA ABSOLUT: Cek ketersediaan bahan.
+   * Jika Mode Pusat: Cek total stok seluruh cabang.
+   * Jika Mode Cabang: Cek stok cabang aktif.
+   */
   const checkStockAvailability = (product: Product) => {
-    if (selectedOutletId === 'all') return true;
+    // Jika tidak ada resep (BOM), dianggap menu non-stok (selalu tersedia)
     if (!product.bom || product.bom.length === 0) return true; 
-    if (isFetching && inventory.length === 0) return true;
 
     return product.bom.every(bomItem => {
-      const originalRef = inventory.find(i => i.id === bomItem.inventoryItemId);
-      if (!originalRef) return true;
-      const localInvItem = inventory.find(i => i.name === originalRef.name && i.outletId === selectedOutletId);
-      if (!localInvItem) return true;
+      // Cari referensi bahan baku utama
+      const materialRef = inventory.find(i => i.id === bomItem.inventoryItemId);
+      if (!materialRef) return false;
+
+      let availableQty = 0;
+      
+      if (selectedOutletId === 'all') {
+        // Mode Pusat: Jumlahkan stok bahan ber-NAMA sama dari SEMUA cabang
+        availableQty = inventory
+          .filter(i => i.name.toLowerCase() === materialRef.name.toLowerCase())
+          .reduce((sum, i) => sum + (i.quantity || 0), 0);
+      } else {
+        // Mode Cabang: Cari stok fisik di CABANG AKTIF saja
+        const branchStock = inventory.find(i => 
+          i.name.toLowerCase() === materialRef.name.toLowerCase() && 
+          i.outletId === selectedOutletId
+        );
+        availableQty = branchStock?.quantity || 0;
+      }
+      
       const inCartQty = cart.find(c => c.product.id === product.id)?.quantity || 0;
       const totalNeeded = bomItem.quantity * (inCartQty + 1);
-      return localInvItem.quantity >= totalNeeded;
+      
+      return availableQty >= totalNeeded;
     });
   };
 
@@ -90,6 +114,24 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
   const appliedTierDiscount = isBulkBetter ? 0 : (subtotal * (tierDiscountPercent / 100));
   const appliedBulkDiscount = isBulkBetter ? (subtotal * (bulkDiscountPercent / 100)) : 0;
   const total = Math.max(0, subtotal - appliedTierDiscount - appliedBulkDiscount - (redeemPoints * loyaltyConfig.redemptionValuePerPoint));
+
+  const handleProductClick = (product: Product) => {
+    if (isShiftClosed) return;
+    
+    const isAvailableByStock = checkStockAvailability(product);
+    
+    if (!isAvailableByStock) {
+      // Jika stok habis, tampilkan modal detil stok (Audit Bahan)
+      setStockInspectedProduct(product);
+    } else {
+      // Jika stok ada, tambahkan ke keranjang
+      if (selectedOutletId === 'all') {
+        alert("Pilih Cabang terlebih dahulu untuk mulai transaksi!");
+      } else {
+        addToCart(product);
+      }
+    }
+  };
 
   const handleCheckout = async (method: PaymentMethod) => {
     if (selectedOutletId === 'all') return alert("Pilih cabang jualan terlebih dahulu di bagian atas!");
@@ -241,7 +283,7 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
         <div className="flex-1 bg-slate-50/50 overflow-y-auto p-3 md:p-6 custom-scrollbar pb-32 md:pb-6">
            {selectedOutletId === 'all' && (
              <div className="mb-4 p-3 bg-indigo-50 border-2 border-indigo-100 rounded-2xl text-center">
-                <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">⚠️ Mode Pusat: Pilih cabang untuk mulai transaksi</p>
+                <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">⚠️ Mode Pusat: Menampilkan total stok seluruh cabang</p>
              </div>
            )}
            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 md:gap-4">
@@ -252,21 +294,24 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
               return (
                 <button 
                   key={product.id} 
-                  disabled={isShiftClosed || isSaving || (!isAvailableByStock && selectedOutletId !== 'all')}
-                  onClick={() => addToCart(product)} 
-                  className={`bg-white rounded-xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm relative ${isShiftClosed || (!isAvailableByStock && selectedOutletId !== 'all') ? 'opacity-40 grayscale' : 'border-white hover:border-indigo-500'}`}
+                  disabled={isShiftClosed || isSaving}
+                  onClick={() => handleProductClick(product)} 
+                  className={`bg-white rounded-xl md:rounded-[28px] overflow-hidden border-2 flex flex-col text-left group transition-all active:scale-[0.96] h-full shadow-sm relative ${isShiftClosed ? 'opacity-40 grayscale' : 'border-white hover:border-indigo-500'} ${!isAvailableByStock ? 'bg-slate-100 border-slate-200' : ''}`}
                 >
-                  {!isAvailableByStock && selectedOutletId !== 'all' && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 pointer-events-none">
-                      <span className="bg-red-600 text-white text-[7px] md:text-[9px] font-black px-2 py-1 rounded-lg shadow-xl uppercase transform -rotate-12">Stok Habis</span>
+                  {/* BADGE STOK HABIS - DIPERTAHANKAN TAPI OVERLAY HANYA TINT TIPIS */}
+                  {!isAvailableByStock && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-200/20 pointer-events-none rounded-xl md:rounded-[28px]">
+                      <span className="bg-rose-600 text-white text-[7px] md:text-[9px] font-black px-2.5 py-1.5 rounded-lg shadow-2xl uppercase transform -rotate-6 border-2 border-white/20 animate-pulse">Stok Habis</span>
                     </div>
                   )}
-                  <div className="aspect-square w-full overflow-hidden bg-slate-100 relative shrink-0">
+                  {/* GAMBAR: EFEK GREYSCALE TOTAL UNTUK MENU HABIS - ESTETIK & JELAS */}
+                  <div className={`aspect-square w-full overflow-hidden bg-slate-100 relative shrink-0 transition-all ${!isAvailableByStock ? 'grayscale opacity-50' : ''}`}>
                     <img src={product.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                   </div>
-                  <div className="p-2 md:p-3 flex-1 flex flex-col justify-center">
-                    <h5 className="font-extrabold text-slate-800 text-[8px] md:text-[11px] uppercase leading-tight line-clamp-2">{product.name}</h5>
-                    <p className={`text-[9px] md:text-[13px] font-black font-mono tracking-tighter mt-1`} style={{ color: brandConfig.primaryColor }}>
+                  {/* FOOTER: TETAP TERBACA JELAS */}
+                  <div className={`p-2 md:p-3 flex-1 flex flex-col justify-center ${!isAvailableByStock ? 'bg-slate-50' : 'bg-white'}`}>
+                    <h5 className={`font-extrabold text-[8px] md:text-[11px] uppercase leading-tight line-clamp-2 ${!isAvailableByStock ? 'text-slate-500' : 'text-slate-800'}`}>{product.name}</h5>
+                    <p className={`text-[9px] md:text-[13px] font-black font-mono tracking-tighter mt-1`} style={!isAvailableByStock ? { color: '#94a3b8' } : { color: brandConfig.primaryColor }}>
                       Rp {(displayPrice).toLocaleString()}
                     </p>
                   </div>
@@ -305,9 +350,9 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                     <button onClick={() => updateCartQuantity(item.product.id, -1)} className="w-7 h-7 bg-white rounded-lg text-xs font-black shadow-sm">－</button>
                     <span className="w-4 text-center text-[11px] font-black text-slate-900">{item.quantity}</span>
                     <button 
-                      disabled={!canAddMore && selectedOutletId !== 'all'}
+                      disabled={!canAddMore}
                       onClick={() => updateCartQuantity(item.product.id, 1)} 
-                      className={`w-7 h-7 bg-white rounded-lg text-xs font-black shadow-sm ${!canAddMore && selectedOutletId !== 'all' ? 'opacity-20' : ''}`}
+                      className={`w-7 h-7 bg-white rounded-lg text-xs font-black shadow-sm ${!canAddMore ? 'opacity-20' : ''}`}
                     >＋</button>
                   </div>
                 </div>
@@ -430,6 +475,93 @@ export const POS: React.FC<POSProps> = ({ setActiveTab }) => {
                 {selectedCustomerId && (
                   <button onClick={() => { selectCustomer(null); setShowMemberModal(false); }} className="w-full py-3 text-red-500 bg-red-50 rounded-xl font-black text-[8px] uppercase">Batalkan Member</button>
                 )}
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ANALISIS STOK (ULTRA COMPACT & EASY DISMISS) */}
+      {stockInspectedProduct && (
+        <div 
+          className="fixed inset-0 z-[600] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setStockInspectedProduct(null)}
+        >
+          <div 
+            className="bg-white rounded-[28px] w-full max-w-[310px] overflow-hidden shadow-2xl animate-in zoom-in-95 border border-white/20"
+            onClick={e => e.stopPropagation()}
+          >
+             {/* Header Super Compact */}
+             <div className="px-5 py-3 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                <div className="min-w-0 flex-1">
+                   <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Audit Bahan Baku</h3>
+                   <p className="text-[11px] font-black text-slate-800 uppercase truncate leading-tight">{stockInspectedProduct.name}</p>
+                </div>
+                <button 
+                  onClick={() => setStockInspectedProduct(null)} 
+                  className="w-7 h-7 bg-white rounded-full flex items-center justify-center text-slate-400 shadow-sm border border-slate-100 hover:text-rose-500 transition-colors shrink-0 ml-2"
+                >
+                  ✕
+                </button>
+             </div>
+
+             {/* Body Pendek & Padat */}
+             <div className="p-4">
+                <div className="space-y-1.5 max-h-[240px] overflow-y-auto custom-scrollbar pr-1">
+                   {(stockInspectedProduct.bom || []).map((bomItem, idx) => {
+                      const originalRef = inventory.find(i => i.id === bomItem.inventoryItemId);
+                      if (!originalRef) return null;
+                      
+                      let localInvItem = null;
+                      if (selectedOutletId === 'all') {
+                         const totalGlobal = inventory
+                          .filter(i => i.name.toLowerCase() === originalRef.name.toLowerCase())
+                          .reduce((sum, i) => sum + (i.quantity || 0), 0);
+                         localInvItem = { ...originalRef, quantity: totalGlobal };
+                      } else {
+                         localInvItem = inventory.find(i => i.name.toLowerCase() === originalRef.name.toLowerCase() && i.outletId === selectedOutletId);
+                      }
+
+                      const inCartQty = cart.find(c => c.product.id === stockInspectedProduct.id)?.quantity || 0;
+                      const totalNeeded = bomItem.quantity * (inCartQty + 1);
+                      const isShort = !localInvItem || (localInvItem?.quantity || 0) < totalNeeded;
+
+                      return (
+                         <div key={idx} className={`p-2.5 rounded-xl border transition-all flex items-center justify-between ${isShort ? 'bg-rose-50 border-rose-200 shadow-sm' : 'bg-slate-50 border-slate-100'}`}>
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                               <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isShort ? 'bg-rose-600 animate-pulse' : 'bg-emerald-500'}`}></div>
+                               <div className="min-w-0">
+                                  <h4 className={`text-[9px] font-black uppercase truncate ${isShort ? 'text-rose-700' : 'text-slate-800'}`}>
+                                     {originalRef?.name || 'Item'}
+                                  </h4>
+                                  <p className="text-[7px] font-bold text-slate-400 uppercase mt-0.5">Butuh: {bomItem.quantity} {originalRef?.unit || ''}</p>
+                               </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                               <p className={`text-[9px] font-black ${isShort ? 'text-rose-600' : 'text-slate-900'}`}>{(localInvItem?.quantity || 0).toLocaleString()} <span className="text-[7px] opacity-40">{originalRef?.unit || '-'}</span></p>
+                               <p className="text-[6px] font-black text-slate-300 uppercase leading-none">{selectedOutletId === 'all' ? 'Total HQ' : 'Tersedia'}</p>
+                            </div>
+                         </div>
+                      );
+                   })}
+                </div>
+                
+                {/* Action Ringkas */}
+                <div className="mt-4 flex flex-col gap-1.5">
+                   <button 
+                     onClick={() => setStockInspectedProduct(null)} 
+                     className="w-full py-3 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase tracking-widest active:scale-95 transition-all shadow-lg"
+                   >
+                     OK, MENGERTI ➔
+                   </button>
+                   {currentUser?.role !== UserRole.CASHIER && (
+                      <button 
+                        onClick={() => { setStockInspectedProduct(null); setActiveTab('inventory'); }}
+                        className="w-full py-1.5 text-indigo-600 font-black text-[7px] uppercase tracking-widest hover:underline"
+                      >
+                        Buka Manajemen Stok
+                      </button>
+                   )}
+                </div>
              </div>
           </div>
         </div>

@@ -4,7 +4,11 @@ import { useApp } from '../store';
 import { RequestStatus, UserRole, InventoryItemType } from '../types';
 
 export const PurchaseManagement: React.FC = () => {
-  const { purchases, inventory, addPurchase, selectedOutletId, outlets, currentUser, dailyClosings = [], isSaving } = useApp();
+  const { 
+    purchases, inventory, addPurchase, selectedOutletId, outlets, currentUser, 
+    dailyClosings = [], isSaving, attendance = [] 
+  } = useApp();
+  
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -24,6 +28,14 @@ export const PurchaseManagement: React.FC = () => {
   });
 
   const todayStr = new Date().toLocaleDateString('en-CA');
+
+  const isAdmin = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
+
+  // LOGIKA SHIFT: Cari absensi aktif
+  const myCurrentAttendance = useMemo(() => {
+    if (!currentUser) return null;
+    return (attendance || []).find(a => a.staffId === currentUser.id && a.outletId === selectedOutletId && !a.clockOut);
+  }, [attendance, currentUser, selectedOutletId]);
 
   const isShiftClosed = useMemo(() => {
     if (!currentUser || currentUser.role !== UserRole.CASHIER) return false;
@@ -48,20 +60,36 @@ export const PurchaseManagement: React.FC = () => {
   const selectedItem = (inventory || []).find(i => i.id === formData.inventoryItemId);
   const finalQuantity = useConversion ? (rawPurchaseQty * multiplier) : formData.quantity;
 
-  // UPDATE: Filter belanja stok HARI INI
+  /** 
+   * LOGIKA CLEAN SLATE: 
+   * Filter belanja stok berdasarkan Session Shift jika bukan Admin.
+   */
   const filteredPurchases = useMemo(() => {
     return (purchases || [])
       .filter(p => {
         const isCorrectOutlet = p.outletId === selectedOutletId;
-        const isToday = new Date(p.timestamp).toLocaleDateString('en-CA') === todayStr;
+        if (!isCorrectOutlet) return false;
+
         const matchesSearch = p.itemName.toLowerCase().includes(searchTerm.toLowerCase());
-        return isCorrectOutlet && isToday && matchesSearch;
+        if (!matchesSearch) return false;
+
+        if (isAdmin) {
+          return new Date(p.timestamp).toLocaleDateString('en-CA') === todayStr;
+        }
+
+        // Untuk Kasir: Filter berdasarkan Session Shift
+        if (!myCurrentAttendance) return false;
+        const clockInTime = new Date(myCurrentAttendance.clockIn).getTime();
+        const purchaseTime = new Date(p.timestamp).getTime();
+        
+        return p.staffId === currentUser?.id && purchaseTime >= clockInTime;
       })
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [purchases, selectedOutletId, searchTerm, todayStr]);
+  }, [purchases, selectedOutletId, searchTerm, todayStr, isAdmin, myCurrentAttendance, currentUser]);
 
   const handleOpenAdd = () => {
     if (isShiftClosed) return alert("Akses Terkunci. Anda sudah melakukan tutup buku hari ini.");
+    if (!myCurrentAttendance && !isAdmin) return alert("Anda harus Absen Masuk terlebih dahulu!");
     resetForm();
     setShowModal(true);
   };
@@ -74,11 +102,9 @@ export const PurchaseManagement: React.FC = () => {
        return;
     }
 
-    // SPEED OPTIMIZATION: Modal langsung ditutup & Toast langsung muncul (Optimistic UI)
     setShowModal(false);
     setShowSuccessToast(true);
     
-    // Proses pengiriman data (tanpa blocking UI)
     addPurchase({ 
       inventoryItemId: formData.inventoryItemId, 
       quantity: finalQuantity, 
@@ -86,7 +112,6 @@ export const PurchaseManagement: React.FC = () => {
       requestId: formData.requestId 
     });
 
-    // Reset UI state
     resetForm();
     setTimeout(() => setShowSuccessToast(false), 2500);
   };
@@ -130,7 +155,7 @@ export const PurchaseManagement: React.FC = () => {
       <div className="relative mb-6">
         <input 
            type="text" 
-           placeholder="Cari riwayat belanja hari ini..." 
+           placeholder="Cari riwayat belanja..." 
            className="w-full p-4 pl-12 bg-white border-2 border-slate-100 rounded-2xl font-bold text-xs shadow-sm outline-none focus:border-orange-500 text-slate-900"
            value={searchTerm}
            onChange={e => setSearchTerm(e.target.value)}
@@ -141,8 +166,12 @@ export const PurchaseManagement: React.FC = () => {
       <div className="space-y-3">
          <div className="flex justify-between items-center ml-2 mb-2">
             <div>
-               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Riwayat Hari Ini</h3>
-               <p className="text-[7px] font-bold text-slate-300 uppercase tracking-widest mt-1">Tanggal: {todayStr}</p>
+               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
+                  {isAdmin ? "Log Keseluruhan Hari Ini" : "Aktivitas Belanja Shift Anda"}
+               </h3>
+               <p className="text-[7px] font-bold text-slate-300 uppercase tracking-widest mt-1">
+                  {isAdmin ? `Tanggal: ${todayStr}` : `Mulai Absen: ${myCurrentAttendance ? new Date(myCurrentAttendance.clockIn).toLocaleTimeString() : '--'}`}
+               </p>
             </div>
          </div>
          {filteredPurchases.map(p => (
@@ -161,7 +190,7 @@ export const PurchaseManagement: React.FC = () => {
            </div>
          ))}
          {filteredPurchases.length === 0 && (
-           <div className="py-20 text-center opacity-20 italic text-[10px] uppercase font-black border-2 border-dashed rounded-[32px]">Riwayat belanja hari ini kosong</div>
+           <div className="py-20 text-center opacity-20 italic text-[10px] uppercase font-black border-2 border-dashed rounded-[32px]">Riwayat belanja session ini kosong</div>
          )}
       </div>
 

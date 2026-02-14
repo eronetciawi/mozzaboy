@@ -17,7 +17,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
   const { 
     inventory = [], selectedOutletId, outlets = [], processProduction, 
     wipRecipes = [], addWIPRecipe, updateWIPRecipe, deleteWIPRecipe, productionRecords = [],
-    currentUser, isSaving, dailyClosings = [], brandConfig
+    currentUser, isSaving, dailyClosings = [], brandConfig, fetchFromCloud, attendance = []
   } = useApp();
   
   const [activeSubTab, setActiveSubTab] = useState<'recipes' | 'logs'>('recipes');
@@ -41,6 +41,14 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
 
   const todayStr = getTodayDateString();
 
+  const isAdmin = currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.MANAGER;
+
+  // LOGIKA SHIFT: Cari absensi aktif
+  const myCurrentAttendance = useMemo(() => {
+    if (!currentUser) return null;
+    return (attendance || []).find(a => a.staffId === currentUser.id && a.outletId === selectedOutletId && !a.clockOut);
+  }, [attendance, currentUser, selectedOutletId]);
+
   const isShiftClosed = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.OWNER || currentUser.role === UserRole.MANAGER) return false;
@@ -62,16 +70,30 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
     return base.filter(r => r.name.toLowerCase().includes(globalSearch.toLowerCase()));
   }, [wipRecipes, globalSearch, selectedOutletId, isCashier, isGlobalView]);
 
+  /** 
+   * LOGIKA CLEAN SLATE: 
+   * Hanya tampilkan record produksi dari Session Shift aktif kasir ini.
+   */
   const filteredLogs = useMemo(() => {
     if (!productionRecords || !Array.isArray(productionRecords)) return [];
     return productionRecords
       .filter(p => {
         const isCorrectOutlet = isGlobalView || p.outletId === selectedOutletId;
-        const isToday = new Date(p.timestamp).toLocaleDateString('en-CA') === todayStr;
-        return isCorrectOutlet && isToday;
+        if (!isCorrectOutlet) return false;
+
+        if (isAdmin) {
+          return new Date(p.timestamp).toLocaleDateString('en-CA') === todayStr;
+        }
+
+        // Untuk Kasir: Filter berdasarkan Session Shift
+        if (!myCurrentAttendance) return false;
+        const clockInTime = new Date(myCurrentAttendance.clockIn).getTime();
+        const prodTime = new Date(p.timestamp).getTime();
+        
+        return p.staffId === currentUser?.id && prodTime >= clockInTime;
       })
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [productionRecords, selectedOutletId, isGlobalView, todayStr]);
+  }, [productionRecords, selectedOutletId, isGlobalView, todayStr, isAdmin, myCurrentAttendance, currentUser]);
 
   useEffect(() => {
     if (activeRecipe && !isEditingMode) {
@@ -102,6 +124,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
 
   const handleExecuteMode = (r: WIPRecipe) => {
     if (isShiftClosed) return;
+    if (!myCurrentAttendance && !isAdmin) return alert("Anda harus Absen Masuk terlebih dahulu!");
     if (isGlobalView) return alert("Pilih cabang spesifik terlebih dahulu!");
     setActiveRecipe(r); 
     setResultItemId(r.resultItemId);
@@ -112,22 +135,32 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
 
   const finishProduction = async () => {
     if (isProcessingLocal || isShiftClosed) return;
+    
+    // Validasi stok lokal sebelum kirim ke store
     const insufficient = components.filter(c => {
        const sourceItemInfo = inventory.find(i => i.id === c.inventoryItemId);
        if (!sourceItemInfo) return true;
        const localMat = inventory.find(i => i.name === sourceItemInfo.name && i.outletId === selectedOutletId);
        return (localMat?.quantity || 0) < c.quantity;
     });
+
     if (insufficient.length > 0) {
        const firstBadItem = inventory.find(i => i.id === insufficient[0].inventoryItemId)?.name;
        return alert(`⚠️ STOK TIDAK CUKUP: ${firstBadItem} tidak mencukupi untuk batch ini!`);
     }
+
     setIsProcessingLocal(true);
     try {
+      await processProduction({ 
+        resultItemId, 
+        resultQuantity, 
+        components: components.map(c => ({ inventoryItemId: c.inventoryItemId, quantity: c.quantity })) 
+      });
+      
       setShowSuccessToast(true);
       setView('list');
       setActiveSubTab('logs');
-      await processProduction({ resultItemId, resultQuantity, components });
+      
       setTimeout(() => {
         setShowSuccessToast(false);
         setIsProcessingLocal(false);
@@ -302,8 +335,12 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                <div className="space-y-2">
                   <div className="flex justify-between items-center mb-4 px-1">
                       <div>
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Produksi Hari Ini</h4>
-                        <p className="text-[7px] font-bold text-slate-300 uppercase tracking-tighter">Tanggal: {todayStr}</p>
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                           {isAdmin ? "Log Produksi Hari Ini" : "Aktivitas Produksi Shift Anda"}
+                        </h4>
+                        <p className="text-[7px] font-bold text-slate-300 uppercase tracking-widest mt-1">
+                           {isAdmin ? `Tanggal: ${todayStr}` : `Mulai Absen: ${myCurrentAttendance ? new Date(myCurrentAttendance.clockIn).toLocaleTimeString() : '--'}`}
+                        </p>
                       </div>
                   </div>
                   {filteredLogs.map(log => {
@@ -324,7 +361,7 @@ export const ProductionManagement: React.FC<ProductionManagementProps> = ({ setA
                     );
                   })}
                   {filteredLogs.length === 0 && (
-                     <div className="py-20 text-center opacity-20 italic text-[10px] uppercase font-black border-2 border-dashed rounded-[32px]">Belum ada produksi hari ini</div>
+                     <div className="py-20 text-center opacity-20 italic text-[10px] uppercase font-black border-2 border-dashed rounded-[32px]">Belum ada produksi di session ini</div>
                   )}
                </div>
              )}

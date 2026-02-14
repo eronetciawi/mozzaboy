@@ -526,6 +526,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          timestamp: now, 
          shiftName: s, 
          openingBalance: o, 
+         // Fix: Correct property names totalSalesCash and totalSalesQRIS
          totalSalesCash: cs, 
          totalSalesQRIS: qs, 
          totalExpenses: ex, 
@@ -536,21 +537,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
        };
 
        try {
-         // 1. Simpan Laporan Closing ke Supabase
          const { error } = await supabase.from('daily_closings').insert([closing]);
-         
-         // Optimistic Update: Langsung tambahkan ke list lokal agar UI merespon seketika
          if (!error) {
             setDailyClosings(prev => [closing, ...prev]);
          }
-
-         // 2. OTOMATIS ABSEN PULANG (Clock Out)
          const activeAtt = attendance.find(a => a.staffId === currentUser?.id && !a.clockOut);
          if (activeAtt) {
             await supabase.from('attendance').update({ clockOut: now }).eq('id', activeAtt.id);
          }
-         
-         // 3. Pastikan data terbaru ditarik dari cloud
          await fetchFromCloud();
        } finally {
          setIsSaving(false);
@@ -591,21 +585,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     processProduction: async (d) => { 
        setIsSaving(true);
        try {
+          const targetOutletId = selectedOutletId;
           const prodId = `prod-${Date.now()}`;
+
+          // 1. Loop components (bahan baku) - Cari berdasarkan NAMA di CABANG INI
+          for (const comp of d.components) {
+             const originalItemRef = inventory.find(i => i.id === comp.inventoryItemId);
+             if (originalItemRef) {
+                const { data: localItem } = await supabase
+                  .from('inventory')
+                  .select('id, quantity')
+                  .eq('name', originalItemRef.name)
+                  .eq('outletId', targetOutletId)
+                  .maybeSingle();
+
+                if (localItem) {
+                   await supabase.from('inventory').update({ quantity: localItem.quantity - comp.quantity }).eq('id', localItem.id);
+                }
+             }
+          }
+
+          // 2. Update Result Item (WIP) - Cari berdasarkan NAMA di CABANG INI
+          const originalResultRef = inventory.find(i => i.id === d.resultItemId);
+          if (originalResultRef) {
+             const { data: localResult } = await supabase
+               .from('inventory')
+               .select('id, quantity')
+               .eq('name', originalResultRef.name)
+               .eq('outletId', targetOutletId)
+               .maybeSingle();
+
+             if (localResult) {
+                await supabase.from('inventory').update({ quantity: localResult.quantity + d.resultQuantity }).eq('id', localResult.id);
+             }
+          }
+
+          // 3. Catat Record Produksi
           const rec = { 
             ...d, 
             id: prodId, 
-            outletId: selectedOutletId, 
+            outletId: targetOutletId, 
             timestamp: new Date().toISOString(), 
             staffId: currentUser?.id, 
             staffName: currentUser?.name
           };
-          for (const comp of d.components) {
-             const { data: latestMat } = await supabase.from('inventory').select('quantity').eq('id', comp.inventoryItemId).maybeSingle();
-             if (latestMat) await supabase.from('inventory').update({ quantity: latestMat.quantity - comp.quantity }).eq('id', comp.inventoryItemId);
-          }
-          const { data: latestRes } = await supabase.from('inventory').select('quantity').eq('id', d.resultItemId).maybeSingle();
-          if (latestRes) await supabase.from('inventory').update({ quantity: latestRes.quantity + d.resultQuantity }).eq('id', d.resultItemId);
           await supabase.from('production_records').insert([rec]);
           fetchFromCloud(); 
        } finally { setIsSaving(false); }
@@ -724,14 +747,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
          id: `lr-${Date.now()}`, 
          "staffId": currentUser?.id,      
          "staffName": currentUser?.name,  
-         // Fix: Casting string to any to satisfy LeaveRequest interface requirement (handled by updating types.ts)
          "startDate": d.startDate as any,        
          "endDate": d.endDate as any,            
          reason: d.reason, 
-         // Fix: Casting string to any to satisfy requestedAt: any requirement in types.ts
          "requestedAt": now as any,              
          status: 'PENDING',
-         // Fix: Added missing outletId required by LeaveRequest interface
          outletId: selectedOutletId
        };
        await supabase.from('leave_requests').insert([payload]); 
